@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Registration</title>
+    <link rel="stylesheet" href="Registration.css"> 
+</head>
+<body>
+
+    <div class="login-wrapper">
+        <form class="login-form" action="/register-process.php" method="post">
+            <h2>Student Registration</h2>
+            
+            
+            <div class="input-group">
+                <label for="fullname">Full Name</label>
+                <input type="text" id="fullname" name="fullname" required>
+            </div>
+            
+    
+            <div class="input-group">
+                <label for="student-id">Student ID</label>
+                <input type="text" id="student-id" name="student_id" required>
+            </div>
+
+            <div class="input-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            
+            <div class="input-group">
+                <label for="confirm-password">Confirm Password</label>
+                <input type="password" id="confirm-password" name="confirm_password" required>
+            </div>
+            
+            <button type="submit" class="login-button">Register</button>
+            
+            <div class="form-links" style="justify-content: center; margin-top: 2rem;">
+                <a href="login.html">Already have an account? Login</a>
+            </div>
+        </form>
+    </div>
+
+</body>
+</html>
+
