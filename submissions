@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Submissions - FYP Management System</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f7fa;
+            color: #333;
+        }
+
+        .navbar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .navbar-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .navbar h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .navbar-right {
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 1.5rem;
+            list-style: none;
+        }
+
+        .nav-links a {
+            color: white;
+            text-decoration: none;
+            transition: opacity 0.3s;
+        }
+
+        .nav-links a:hover {
+            opacity: 0.8;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 2rem auto;
+            padding: 0 2rem;
+        }
+
+        .page-header {
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            margin-bottom: 2rem;
+        }
+
+        .page-header h2 {
+            color: #667eea;
+            font-size: 1.8rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .tab {
+            padding: 1rem 2rem;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 1rem;
+            color: #666;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+        }
+
+        .tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+            font-weight: 600;
+        }
+
+        .tab:hover {
+            color: #667eea;
+        }
+
+        .search-filter {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            margin-bottom: 2rem;
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .search-box {
+            flex: 1;
+            min-width: 250px;
+            position: relative;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 0.75rem 1rem 0.75rem 2.5rem;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 0.95rem;
+        }
+
+        .search-box i {
+            position: absolute;
+            left: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #999;
+        }
+
+        .filter-select {
+            padding: 0.75rem 1rem;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 0.95rem;
+            cursor: pointer;
+        }
+
+        .submissions-table {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            overflow: hidden;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            background: #f8f9fa;
+        }
+
+        th {
+            padding: 1rem;
+            text-align: left;
+            font-weight: 600;
+            color: #333;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        tbody tr {
+            transition: background 0.3s;
+        }
+
+        tbody tr:hover {
+            background: #f8f9fa;
+        }
+
+        .submission-title {
+            font-weight: 500;
+            color: #333;
+            margin-bottom: 0.25rem;
+        }
+
+        .submission-type {
+            font-size: 0.85rem;
+            color: #666;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 0.4rem 0.8rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+        .status-badge.pending {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status-badge.reviewed {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-badge.needs-revision {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.3s;
+            font-size: 0.9rem;
+            margin: 0 0.25rem;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn:hover {
+            opacity: 0.9;
+            transform: translateY(-2px);
+        }
+
+        .priority-badge {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 0.5rem;
+        }
+
+        .priority-high { background: #dc3545; }
+        .priority-medium { background: #ffc107; }
+        .priority-low { background: #28a745; }
+
+        @media (max-width: 768px) {
+            .navbar-content {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .submissions-table {
+                overflow-x: auto;
+            }
+
+            table {
+                min-width: 800px;
+            }
+
+            .tabs {
+                overflow-x: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar">
+    <div class="navbar-content">
+        <h1><i class="fas fa-graduation-cap"></i> FYP Management System</h1>
+        <div class="navbar-right">
+            <ul class="nav-links">
+                <li><a href="dashboard.html"><i class="fas fa-home"></i> Dashboard</a></li>
+                <li><a href="my_students.html"><i class="fas fa-users"></i> My Students</a></li>
+                <li><a href="submissions.html"><i class="fas fa-file-alt"></i> Submissions</a></li>
+                <li><a href="meetings.html"><i class="fas fa-calendar"></i> Meetings</a></li>
+            </ul>
+            <div class="user-info">
+                <i class="fas fa-user-circle"></i>
+                <span>Dr. Adudu Banana</span>
+                <a href="profile.html" style="color: white; margin-left: 1rem;"><i class="fas fa-cog"></i></a>
+            </div>
+        </div>
+    </div>
+   </nav>
+
+    <div class="container">
+        <div class="page-header">
+            <h2><i class="fas fa-file-alt"></i> Student Submissions</h2>
+            <p>Review and provide feedback on student project submissions</p>
+        </div>
+
+        <div class="tabs">
+            <button class="tab active">All Submissions</button>
+            <button class="tab">Pending Review (3)</button>
+            <button class="tab">Reviewed</button>
+            <button class="tab">Needs Revision</button>
+        </div>
+
+        <div class="search-filter">
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" placeholder="Search submissions...">
+            </div>
+            <select class="filter-select">
+                <option value="">All Students</option>
+                <option value="ahmad">Ahmad Bin Abdullah</option>
+                <option value="siti">Siti Nurhaliza</option>
+                <option value="tan">Tan Wei Ming</option>
+                <option value="kumar">Kumar Rajesh</option>
+            </select>
+            <select class="filter-select">
+                <option value="">All Types</option>
+                <option value="proposal">Proposal</option>
+                <option value="chapter">Chapter</option>
+                <option value="report">Report</option>
+                <option value="presentation">Presentation</option>
+            </select>
+            <select class="filter-select">
+                <option value="">Sort By Date</option>
+                <option value="newest">Newest First</option>
+                <option value="oldest">Oldest First</option>
+            </select>
+        </div>
+
+        <div class="submissions-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Submission</th>
+                        <th>Student</th>
+                        <th>Submitted Date</th>
+                        <th>Status</th>
+                        <th>Priority</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>
+                            <div class="submission-title">System Design Document</div>
+                            <div class="submission-type"><i class="fas fa-file-word"></i> Document (Chapter)</div>
+                        </td>
+                        <td>Ali Bin Abu</td>
+                        <td>Nov 25, 2025<br><small style="color: #999;">2 days ago</small></td>
+                        <td><span class="status-badge pending">Pending Review</span></td>
+                        <td>
+                            <span class="priority-badge priority-high"></span>
+                            High
+                        </td>
+                        <td>
+                            <button class="btn btn-primary"><i class="fas fa-eye"></i> Review</button>
+                            <button class="btn btn-success"><i class="fas fa-download"></i></button>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <div class="submission-title">Project Proposal</div>
+                            <div class="submission-type"><i class="fas fa-file-pdf"></i> PDF (Proposal)</div>
+                        </td>
+                        <td>Lee Wei Ming</td>
+                        <td>Nov 20, 2025<br><small style="color: #999;">1 week ago</small></td>
+                        <td><span class="status-badge reviewed">Reviewed</span></td>
+                        <td>
+                            <span class="priority-badge priority-low"></span>
+                            Low
+                        </td>
+                        <td>
+                            <button class="btn btn-primary"><i class="fas fa-eye"></i> View</button>
+                            <button class="btn btn-success"><i class="fas fa-download"></i></button>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <div class="submission-title">Final Presentation Slides</div>
+                            <div class="submission-type"><i class="fas fa-file-powerpoint"></i> PowerPoint (Presentation)</div>
+                        </td>
+                        <td>Tan Wei Ming</td>
+                        <td>Nov 12, 2025<br><small style="color: #999;">2 weeks ago</small></td>
+                        <td><span class="status-badge reviewed">Reviewed</span></td>
+                        <td>
+                            <span class="priority-badge priority-medium"></span>
+                            Medium
+                        </td>
+                        <td>
+                            <button class="btn btn-primary"><i class="fas fa-eye"></i> View</button>
+                            <button class="btn btn-success"><i class="fas fa-download"></i></button>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <div class="submission-title">Introduction</div>
+                            <div class="submission-type"><i class="fas fa-file-word"></i> Document (Chapter)</div>
+                        </td>
+                        <td>Test</td>
+                        <td>Nov 10, 2025<br><small style="color: #999;">2 weeks ago</small></td>
+                        <td><span class="status-badge needs-revision">Needs Revision</span></td>
+                        <td>
+                            <span class="priority-badge priority-medium"></span>
+                            Medium
+                        </td>
+                        <td>
+                            <button class="btn btn-primary"><i class="fas fa-eye"></i> View</button>
+                            <button class="btn btn-success"><i class="fas fa-download"></i></button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const tabs = document.querySelectorAll('.tab');
+        const searchInput = document.querySelector('.search-box input');
+        const studentFilter = document.querySelectorAll('.filter-select')[0];
+        const typeFilter = document.querySelectorAll('.filter-select')[1];
+        const sortFilter = document.querySelectorAll('.filter-select')[2];
+        const tableRows = document.querySelectorAll('tbody tr');
+
+        // Tab functionality with filtering
+        tabs.forEach(tab => {
+            tab.addEventListener('click', function() {
+                tabs.forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+                
+                const tabText = this.textContent.toLowerCase();
+                
+                tableRows.forEach(row => {
+                    const statusBadge = row.querySelector('.status-badge');
+                    const statusText = statusBadge.textContent.toLowerCase();
+                    
+                    if (tabText.includes('all')) {
+                        row.style.display = '';
+                    } else if (tabText.includes('pending') && statusText.includes('pending')) {
+                        row.style.display = '';
+                    } else if (tabText.includes('reviewed') && statusText === 'reviewed') {
+                        row.style.display = '';
+                    } else if (tabText.includes('revision') && statusText.includes('revision')) {
+                        row.style.display = '';
+                    } else {
+                        row.style.display = 'none';
+                    }
+                });
+            });
+        });
+
+        searchInput.addEventListener('input', function() {
+            const searchTerm = this.value.toLowerCase();
+            
+            tableRows.forEach(row => {
+                const title = row.querySelector('.submission-title').textContent.toLowerCase();
+                const student = row.cells[1].textContent.toLowerCase();
+                const type = row.querySelector('.submission-type').textContent.toLowerCase();
+                
+                if (title.includes(searchTerm) || student.includes(searchTerm) || type.includes(searchTerm)) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        });
+
+        studentFilter.addEventListener('change', function() {
+            const selectedStudent = this.value.toLowerCase();
+            
+            tableRows.forEach(row => {
+                const studentName = row.cells[1].textContent.toLowerCase();
+                
+                if (selectedStudent === '' || studentName.includes(selectedStudent)) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        });
+
+        typeFilter.addEventListener('change', function() {
+            const selectedType = this.value.toLowerCase();
+            
+            tableRows.forEach(row => {
+                const submissionType = row.querySelector('.submission-type').textContent.toLowerCase();
+                
+                if (selectedType === '' || submissionType.includes(selectedType)) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        });
+
+        sortFilter.addEventListener('change', function() {
+            const sortBy = this.value;
+            const tbody = document.querySelector('tbody');
+            const rowsArray = Array.from(tableRows);
+            
+            if (sortBy === 'newest') {
+                rowsArray.sort((a, b) => {
+                    const dateA = new Date(a.cells[2].textContent.split('<')[0].trim());
+                    const dateB = new Date(b.cells[2].textContent.split('<')[0].trim());
+                    return dateB - dateA;
+                });
+            } else if (sortBy === 'oldest') {
+                rowsArray.sort((a, b) => {
+                    const dateA = new Date(a.cells[2].textContent.split('<')[0].trim());
+                    const dateB = new Date(b.cells[2].textContent.split('<')[0].trim());
+                    return dateA - dateB;
+                });
+            }
+
+            if (sortBy !== '') {
+                rowsArray.forEach(row => tbody.appendChild(row));
+            }
+        });
+
+        document.querySelectorAll('.btn-primary').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const row = this.closest('tr');
+                const title = row.querySelector('.submission-title').textContent;
+                const student = row.cells[1].textContent;
+                const statusBadge = row.querySelector('.status-badge');
+
+                const modal = document.createElement('div');
+                modal.style.cssText = `
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0, 0, 0, 0.5);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 1000;
+                `;
+                
+                modal.innerHTML = `
+                    <div style="background: white; padding: 2rem; border-radius: 10px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                            <h3 style="color: #667eea; font-size: 1.5rem;">Review Submission</h3>
+                            <button id="closeModal" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #999;">&times;</button>
+                        </div>
+                        
+                        <div style="margin-bottom: 1.5rem; padding: 1rem; background: #f8f9fa; border-radius: 5px;">
+                            <h4 style="margin-bottom: 0.5rem;">${title}</h4>
+                            <p style="color: #666;">Student: ${student}</p>
+                        </div>
+                        
+                        <form id="reviewForm">
+                            <div style="margin-bottom: 1rem;">
+                                <label style="display: block; margin-bottom: 0.5rem; color: #555; font-weight: 500;">Status</label>
+                                <select required style="width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 5px; font-size: 0.95rem; cursor: pointer;">
+                                    <option value="reviewed">Approved</option>
+                                    <option value="needs-revision">Needs Revision</option>
+                                    <option value="pending">Keep as Pending</option>
+                                </select>
+                            </div>
+                            
+                            <div style="margin-bottom: 1rem;">
+                                <label style="display: block; margin-bottom: 0.5rem; color: #555; font-weight: 500;">Grade/Score (Optional)</label>
+                                <input type="text" placeholder="e.g., A, 85/100" style="width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 5px; font-size: 0.95rem;">
+                            </div>
+                            
+                            <div style="margin-bottom: 1.5rem;">
+                                <label style="display: block; margin-bottom: 0.5rem; color: #555; font-weight: 500;">Feedback/Comments</label>
+                                <textarea required rows="6" placeholder="Provide your feedback here..." style="width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 5px; font-size: 0.95rem; font-family: inherit; resize: vertical;"></textarea>
+                            </div>
+                            
+                            <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                                <button type="button" id="cancelBtn" style="padding: 0.75rem 1.5rem; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 0.95rem;">Cancel</button>
+                                <button type="submit" style="padding: 0.75rem 1.5rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 0.95rem;">Submit Review</button>
+                            </div>
+                        </form>
+                    </div>
+                `;
+                
+                document.body.appendChild(modal);
+
+                document.getElementById('closeModal').addEventListener('click', () => modal.remove());
+                document.getElementById('cancelBtn').addEventListener('click', () => modal.remove());
+                modal.addEventListener('click', function(e) {
+                    if (e.target === modal) modal.remove();
+                });
+
+                document.getElementById('reviewForm').addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    
+                    const inputs = this.querySelectorAll('select, input, textarea');
+                    const newStatus = inputs[0].value;
+
+                    statusBadge.className = 'status-badge ' + newStatus;
+                    if (newStatus === 'reviewed') {
+                        statusBadge.textContent = 'Reviewed';
+                    } else if (newStatus === 'needs-revision') {
+                        statusBadge.textContent = 'Needs Revision';
+                    } else {
+                        statusBadge.textContent = 'Pending Review';
+                    }
+
+                    if (newStatus !== 'pending') {
+                        btn.innerHTML = '<i class="fas fa-eye"></i> View';
+                    }
+
+                    const successMsg = document.createElement('div');
+                    successMsg.style.cssText = `
+                        position: fixed;
+                        top: 20px;
+                        right: 20px;
+                        background: #d4edda;
+                        color: #155724;
+                        padding: 1rem 1.5rem;
+                        border-radius: 5px;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                        z-index: 2000;
+                    `;
+                    successMsg.innerHTML = '<i class="fas fa-check-circle"></i> Review submitted successfully!';
+                    document.body.appendChild(successMsg);
+                    
+                    setTimeout(() => successMsg.remove(), 3000);
+                    
+                    modal.remove();
+                });
+            });
+        });
+
+        document.querySelectorAll('.btn-success').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const row = this.closest('tr');
+                const title = row.querySelector('.submission-title').textContent;
+                
+                const successMsg = document.createElement('div');
+                successMsg.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background: #d1ecf1;
+                    color: #0c5460;
+                    padding: 1rem 1.5rem;
+                    border-radius: 5px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                    z-index: 2000;
+                `;
+                successMsg.innerHTML = `<i class="fas fa-download"></i> Downloading "${title}"...`;
+                document.body.appendChild(successMsg);
+                
+                setTimeout(() => successMsg.remove(), 2000);
+            });
+        });
+    </script>
+</body>
+</html>
