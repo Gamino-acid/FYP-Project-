@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meetings - FYP Management System</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f7fa;
+            color: #333;
+        }
+
+        .navbar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .navbar-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .navbar h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .navbar-right {
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 1.5rem;
+            list-style: none;
+        }
+
+        .nav-links a {
+            color: white;
+            text-decoration: none;
+            transition: opacity 0.3s;
+        }
+
+        .nav-links a:hover {
+            opacity: 0.8;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 2rem auto;
+            padding: 0 2rem;
+        }
+
+        .page-header {
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            margin-bottom: 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .page-header h2 {
+            color: #667eea;
+            font-size: 1.8rem;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.3s;
+            font-size: 0.95rem;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            opacity: 0.9;
+            transform: translateY(-2px);
+        }
+
+        .content-grid {
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            gap: 2rem;
+        }
+
+        .calendar-section {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        .calendar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .calendar-header h3 {
+            color: #333;
+            font-size: 1.2rem;
+        }
+
+        .mini-calendar {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+        }
+
+        .month-display {
+            text-align: center;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #667eea;
+        }
+
+        .filter-section {
+            margin-bottom: 1.5rem;
+        }
+
+        .filter-section h4 {
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 0.75rem;
+        }
+
+        .filter-options {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .filter-option {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .filter-option:hover {
+            background: #f8f9fa;
+        }
+
+        .filter-option input {
+            cursor: pointer;
+        }
+
+        .meetings-list {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        .meetings-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .sort-controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .sort-dropdown {
+            padding: 0.5rem 1rem;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: white;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+
+        .sort-dropdown:hover {
+            border-color: #667eea;
+        }
+
+        .view-toggle {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .view-toggle button {
+            padding: 0.5rem 1rem;
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .view-toggle button.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .meeting-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            transition: all 0.3s;
+            border-left: 4px solid #667eea;
+        }
+
+        .meeting-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+
+        .meeting-card.upcoming {
+            border-left-color: #667eea;
+            background: #f8f9ff;
+        }
+
+        .meeting-card.today {
+            border-left-color: #ffc107;
+            background: #fffef8;
+        }
+
+        .meeting-card.past {
+            border-left-color: #6c757d;
+            background: #f8f9fa;
+            opacity: 0.8;
+        }
+
+        .meeting-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 1rem;
+        }
+
+        .meeting-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 0.5rem;
+        }
+
+        .meeting-student {
+            color: #666;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .meeting-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .info-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .info-item i {
+            color: #667eea;
+            width: 20px;
+        }
+
+        .meeting-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .btn-small {
+            padding: 0.5rem 1rem;
+            font-size: 0.85rem;
+        }
+
+        .btn-outline {
+            background: white;
+            border: 1px solid #667eea;
+            color: #667eea;
+        }
+
+        .btn-outline:hover {
+            background: #667eea;
+            color: white;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .status-badge.upcoming {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-badge.today {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status-badge.completed {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .agenda-box {
+            margin-top: 1rem;
+            padding: 1rem;
+            border-radius: 5px;
+        }
+
+        .agenda-box.today-agenda {
+            background: white;
+        }
+
+        .agenda-box.upcoming-agenda {
+            background: #f8f9fa;
+        }
+
+        @media (max-width: 1024px) {
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .navbar-content {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .page-header {
+                flex-direction: column;
+                gap: 1rem;
+                align-items: flex-start;
+            }
+
+            .meeting-info {
+                grid-template-columns: 1fr;
+            }
+
+            .meetings-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar">
+        <div class="navbar-content">
+            <h1><i class="fas fa-graduation-cap"></i> FYP Management System</h1>
+            <div class="navbar-right">
+                <ul class="nav-links">
+                    <li><a href="dashboard.html"><i class="fas fa-home"></i> Dashboard</a></li>
+                    <li><a href="my_students.html"><i class="fas fa-users"></i> My Students</a></li>
+                    <li><a href="submissions.html"><i class="fas fa-file-alt"></i> Submissions</a></li>
+                    <li><a href="meetings.html"><i class="fas fa-calendar"></i> Meetings</a></li>
+                </ul>
+                <div class="user-info">
+                    <i class="fas fa-user-circle"></i>
+                    <span>Dr. Adudu Banana</span>
+                    <a href="#" style="color: white; margin-left: 1rem;"><i class="fas fa-sign-out-alt"></i></a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="page-header">
+            <div>
+                <h2><i class="fas fa-calendar-alt"></i> Meetings Schedule</h2>
+                <p>Manage your supervision meetings with students</p>
+            </div>
+            <button class="btn btn-primary"><i class="fas fa-plus"></i> Schedule New Meeting</button>
+        </div>
+
+        <div class="content-grid">
+            <div class="meetings-list">
+                <div class="meetings-header">
+                    <h3>All Meetings (<span id="meetingCount">5</span>)</h3>
+                    <div class="sort-controls">
+                        <select id="sortSelect" class="sort-dropdown">
+                            <option value="date-asc">Date (Earliest First)</option>
+                            <option value="date-desc">Date (Latest First)</option>
+                            <option value="student-asc">Student (A-Z)</option>
+                            <option value="student-desc">Student (Z-A)</option>
+                            <option value="status">Status</option>
+                        </select>
+                    </div>
+                    <div class="view-toggle">
+                        <button class="active"><i class="fas fa-list"></i> List</button>
+                        <button><i class="fas fa-calendar"></i> Calendar</button>
+                    </div>
+                </div>
+
+                <div id="meetingsContainer">
+                    <!-- Meetings will be rendered here -->
+                </div>
+            </div>
+
+            <div class="calendar-section">
+                <div class="calendar-header">
+                    <h3>Quick Filters</h3>
+                </div>
+
+                <div class="mini-calendar">
+                    <div class="month-display">November 2025</div>
+                    <div style="text-align: center; color: #666;">
+                        <p>Today: Nov 28, 2025</p>
+                    </div>
+                </div>
+
+                <div class="filter-section">
+                    <h4>STATUS</h4>
+                    <div class="filter-options">
+                        <label class="filter-option">
+                            <input type="checkbox" class="filter-status" value="today" checked>
+                            <span>Today's Meetings (<span id="todayCount">0</span>)</span>
+                        </label>
+                        <label class="filter-option">
+                            <input type="checkbox" class="filter-status" value="upcoming" checked>
+                            <span>Upcoming (<span id="upcomingCount">0</span>)</span>
+                        </label>
+                        <label class="filter-option">
+                            <input type="checkbox" class="filter-status" value="past">
+                            <span>Past Meetings (<span id="pastCount">0</span>)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="filter-section">
+                    <h4>MEETING TYPE</h4>
+                    <div class="filter-options">
+                        <label class="filter-option">
+                            <input type="checkbox" class="filter-type" value="in-person" checked>
+                            <span>In-Person</span>
+                        </label>
+                        <label class="filter-option">
+                            <input type="checkbox" class="filter-type" value="online" checked>
+                            <span>Online</span>
+                        </label>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Meeting data
+        const meetings = [
+            {
+                id: 1,
+                title: "Progress Review Meeting",
+                student: "Lee Mei Ling",
+                date: new Date("2025-11-28T14:00:00"),
+                endTime: "3:00 PM",
+                location: "Room A301",
+                type: "in-person",
+                agenda: "Discuss progress on sentiment analysis implementation and review results from initial testing phase.",
+                status: "today"
+            },
+            {
+                id: 2,
+                title: "Methodology Discussion",
+                student: "Ahmad Bin Abdullah",
+                date: new Date("2025-11-29T10:00:00"),
+                endTime: "11:00 AM",
+                location: "Online (Zoom)",
+                type: "online",
+                agenda: "Review Chapter 3 methodology draft and discuss data collection approach for the AI prediction system.",
+                status: "upcoming"
+            },
+            {
+                id: 3,
+                title: "Final Year Project Presentation",
+                student: "Tan Wei Ming",
+                date: new Date("2025-12-01T15:00:00"),
+                endTime: "4:00 PM",
+                location: "Lecture Hall B",
+                type: "in-person",
+                agenda: "Final project presentation and demonstration of the Campus Navigation mobile application.",
+                status: "upcoming"
+            },
+            {
+                id: 4,
+                title: "Project Proposal Review",
+                student: "Siti Nurhaliza",
+                date: new Date("2025-12-03T11:00:00"),
+                endTime: "12:00 PM",
+                location: "Room B205",
+                type: "in-person",
+                agenda: "Discuss blockchain implementation approach and review literature review findings.",
+                status: "upcoming"
+            },
+            {
+                id: 5,
+                title: "Weekly Progress Check-in",
+                student: "Kumar Rajesh",
+                date: new Date("2025-11-21T09:00:00"),
+                endTime: "10:00 AM",
+                location: "Room A301",
+                type: "in-person",
+                agenda: "Weekly progress review and planning for next phase.",
+                status: "past"
+            }
+        ];
+
+        let filteredMeetings = [...meetings];
+
+        // Format date
+        function formatDate(date) {
+            const options = { month: 'short', day: 'numeric', year: 'numeric' };
+            return date.toLocaleDateString('en-US', options);
+        }
+
+        // Format time
+        function formatTime(date) {
+            return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+        }
+
+        // Render meetings
+        function renderMeetings(meetingsToRender) {
+            const container = document.getElementById('meetingsContainer');
+            container.innerHTML = '';
+
+            if (meetingsToRender.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 3rem; color: #999;">
+                        <i class="fas fa-calendar-times" style="font-size: 4rem; margin-bottom: 1rem; opacity: 0.3;"></i>
+                        <p>No meetings found matching your filters</p>
+                    </div>
+                `;
+                return;
+            }
+
+            meetingsToRender.forEach(meeting => {
+                const card = document.createElement('div');
+                card.className = `meeting-card ${meeting.status}`;
+                
+                const statusBadge = meeting.status === 'today' ? 'Today' : 
+                                   meeting.status === 'past' ? 'Completed' : 'Upcoming';
+                const statusClass = meeting.status === 'past' ? 'completed' : meeting.status;
+
+                card.innerHTML = `
+                    <div class="meeting-header">
+                        <div>
+                            <div class="meeting-title">${meeting.title}</div>
+                            <div class="meeting-student">
+                                <i class="fas fa-user"></i>
+                                <span>${meeting.student}</span>
+                            </div>
+                        </div>
+                        <span class="status-badge ${statusClass}">${statusBadge}</span>
+                    </div>
+                    <div class="meeting-info">
+                        <div class="info-item">
+                            <i class="fas fa-calendar"></i>
+                            <span>${formatDate(meeting.date)}</span>
+                        </div>
+                        <div class="info-item">
+                            <i class="fas fa-clock"></i>
+                            <span>${formatTime(meeting.date)} - ${meeting.endTime}</span>
+                        </div>
+                        <div class="info-item">
+                            <i class="fas fa-${meeting.type === 'online' ? 'video' : 'map-marker-alt'}"></i>
+                            <span>${meeting.location}</span>
+                        </div>
+                    </div>
+                    <div class="agenda-box ${meeting.status === 'today' ? 'today-agenda' : 'upcoming-agenda'}">
+                        <strong>Agenda:</strong>
+                        <p style="margin-top: 0.5rem; color: #666;">${meeting.agenda}</p>
+                    </div>
+                    <div class="meeting-actions">
+                        ${meeting.status === 'today' ? 
+                            `<button class="btn btn-small btn-primary"><i class="fas fa-video"></i> Join Meeting</button>` :
+                            meeting.status === 'past' ?
+                            `<button class="btn btn-small btn-primary"><i class="fas fa-eye"></i> View Summary</button>
+                             <button class="btn btn-small btn-outline"><i class="fas fa-file-alt"></i> Meeting Notes</button>` :
+                            `<button class="btn btn-small btn-primary"><i class="fas fa-eye"></i> View Details</button>`
+                        }
+                        ${meeting.status !== 'past' ? 
+                            `<button class="btn btn-small btn-outline"><i class="fas fa-edit"></i> Edit</button>
+                             <button class="btn btn-small btn-outline"><i class="fas fa-times"></i> Cancel</button>` : ''
+                        }
+                    </div>
+                `;
+                
+                container.appendChild(card);
+            });
+
+            // Update meeting count
+            document.getElementById('meetingCount').textContent = meetingsToRender.length;
+        }
+
+        // Sort meetings
+        function sortMeetings(meetings, sortType) {
+            const sorted = [...meetings];
+            
+            switch(sortType) {
+                case 'date-asc':
+                    return sorted.sort((a, b) => a.date - b.date);
+                case 'date-desc':
+                    return sorted.sort((a, b) => b.date - a.date);
+                case 'student-asc':
+                    return sorted.sort((a, b) => a.student.localeCompare(b.student));
+                case 'student-desc':
+                    return sorted.sort((a, b) => b.student.localeCompare(a.student));
+                case 'status':
+                    const statusOrder = { today: 1, upcoming: 2, past: 3 };
+                    return sorted.sort((a, b) => {
+                        if (statusOrder[a.status] !== statusOrder[b.status]) {
+                            return statusOrder[a.status] - statusOrder[b.status];
+                        }
+                        return a.date - b.date;
+                    });
+                default:
+                    return sorted;
+            }
+        }
+
+        // Filter meetings
+        function filterMeetings() {
+            const statusFilters = Array.from(document.querySelectorAll('.filter-status:checked'))
+                .map(cb => cb.value);
+            const typeFilters = Array.from(document.querySelectorAll('.filter-type:checked'))
+                .map(cb => cb.value);
+
+            filteredMeetings = meetings.filter(meeting => {
+                const statusMatch = statusFilters.includes(meeting.status);
+                const typeMatch = typeFilters.includes(meeting.type);
+                return statusMatch && typeMatch;
+            });
+
+            const sortType = document.getElementById('sortSelect').value;
+            const sortedMeetings = sortMeetings(filteredMeetings, sortType);
+            renderMeetings(sortedMeetings);
+            updateFilterCounts();
+        }
+
+        // Update filter counts
+        function updateFilterCounts() {
+            const todayCount = meetings.filter(m => m.status === 'today').length;
+            const upcomingCount = meetings.filter(m => m.status === 'upcoming').length;
+            const pastCount = meetings.filter(m => m.status === 'past').length;
+
+            document.getElementById('todayCount').textContent = todayCount;
+            document.getElementById('upcomingCount').textContent = upcomingCount;
+            document.getElementById('pastCount').textContent = pastCount;
+        }
+
+        // Event listeners
+        document.getElementById('sortSelect').addEventListener('change', filterMeetings);
+        
+        document.querySelectorAll('.filter-status, .filter-type').forEach(checkbox => {
+            checkbox.addEventListener('change', filterMeetings);
+        });
+
+        // Initial render
+        filterMeetings();
+    </script>
+</body>
+</html>
