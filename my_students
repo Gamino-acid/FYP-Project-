@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Students - FYP Management System</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f7fa;
+            color: #333;
+        }
+
+        .navbar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .navbar-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .navbar h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .navbar-right {
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 1.5rem;
+            list-style: none;
+        }
+
+        .nav-links a {
+            color: white;
+            text-decoration: none;
+            transition: opacity 0.3s;
+        }
+
+        .nav-links a:hover {
+            opacity: 0.8;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 2rem auto;
+            padding: 0 2rem;
+        }
+
+        .page-header {
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            margin-bottom: 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .page-header h2 {
+            color: #667eea;
+            font-size: 1.8rem;
+        }
+
+        .search-filter {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            margin-bottom: 2rem;
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .search-box {
+            flex: 1;
+            min-width: 250px;
+            position: relative;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 0.75rem 1rem 0.75rem 2.5rem;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 0.95rem;
+        }
+
+        .search-box i {
+            position: absolute;
+            left: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #999;
+        }
+
+        .filter-select {
+            padding: 0.75rem 1rem;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 0.95rem;
+            cursor: pointer;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.3s;
+            font-size: 0.95rem;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            opacity: 0.9;
+            transform: translateY(-2px);
+        }
+
+        .students-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .student-card {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            padding: 1.5rem;
+            transition: all 0.3s;
+        }
+
+        .student-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+        }
+
+        .student-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .student-info h3 {
+            color: #333;
+            font-size: 1.2rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .matric-number {
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .student-avatar {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .project-section {
+            margin: 1rem 0;
+        }
+
+        .project-title {
+            color: #667eea;
+            font-weight: 500;
+            font-size: 0.95rem;
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 0.5rem 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .status-badge.in-progress {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status-badge.completed {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-badge.not-started {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .contact-info {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: #666;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+
+        .card-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid #f0f0f0;
+        }
+
+        .btn-small {
+            padding: 0.5rem 1rem;
+            font-size: 0.85rem;
+            flex: 1;
+            text-align: center;
+        }
+
+        .btn-outline {
+            background: white;
+            border: 1px solid #667eea;
+            color: #667eea;
+        }
+
+        .btn-outline:hover {
+            background: #667eea;
+            color: white;
+        }
+
+        @media (max-width: 768px) {
+            .students-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .navbar-content {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .page-header {
+                flex-direction: column;
+                gap: 1rem;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar">
+    <div class="navbar-content">
+        <h1><i class="fas fa-graduation-cap"></i> FYP Management System</h1>
+        <div class="navbar-right">
+            <ul class="nav-links">
+                <li><a href="dashboard.html"><i class="fas fa-home"></i> Dashboard</a></li>
+                <li><a href="my_students.html"><i class="fas fa-users"></i> My Students</a></li>
+                <li><a href="submissions.html"><i class="fas fa-file-alt"></i> Submissions</a></li>
+                <li><a href="meetings.html"><i class="fas fa-calendar"></i> Meetings</a></li>
+            </ul>
+            <div class="user-info">
+                <i class="fas fa-user-circle"></i>
+                <span>Dr. Adudu Banana</span>
+                <a href="profile.html" style="color: white; margin-left: 1rem;"><i class="fas fa-cog"></i></a>
+            </div>
+        </div>
+    </div>
+   </nav>
+
+    <div class="container">
+        <div class="page-header">
+            <div>
+                <h2><i class="fas fa-users"></i> My Students</h2>
+                <p>Manage and monitor your assigned FYP students</p>
+            </div>
+            <button class="btn btn-primary"><i class="fas fa-user-plus"></i> Add Student</button>
+        </div>
+
+        <div class="search-filter">
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" placeholder="Search students by name or matric number...">
+            </div>
+            <select class="filter-select">
+                <option value="">All Status</option>
+                <option value="in-progress">In Progress</option>
+                <option value="completed">Completed</option>
+                <option value="not-started">Not Started</option>
+            </select>
+            <select class="filter-select">
+                <option value="">Sort By</option>
+                <option value="name">Name</option>
+                <option value="progress">Progress</option>
+                <option value="recent">Recently Updated</option>
+            </select>
+        </div>
+
+        <div class="students-grid">
+            <div class="student-card">
+                <div class="student-header">
+                    <div class="student-info">
+                        <h3>Ali Bin Abu</h3>
+                        <div class="matric-number">B032110001</div>
+                    </div>
+                    <div class="student-avatar">AA</div>
+                </div>
+                <div class="project-section">
+                    <div class="project-title">
+                        <i class="fas fa-project-diagram"></i>
+                        <span>AI-Powered Student Performance Prediction System</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: 75%"></div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
+                        <small style="color: #666;">75% Complete</small>
+                        <span class="status-badge in-progress">In Progress</span>
+                    </div>
+                </div>
+                <div class="contact-info">
+                    <i class="fas fa-envelope"></i>
+                    <span>ali.binabu@student.edu.my</span>
+                </div>
+                <div class="card-actions">
+                    <button class="btn btn-small btn-primary">View Details</button>
+                    <button class="btn btn-small btn-outline">Schedule Meeting</button>
+                </div>
+            </div>
+			
+            <div class="student-card">
+                <div class="student-header">
+                    <div class="student-info">
+                        <h3>Tan Wei Ming</h3>
+                        <div class="matric-number">B032110003</div>
+                    </div>
+                    <div class="student-avatar">TW</div>
+                </div>
+                <div class="project-section">
+                    <div class="project-title">
+                        <i class="fas fa-project-diagram"></i>
+                        <span>Mobile App for Campus Navigation</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: 100%"></div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
+                        <small style="color: #666;">100% Complete</small>
+                        <span class="status-badge completed">Completed</span>
+                    </div>
+                </div>
+                <div class="contact-info">
+                    <i class="fas fa-envelope"></i>
+                    <span>tan.weiming@student.edu.my</span>
+                </div>
+                <div class="card-actions">
+                    <button class="btn btn-small btn-primary">View Details</button>
+                    <button class="btn btn-small btn-outline">Schedule Meeting</button>
+                </div>
+            </div>
+			
+            <div class="student-card">
+                <div class="student-header">
+                    <div class="student-info">
+                        <h3>Lee Wei Ming</h3>
+                        <div class="matric-number">B032110005</div>
+                    </div>
+                    <div class="student-avatar">LM</div>
+                </div>
+                <div class="project-section">
+                    <div class="project-title">
+                        <i class="fas fa-project-diagram"></i>
+                        <span>Machine Learning for Sentiment Analysis on Social Media</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: 80%"></div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
+                        <small style="color: #666;">80% Complete</small>
+                        <span class="status-badge in-progress">In Progress</span>
+                    </div>
+                </div>
+                <div class="contact-info">
+                    <i class="fas fa-envelope"></i>
+                    <span>lee.weiming@student.edu.my</span>
+                </div>
+                <div class="card-actions">
+                    <button class="btn btn-small btn-primary">View Details</button>
+                    <button class="btn btn-small btn-outline">Schedule Meeting</button>
+                </div>
+            </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const searchInput = document.querySelector('.search-box input');
+        const statusFilter = document.querySelectorAll('.filter-select')[0];
+        const sortFilter = document.querySelectorAll('.filter-select')[1];
+        const studentCards = document.querySelectorAll('.student-card');
+
+        searchInput.addEventListener('input', function() {
+            const searchTerm = this.value.toLowerCase();
+            
+            studentCards.forEach(card => {
+                const name = card.querySelector('.student-info h3').textContent.toLowerCase();
+                const matric = card.querySelector('.matric-number').textContent.toLowerCase();
+                
+                if (name.includes(searchTerm) || matric.includes(searchTerm)) {
+                    card.style.display = 'block';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        });
+
+        statusFilter.addEventListener('change', function() {
+            const selectedStatus = this.value;
+            
+            studentCards.forEach(card => {
+                const statusBadge = card.querySelector('.status-badge');
+                
+                if (selectedStatus === '') {
+                    card.style.display = 'block';
+                } else {
+                    const cardStatus = statusBadge.classList.contains(selectedStatus);
+                    card.style.display = cardStatus ? 'block' : 'none';
+                }
+            });
+        });
+
+        sortFilter.addEventListener('change', function() {
+            const sortBy = this.value;
+            const grid = document.querySelector('.students-grid');
+            const cardsArray = Array.from(studentCards);
+            
+            if (sortBy === 'name') {
+                cardsArray.sort((a, b) => {
+                    const nameA = a.querySelector('.student-info h3').textContent;
+                    const nameB = b.querySelector('.student-info h3').textContent;
+                    return nameA.localeCompare(nameB);
+                });
+            } else if (sortBy === 'progress') {
+                cardsArray.sort((a, b) => {
+                    const progressA = parseFloat(a.querySelector('.progress-fill').style.width);
+                    const progressB = parseFloat(b.querySelector('.progress-fill').style.width);
+                    return progressB - progressA;
+                });
+            }
+
+            if (sortBy !== '') {
+                cardsArray.forEach(card => grid.appendChild(card));
+            }
+        });
+
+        const addStudentBtn = document.querySelector('.page-header .btn-primary');
+        
+        addStudentBtn.addEventListener('click', function() {
+            // Create modal
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.5);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 1000;
+            `;
+            
+            modal.innerHTML = `
+                <div style="background: white; padding: 2rem; border-radius: 10px; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                        <h3 style="color: #667eea; font-size: 1.5rem;">Add New Student</h3>
+                        <button id="closeModal" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #999;">&times;</button>
+                    </div>
+                    
+                    <form id="addStudentForm">
+                        <div style="margin-bottom: 1rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; color: #555; font-weight: 500;">Student Name</label>
+                            <input type="text" required style="width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 5px; font-size: 0.95rem;">
+                        </div>
+                        
+                        <div style="margin-bottom: 1rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; color: #555; font-weight: 500;">Matric Number</label>
+                            <input type="text" required style="width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 5px; font-size: 0.95rem;">
+                        </div>
+                        
+                        <div style="margin-bottom: 1rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; color: #555; font-weight: 500;">Email Address</label>
+                            <input type="email" required style="width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 5px; font-size: 0.95rem;">
+                        </div>
+                        
+                        <div style="margin-bottom: 1rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; color: #555; font-weight: 500;">Project Title</label>
+                            <input type="text" required style="width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 5px; font-size: 0.95rem;">
+                        </div>
+                        
+                        <div style="margin-bottom: 1.5rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; color: #555; font-weight: 500;">Status</label>
+                            <select required style="width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 5px; font-size: 0.95rem; cursor: pointer;">
+                                <option value="">Select Status</option>
+                                <option value="in-progress">In Progress</option>
+                                <option value="completed">Completed</option>
+                                <option value="not-started">Not Started</option>
+                            </select>
+                        </div>
+                        
+                        <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                            <button type="button" id="cancelBtn" style="padding: 0.75rem 1.5rem; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 0.95rem;">Cancel</button>
+                            <button type="submit" style="padding: 0.75rem 1.5rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 0.95rem;">Add Student</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+
+            document.getElementById('closeModal').addEventListener('click', () => modal.remove());
+            document.getElementById('cancelBtn').addEventListener('click', () => modal.remove());
+            modal.addEventListener('click', function(e) {
+                if (e.target === modal) modal.remove();
+            });
+
+            document.getElementById('addStudentForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const formData = new FormData(this);
+                const inputs = this.querySelectorAll('input, select');
+                const name = inputs[0].value;
+                const matric = inputs[1].value;
+                const email = inputs[2].value;
+                const project = inputs[3].value;
+                const status = inputs[4].value;
+
+                const initials = name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
+
+                const statusMap = {
+                    'in-progress': { class: 'in-progress', text: 'In Progress' },
+                    'completed': { class: 'completed', text: 'Completed' },
+                    'not-started': { class: 'not-started', text: 'Not Started' }
+                };
+                
+                const newCard = document.createElement('div');
+                newCard.className = 'student-card';
+                newCard.innerHTML = `
+                    <div class="student-header">
+                        <div class="student-info">
+                            <h3>${name}</h3>
+                            <div class="matric-number">${matric}</div>
+                        </div>
+                        <div class="student-avatar">${initials}</div>
+                    </div>
+                    <div class="project-section">
+                        <div class="project-title">
+                            <i class="fas fa-project-diagram"></i>
+                            <span>${project}</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: 0%"></div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
+                            <small style="color: #666;">0% Complete</small>
+                            <span class="status-badge ${statusMap[status].class}">${statusMap[status].text}</span>
+                        </div>
+                    </div>
+                    <div class="contact-info">
+                        <i class="fas fa-envelope"></i>
+                        <span>${email}</span>
+                    </div>
+                    <div class="card-actions">
+                        <button class="btn btn-small btn-primary">View Details</button>
+                        <button class="btn btn-small btn-outline">Schedule Meeting</button>
+                    </div>
+                `;
+                
+                document.querySelector('.students-grid').appendChild(newCard);
+                
+                const successMsg = document.createElement('div');
+                successMsg.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background: #d4edda;
+                    color: #155724;
+                    padding: 1rem 1.5rem;
+                    border-radius: 5px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                    z-index: 2000;
+                `;
+                successMsg.innerHTML = '<i class="fas fa-check-circle"></i> Student added successfully!';
+                document.body.appendChild(successMsg);
+                
+                setTimeout(() => successMsg.remove(), 3000);
+                
+                modal.remove();
+            });
+        });
+    </script>
+</body>
+</html>
