@@ -1,0 +1,94 @@
+<?php
+ob_start();
+
+header('Content-Type: application/json');
+
+error_reporting(E_ALL);
+ini_set('display_errors', 0); 
+
+try {
+    if (!file_exists("dataconnection.php")) {
+        throw new Exception("Database connection file not found");
+    }
+    
+    include("dataconnection.php");
+
+    if (!isset($connect)) {
+        throw new Exception("Database connection failed");
+    }
+
+    $required_fields = ['fyp_name', 'fyp_programme', 'fyp_supervisorid', 'fyp_roomno', 
+                       'fyp_email', 'fyp_contactno', 'fyp_areaofinterest', 'fyp_profiling'];
+    
+    foreach ($required_fields as $field) {
+        if (!isset($_POST[$field]) || empty(trim($_POST[$field]))) {
+            throw new Exception("Missing required field: $field");
+        }
+    }
+
+    $fyp_name = mysqli_real_escape_string($connect, trim($_POST['fyp_name']));
+    $fyp_programme = mysqli_real_escape_string($connect, trim($_POST['fyp_programme']));
+    $fyp_supervisorid = mysqli_real_escape_string($connect, trim($_POST['fyp_supervisorid']));
+    $fyp_roomno = mysqli_real_escape_string($connect, trim($_POST['fyp_roomno']));
+    $fyp_email = mysqli_real_escape_string($connect, trim($_POST['fyp_email']));
+    $fyp_contactno = mysqli_real_escape_string($connect, trim($_POST['fyp_contactno']));
+    $fyp_specialization = mysqli_real_escape_string($connect, trim($_POST['fyp_specialization']));
+    $fyp_areaofinterest = mysqli_real_escape_string($connect, trim($_POST['fyp_areaofinterest']));
+    $fyp_profiling = (int)$_POST['fyp_profiling'];
+
+    $check_sql = "SELECT fyp_supervisorid FROM supervisor WHERE fyp_supervisorid = '$fyp_supervisorid'";
+    $check_result = mysqli_query($connect, $check_sql);
+    
+    if (mysqli_num_rows($check_result) > 0) {
+        throw new Exception("Supervisor ID already exists");
+    }
+
+    $sql = "INSERT INTO supervisor (
+        fyp_supervisorid,
+        fyp_name, 
+        fyp_roomno, 
+        fyp_programme, 
+        fyp_email, 
+        fyp_contactno, 
+        fyp_specialization, 
+        fyp_areaofinterest, 
+        fyp_ismoderator,
+        fyp_profileimg
+    ) VALUES (
+        '$fyp_supervisorid',
+        '$fyp_name',
+        '$fyp_roomno',
+        '$fyp_programme',
+        '$fyp_email',
+        '$fyp_contactno',
+        '$fyp_specialization',
+        '$fyp_areaofinterest',
+        1,
+        '$fyp_profiling'
+    )";
+    
+    if (mysqli_query($connect, $sql)) {
+        ob_end_clean();
+        
+        echo json_encode([
+            'success' => true,
+            'message' => 'Supervisor added successfully',
+            'supervisor_id' => $fyp_supervisorid
+        ]);
+    } else {
+        throw new Exception("Database error: " . mysqli_error($connect));
+    }
+    
+} catch (Exception $e) {
+    ob_end_clean();
+    
+    echo json_encode([
+        'success' => false,
+        'message' => $e->getMessage()
+    ]);
+}
+
+if (isset($connect)) {
+    mysqli_close($connect);
+}
+?>
