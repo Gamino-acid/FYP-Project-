@@ -1,337 +1,335 @@
 <?php
-session_start();
-include 'db_connect.php';
+// ----------------------------------------------------
+// 第一部分：PHP 逻辑处理 (放在文件最顶部)
+// ----------------------------------------------------
 
-// Set timezone to your local time to avoid confusion (Optional, but good practice)
-date_default_timezone_set('Asia/Kuala_Lumpur'); 
+// 引入数据库连接
+include("connect.php"); 
 
+// 初始化变量
 $username = $password = "";
 $login_err = "";
-$reset_msg = "";
-$reset_err = "";
 
-$view = 'login'; 
-if (isset($_GET['view'])) {
-    $view = $_GET['view'];
-}
+// 处理表单提交
+if ($_SERVER["REQUEST_METHOD"] == 'POST') {
 
-// Helper function to check token validity using PHP time
-function checkToken($conn, $token_hash) {
-    $current_time = date("Y-m-d H:i:s");
-    $sql = "SELECT fyp_userid FROM user WHERE reset_token_hash = ? AND reset_token_expires_at > ?";
-    if ($stmt = $conn->prepare($sql)) {
-        $stmt->bind_param("ss", $token_hash, $current_time);
-        $stmt->execute();
-        $stmt->store_result();
-        if ($stmt->num_rows === 1) {
-            $stmt->close();
-            return true;
-        }
-        $stmt->close();
-    }
-    return false;
-}
-
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
-
-    // --- LOGIN LOGIC ---
-    if (isset($_POST['login'])) {
-        $view = 'login';
+    // 1. 检查输入是否为空
+    if (empty(trim($_POST["username"])) || empty(trim($_POST["password"]))) {
+        $login_err = "请输入用户名和密码。";
+    } else {
         $username = trim($_POST['username']);
         $password = $_POST['password']; 
+    }
+
+    // 2. 验证凭证
+    if (empty($login_err)) {
         
-        if (empty($username) || empty($password)) {
-            $login_err = "Please enter both username and password.";
-        } else {
-            $sql = "SELECT fyp_userid, fyp_username, fyp_passwordhash, fyp_usertype FROM user WHERE fyp_username = ? LIMIT 1";
-            if ($stmt = $conn->prepare($sql)) {
-                $stmt->bind_param("s", $username);
-                $stmt->execute();
+        // 查询 fyp_userid, fyp_passwordhash, fyp_usertype
+        $sql = "SELECT fyp_userid, fyp_passwordhash, fyp_usertype FROM `USER` WHERE fyp_username = ? LIMIT 1";
+        
+        if (isset($conn) && $stmt = $conn->prepare($sql)) {
+            
+            // 绑定变量
+            $stmt->bind_param("s", $param_username);
+            $param_username = $username;
+            
+            // 执行查询
+            if ($stmt->execute()) {
+                
                 $result = $stmt->get_result();
+                
                 if ($result->num_rows == 1) {
                     $user = $result->fetch_assoc();
-                    if (password_verify($password, $user['fyp_passwordhash']) || $password === $user['fyp_passwordhash']) {
-                        session_regenerate_id(true);
-                        $_SESSION['user_id'] = $user['fyp_userid'];
-                        $_SESSION['username'] = $user['fyp_username'];
-                        $_SESSION['user_type'] = $user['fyp_usertype'];
+                    
+                    // 3. 密码验证
+                    if ($password === $user['fyp_passwordhash']) { 
                         
-                        // Check user type and redirect accordingly
-                        $user_type = strtolower($user['fyp_usertype']);
-                        
+                        // 验证通过，获取用户ID和类型
+                        $user_id = $user['fyp_userid'];
+                        $user_type = $user['fyp_usertype']; // 获取数据库里的身份类型
+
+                        // 【修改点】: 这里把 Lecturer 和 Coordinator 分开判断
                         if ($user_type === 'student') {
-                            header("Location: Studentdashboard.php");
-                            exit;
-                        } else if ($user_type === 'lecturer' || $user_type === 'coordinator') {
-                            header("Location: Coordinator_mainpage.php");
-                            exit;
+                            // 如果是 Student -> Student_mainpage.php
+                            header("location: Student_mainpage.php?auth_user_id=" . urlencode($user_id));
+                            
+                        } else if ($user_type === 'lecturer') {
+                            // 如果是 Lecturer -> Supervisor_mainpage.php
+                            header("location: Supervisor_mainpage.php?auth_user_id=" . urlencode($user_id));
+                            
+                        } else if ($user_type === 'coordinator') {
+                            // 如果是 Coordinator -> Coordinator_mainpage.php
+                            header("location: Coordinator_mainpage.php?auth_user_id=" . urlencode($user_id));
+                            
                         } else {
-                            $login_err = "Login failed: Unknown user type ($user_type).";
+                            // 未知类型
+                            $login_err = "登录失败：未知的用户身份类型。";
                         }
+                        
+                        // 确保脚本停止执行
+                        exit;
+                        
                     } else {
-                        $login_err = "Invalid password.";
+                        $login_err = "密码不正确，请重试。";
                     }
                 } else {
-                    $login_err = "No account found.";
-                }
-                $stmt->close();
-            }
-        }
-
-    // --- FORGOT PASSWORD REQUEST ---
-    } elseif (isset($_POST['reset_password'])) {
-        $view = 'forgot';
-        $email = trim($_POST['email']);
-        
-        if (empty($email)) {
-            $reset_err = "Please enter your email.";
-        } else {
-            $sql = "SELECT fyp_userid FROM user WHERE fyp_email = ? LIMIT 1";
-            if ($stmt = $conn->prepare($sql)) {
-                $stmt->bind_param("s", $email);
-                $stmt->execute();
-                $stmt->store_result();
-                if ($stmt->num_rows == 1) {
-                    
-                    // Generate Token
-                    $token = bin2hex(random_bytes(16));
-                    $token_hash = hash("sha256", $token);
-                    
-                    // Fix: Set expiry to 24 hours to be safe against timezone issues
-                    $expiry = date("Y-m-d H:i:s", time() + (60 * 60 * 24)); 
-                    
-                    $update_sql = "UPDATE user SET reset_token_hash = ?, reset_token_expires_at = ? WHERE fyp_email = ?";
-                    if ($upd = $conn->prepare($update_sql)) {
-                        $upd->bind_param("sss", $token_hash, $expiry, $email);
-                        $upd->execute();
-                        
-                        $link = "http://$_SERVER[HTTP_HOST]$_SERVER[PHP_SELF]?token=$token";
-                        
-                        $subject = "Reset Password";
-                        $msg = "Click: $link";
-                        $headers = "From: no-reply@fyp.com";
-                        
-                        if (@mail($email, $subject, $msg, $headers)) {
-                            $reset_msg = "Check your email for the link.";
-                            $view = 'login';
-                        } else {
-                            $reset_msg = "<b>LOCALHOST SUCCESS!</b><br>Click this link to reset:<br><a href='$link' style='color:#0056b3;font-weight:bold;text-decoration:underline;'>RESET PASSWORD LINK</a>";
-                            $view = 'login';
-                        }
-                    }
-                } else {
-                    $reset_err = "Email not found.";
-                }
-            }
-        }
-
-    // --- SAVE NEW PASSWORD ---
-    } elseif (isset($_POST['save_new_password'])) {
-        $view = 'reset';
-        $token = $_POST['token'];
-        $p1 = $_POST['new_password'];
-        $p2 = $_POST['confirm_password'];
-        
-        if ($p1 !== $p2) {
-            $reset_err = "Passwords do not match.";
-        } else {
-            $token_hash = hash("sha256", $token);
-            
-            // Check Token with Timezone Fix
-            if (checkToken($conn, $token_hash)) {
-                // Get User ID
-                $sql = "SELECT fyp_userid FROM user WHERE reset_token_hash = ?";
-                $uid = null;
-                if ($stmt = $conn->prepare($sql)) {
-                    $stmt->bind_param("s", $token_hash);
-                    $stmt->execute();
-                    $res = $stmt->get_result();
-                    $row = $res->fetch_assoc();
-                    $uid = $row['fyp_userid'];
-                    $stmt->close();
-                }
-
-                if ($uid) {
-                    $new_hash = password_hash($p1, PASSWORD_DEFAULT);
-                    $upd = $conn->prepare("UPDATE user SET fyp_passwordhash = ?, reset_token_hash = NULL, reset_token_expires_at = NULL WHERE fyp_userid = ?");
-                    $upd->bind_param("si", $new_hash, $uid);
-                    $upd->execute();
-                    
-                    $reset_msg = "Password changed! Please login.";
-                    $view = 'login';
+                    $login_err = "找不到该用户名的账户。";
                 }
             } else {
-                // Fallback for Developer (Raw Token Check)
-                // This handles cases where you manually copy the hash from DB
-                $raw_check_sql = "SELECT fyp_userid FROM user WHERE reset_token_hash = ?"; 
-                // We skip time check for raw paste to allow manual debugging
-                if ($stmt = $conn->prepare($raw_check_sql)) {
-                    $stmt->bind_param("s", $token);
-                    $stmt->execute();
-                    $res = $stmt->get_result();
-                    if ($res->num_rows === 1) {
-                        $row = $res->fetch_assoc();
-                        $uid = $row['fyp_userid'];
-                        
-                        $new_hash = password_hash($p1, PASSWORD_DEFAULT);
-                        $upd = $conn->prepare("UPDATE user SET fyp_passwordhash = ?, reset_token_hash = NULL, reset_token_expires_at = NULL WHERE fyp_userid = ?");
-                        $upd->bind_param("si", $new_hash, $uid);
-                        $upd->execute();
-                        $reset_msg = "Password changed! Please login.";
-                        $view = 'login';
-                    } else {
-                        $reset_err = "Invalid or expired token.";
-                    }
-                }
+                $login_err = "系统错误：无法执行查询。";
             }
+            $stmt->close();
+        } else {
+            $login_err = "系统错误：数据库查询准备失败。请检查表名和字段名。";
         }
     }
 }
 
-// --- HANDLE URL TOKEN CLICK ---
-if (isset($_GET['token'])) {
-    $raw_token = $_GET['token'];
-    $token_hash = hash("sha256", $raw_token);
-    
-    // Check with Timezone Fix
-    if (checkToken($conn, $token_hash)) {
-        $view = 'reset';
-    } else {
-        // Fallback: Check if user pasted hash directly
-        $sql = "SELECT fyp_userid FROM user WHERE reset_token_hash = ?"; 
-        if ($stmt = $conn->prepare($sql)) {
-            $stmt->bind_param("s", $raw_token);
-            $stmt->execute();
-            $stmt->store_result();
-            if ($stmt->num_rows === 1) {
-                $view = 'reset'; // Allow it for debugging
-            } else {
-                $reset_err = "Token expired or invalid.";
-                $view = 'login';
-            }
-        }
-    }
+// 关闭连接
+if (isset($conn)) {
+    $conn->close();
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FYP Portal</title>
+    <title>Login - System</title>
+    <link rel="icon" type="image/png" sizes="42x42" href="image/user.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="css/Login.css?v=<?php echo time(); ?>">
     <style>
-        .alert-success {
-            background-color: #d4edda; color: #155724; padding: 15px;
-            border: 1px solid #c3e6cb; border-radius: 4px; margin-bottom: 20px; 
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap');
+        :root {
+            /* 蓝色主题配色 */
+            --primary-color: #0056b3;
+            --primary-hover: #004494;
+            --secondary-color: #f4f4f9;
+            --text-color: #333;
+            --border-color: #ddd;
+            --error-color: #d93025;
+            --gradient-start: #eef2f7;
+            --gradient-end: #ffffff;
+        }
+        body {
+            font-family: 'Poppins', sans-serif;
+            margin: 0;
+            background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 40px;
+            background-color: #fff;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .logo {
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--primary-color);
+        }
+        .topbar-right {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .flag-icon {
+            width: 24px;
+            height: auto;
+        }
+        .icon-circle {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background-color: var(--secondary-color);
+            color: var(--primary-color);
+            text-decoration: none;
+            font-weight: 600;
+            transition: background-color 0.3s;
+        }
+        .icon-circle:hover {
+            background-color: #e0e0e0;
+        }
+        .main-wrapper {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .form-container {
+            background: #fff;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 450px;
             text-align: center;
         }
-        .alert-error {
-            background-color: #fce4e4; color: #cc0033; padding: 10px;
-            border: 1px solid #fcc2c3; border-radius: 4px; margin-bottom: 20px; 
+        h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+            color: var(--text-color);
+        }
+        .intro-text {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .input-group {
+            margin-bottom: 20px;
+            text-align: left;
+        }
+        .input-group label {
+            display: block;
+            font-weight: 500;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        .input-group input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 12px 15px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s, box-shadow 0.3s;
+        }
+        .input-group input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(0, 86, 179, 0.2);
+        }
+        .password-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+        .password-wrapper input {
+            padding-right: 40px;
+        }
+        .toggle-password {
+            position: absolute;
+            right: 15px;
+            cursor: pointer;
+            color: #999;
+        }
+        .btn-submit {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 8px;
+            background-color: var(--primary-color);
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.2s;
+            margin-top: 10px;
+        }
+        .btn-submit:hover {
+            background-color: var(--primary-hover);
+            transform: translateY(-2px);
+        }
+        .form-links {
+            margin-top: 25px;
+            font-size: 14px;
+        }
+        .form-links p {
+            margin: 8px 0;
+        }
+        .form-links a, .privacy-policy a {
+            color: var(--primary-color);
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .form-links a:hover, .privacy-policy a:hover {
+            text-decoration: underline;
+        }
+        .error-message {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
             text-align: center;
         }
-        form { animation: fadeIn 0.5s; }
-        @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
     </style>
 </head>
 <body>
-
-<div class="login-wrapper">
-
-    <!-- LOGIN VIEW -->
-    <?php if ($view === 'login'): ?>
-    <form id="loginForm" method="post" action="">
-        <img src="image/mmu_logo.png" alt="Logo" class="logo" onerror="this.style.display='none'"> 
-        <h2 style="margin-top:0;">FYP Portal</h2>
-
-        <?php if($login_err) echo "<div class='alert-error'>$login_err</div>"; ?>
-        <?php if($reset_msg) echo "<div class='alert-success'>$reset_msg</div>"; ?>
-        <?php if($reset_err) echo "<div class='alert-error'>$reset_err</div>"; ?>
-
-        <div class="input-group">
-            <label>Username / Student ID</label>
-            <input type="text" name="username" placeholder="Enter Username" required>
+    <header class="topbar">
+        <div class="logo">FYP Management Login</div>
+        <div class="topbar-right">
+            <img src="image/Malaysia.png" alt="Flag icon" class="flag-icon" onerror="this.style.display='none'">
+            <a href="#" class="icon-circle" title="Help">?</a>
         </div>
+    </header>
 
-        <div class="input-group">
-            <label>Password</label>
-            <div class="password-wrapper" style="width: 100%;">
-                <input type="password" id="password" name="password" placeholder="Enter password" required>
-                <i class="fa fa-eye-slash toggle-password" onclick="togglePass()"></i>
+    <div class="main-wrapper">
+        <main class="content">
+            <div class="form-container">
+                <h1>Welcome Back</h1>
+                <p class="intro-text">Please login to continue.</p>
+                
+                <form method="POST" action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>">
+                    
+                    <?php
+                    // 显示 PHP 错误信息
+                    if (!empty($login_err)) {
+                        echo '<p class="error-message">' . htmlspecialchars($login_err) . '</p>';
+                    }
+                    ?>
+
+                    <div class="input-group">
+                        <label for="username">Username</label>
+                        <input type="text" id="username" name="username" 
+                               value="<?php echo htmlspecialchars($username); ?>" 
+                               placeholder="Enter your username" required>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="password">Password</label>
+                        <div class="password-wrapper">
+                            <input type="password" id="password" name="password" 
+                                   placeholder="Enter your password" required>
+                            <i class="fa fa-eye-slash toggle-password" id="togglePassword"></i>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn-submit">LOGIN</button>
+
+                    <div class="form-links">
+                        <p><a href="Recoverypage.php">Forgot Password?</a></p>
+                        
+                    </div>
+                </form>
+
+                
             </div>
-        </div>
+        </main>
+    </div>
 
-        <button type="submit" name="login" class="login-button">Log In</button>
-        <div class="form-links">
-            <a href="Login.php?view=forgot">Forgot Password?</a>
-        </div>
-    </form>
-    <?php endif; ?>
+    <script>
+        // 密码显示/隐藏脚本
+        const togglePassword = document.querySelector('#togglePassword');
+        const passwordInput = document.querySelector('#password');
 
-    <!-- FORGOT PASSWORD VIEW -->
-    <?php if ($view === 'forgot'): ?>
-    <form id="forgotForm" method="post" action="">
-        <img src="image/mmu_logo.png" alt="Logo" class="logo" onerror="this.style.display='none'"> 
-        <h2 style="margin-top:0;">Reset Password</h2>
-        <p style="text-align:center;color:#666;">Enter your email to reset password.</p>
-
-        <?php if($reset_err) echo "<div class='alert-error'>$reset_err</div>"; ?>
-
-        <div class="input-group">
-            <label>Student Email</label>
-            <input type="email" name="email" placeholder="Enter email" required>
-        </div>
-
-        <button type="submit" name="reset_password" class="login-button">Send Reset Link</button>
-        <div class="form-links">
-            <a href="Login.php?view=login">Back to Login</a>
-        </div>
-    </form>
-    <?php endif; ?>
-
-    <!-- NEW PASSWORD VIEW -->
-    <?php if ($view === 'reset'): ?>
-    <form id="resetForm" method="post" action="">
-        <img src="image/mmu_logo.png" alt="Logo" class="logo" onerror="this.style.display='none'"> 
-        <h2 style="margin-top:0;">New Password</h2>
-
-        <?php if($reset_err) echo "<div class='alert-error'>$reset_err</div>"; ?>
-        
-        <input type="hidden" name="token" value="<?php echo htmlspecialchars($_GET['token'] ?? $_POST['token'] ?? ''); ?>">
-
-        <div class="input-group">
-            <label>New Password</label>
-            <input type="password" name="new_password" required>
-        </div>
-        <div class="input-group">
-            <label>Confirm Password</label>
-            <input type="password" name="confirm_password" required>
-        </div>
-
-        <button type="submit" name="save_new_password" class="login-button">Save Password</button>
-    </form>
-    <?php endif; ?>
-
-</div>
-
-<script>
-function togglePass() {
-    var p = document.getElementById('password');
-    var i = document.querySelector('.toggle-password');
-    if (p.type === "password") {
-        p.type = "text";
-        i.classList.remove('fa-eye-slash');
-        i.classList.add('fa-eye');
-    } else {
-        p.type = "password";
-        i.classList.remove('fa-eye');
-        i.classList.add('fa-eye-slash');
-    }
-}
-</script>
-
+        togglePassword.addEventListener('click', function () {
+            const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+            passwordInput.setAttribute('type', type);
+            
+            this.classList.toggle('fa-eye');
+            this.classList.toggle('fa-eye-slash');
+        });
+    </script>
 </body>
 </html>
