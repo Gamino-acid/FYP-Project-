@@ -1,0 +1,407 @@
+<?php 
+include("dataconnection.php"); 
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json');
+    $response = ['success' => false, 'message' => ''];
+    
+    $action = $_POST['action'] ?? '';
+
+    if ($action === 'review' || $action === 'quick_status') {
+        if (isset($_POST['fyp_docid'])) {
+            $doc_id = mysqli_real_escape_string($connect, $_POST['fyp_docid']);
+            $status = mysqli_real_escape_string($connect, $_POST['fyp_docstatus']);
+            $remark_clause = isset($_POST['fyp_remark']) ? ", fyp_remark='" . mysqli_real_escape_string($connect, $_POST['fyp_remark']) . "'" : "";
+
+            $query = "UPDATE document SET fyp_docstatus='$status' $remark_clause WHERE fyp_docid='$doc_id'";
+
+            if (mysqli_query($connect, $query)) {
+                $response['success'] = true;
+                $response['message'] = "Status updated to " . ucfirst($status) . ".";
+            } else {
+                $response['message'] = "Database Error: " . mysqli_error($connect);
+            }
+        } else {
+            $response['message'] = "Missing Document ID.";
+        }
+    } elseif ($action === 'delete') {
+        if (isset($_POST['id'])) {
+            $id = mysqli_real_escape_string($connect, $_POST['id']);
+            $query = "DELETE FROM document WHERE fyp_docid='$id'";
+            if (mysqli_query($connect, $query)) {
+                $response['success'] = true;
+                $response['message'] = "Item deleted successfully.";
+            } else {
+                $response['message'] = "Database Error: " . mysqli_error($connect);
+            }
+        }
+    }
+
+    echo json_encode($response);
+    exit();
+}
+
+$sql = "SELECT * FROM document ORDER BY fyp_datecreated DESC";
+$result = mysqli_query($connect, $sql);
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coordinator Approvals - FYP System</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f7fa; color: #333; }
+        .navbar { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1rem 2rem; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .navbar-content { max-width: 1400px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; }
+        .navbar h1 { font-size: 1.5rem; font-weight: 600; }
+        .navbar-right { display: flex; align-items: center; gap: 2rem; }
+        .nav-links { display: flex; gap: 1.5rem; list-style: none; }
+        .nav-links a { color: white; text-decoration: none; transition: opacity 0.3s; }
+        .nav-links a:hover { opacity: 0.8; }
+        .container { max-width: 1400px; margin: 2rem auto; padding: 0 2rem; }
+        
+        .page-header { background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: center; }
+        .page-header h2 { color: #667eea; font-size: 1.8rem; margin: 0; }
+        .page-header p { color: #666; margin-top: 0.5rem; }
+
+        .tabs { display: flex; gap: 1rem; margin-bottom: 2rem; border-bottom: 2px solid #e0e0e0; }
+        .tab { padding: 1rem 2rem; background: none; border: none; cursor: pointer; font-size: 1rem; color: #666; border-bottom: 3px solid transparent; transition: all 0.3s; font-weight: 500; }
+        .tab.active { color: #667eea; border-bottom-color: #667eea; font-weight: 700; }
+        .tab:hover { color: #667eea; background: #f8f9fa; }
+
+        .search-filter { background: white; padding: 1.5rem; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); margin-bottom: 2rem; display: flex; gap: 1rem; flex-wrap: wrap; }
+        .search-box { flex: 1; min-width: 250px; position: relative; }
+        .search-box input { width: 100%; padding: 0.75rem 1rem 0.75rem 2.5rem; border: 1px solid #ddd; border-radius: 5px; font-size: 0.95rem; }
+        .search-box i { position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: #999; }
+        .filter-select { padding: 0.75rem 1rem; border: 1px solid #ddd; border-radius: 5px; font-size: 0.95rem; cursor: pointer; }
+
+        .approvals-table { background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); overflow: hidden; }
+        table { width: 100%; border-collapse: collapse; }
+        thead { background: #f8f9fa; }
+        th { padding: 1rem; text-align: left; font-weight: 600; color: #444; border-bottom: 2px solid #e0e0e0; text-transform: uppercase; font-size: 0.85rem; letter-spacing: 0.5px; }
+        td { padding: 1.2rem 1rem; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+        tbody tr { transition: background 0.3s; }
+        tbody tr:hover { background: #fcfcfc; }
+
+        .doc-title { font-weight: 600; color: #333; font-size: 1rem; display: block; margin-bottom: 0.25rem; }
+        .doc-meta { font-size: 0.85rem; color: #888; }
+        
+        .type-badge { display: inline-block; padding: 0.25rem 0.6rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; margin-bottom: 0.25rem; }
+        .type-student { background: #e3f2fd; color: #0d47a1; } 
+        .type-supervisor { background: #e8f5e9; color: #1b5e20; } 
+        .type-proposal { background: #fff3e0; color: #e65100; } 
+
+        .status-badge { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.8rem; border-radius: 20px; font-size: 0.85rem; font-weight: 500; }
+        .status-pending { background: #fff8e1; color: #f57f17; }
+        .status-approved { background: #e8f5e9; color: #2e7d32; }
+        .status-rejected { background: #ffebee; color: #c62828; }
+
+        .action-group { display: flex; gap: 0.5rem; }
+        .btn { padding: 0.5rem 0.75rem; border: none; border-radius: 5px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; transition: all 0.2s; font-size: 0.9rem; }
+        .btn-icon { width: 32px; height: 32px; padding: 0; border-radius: 50%; }
+        
+        .btn-primary { background: #667eea; color: white; } 
+        .btn-success { background: #4caf50; color: white; } 
+        .btn-danger { background: #ef5350; color: white; } 
+        .btn-outline { background: white; border: 1px solid #ddd; color: #555; } 
+        .btn:hover { opacity: 0.9; transform: translateY(-1px); box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); display: none; align-items: center; justify-content: center; z-index: 2000; }
+        
+        @media (max-width: 768px) {
+            .navbar-content { flex-direction: column; gap: 1rem; }
+            .approvals-table { overflow-x: auto; }
+            table { min-width: 900px; }
+            .page-header { flex-direction: column; align-items: flex-start; }
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar">
+        <div class="navbar-content">
+            <h1><i class="fas fa-graduation-cap"></i> FYP Management System</h1>
+            <div class="navbar-right">
+                <ul class="nav-links">
+                    <li><a href="dashboard.php"><i class="fas fa-home"></i> Dashboard</a></li>
+                    <li><a href="manage_supervisors.php"><i class="fas fa-chalkboard-teacher"></i> Supervisors</a></li>
+                    <li><a href="my_students.php"><i class="fas fa-users"></i> Students</a></li>
+                    <li><a href="approvals.php"><i class="fas fa-check-circle"></i> Approvals</a></li>
+                    <li><a href="meetings.php"><i class="fas fa-calendar"></i> Meetings</a></li>
+                    <li><a href="profile.php"><i class="fas fa-user-circle"></i> Profile</a></li>
+                </ul>
+                <div><a href="logout.php" style="color: white; margin-left: 1rem;"><i class="fas fa-sign-out-alt"></i></a></div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="page-header">
+            <div>
+                <h2><i class="fas fa-check-double"></i> Approval Hub</h2>
+                <p>Manage submissions, proposals, and requests requiring coordinator approval.</p>
+            </div>
+            <button class="btn btn-outline"><i class="fas fa-print"></i> Report</button>
+        </div>
+
+        <div class="tabs">
+            <button class="tab active" data-filter="all">All Approvals</button>
+            <button class="tab" data-filter="pending">Pending Action</button>
+            <button class="tab" data-filter="approved">Approved History</button>
+            <button class="tab" data-filter="rejected">Rejected/Revision</button>
+        </div>
+
+        <div class="search-filter">
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="tableSearch" placeholder="Search by title, ID, or type...">
+            </div>
+            <select class="filter-select" id="typeFilter">
+                <option value="">All Categories</option>
+                <option value="Proposal">Proposals</option>
+                <option value="Chapter">Chapters</option>
+                <option value="Presentation">Presentations</option>
+                <option value="Request">General Requests</option>
+            </select>
+        </div>
+
+        <div class="approvals-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 35%;">Submission Details</th>
+                        <th style="width: 15%;">Category</th>
+                        <th style="width: 15%;">Submitted By (ID)</th>
+                        <th style="width: 15%;">Status</th>
+                        <th style="width: 20%;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php
+                    if (mysqli_num_rows($result) > 0) {
+                        while ($row = mysqli_fetch_assoc($result)) {
+                            $id = $row['fyp_docid'];
+                            $title = $row['fyp_docname'];
+                            $category = $row['fyp_doccategory']; 
+                            $submitter_id = $row['fyp_studid']; 
+                            $status = ucfirst(strtolower($row['fyp_docstatus']));
+                            $remark = $row['fyp_remark'];
+                            $filepath = $row['fyp_docfilepath'];
+                            $date = new DateTime($row['fyp_datecreated']);
+                            $formatted_date = $date->format('M d, Y • h:i A');
+
+                            $type_class = 'type-student'; 
+                            if (stripos($category, 'Proposal') !== false) {
+                                $type_class = 'type-proposal';
+                            } elseif (stripos($category, 'Supervisor') !== false) {
+                                $type_class = 'type-supervisor';
+                            }
+
+                            $status_class = 'status-pending';
+                            $status_icon = 'fa-clock';
+                            if ($status == 'Approved') { 
+                                $status_class = 'status-approved'; 
+                                $status_icon = 'fa-check-circle';
+                            } elseif ($status == 'Rejected' || $status == 'Needs Revision') { 
+                                $status_class = 'status-rejected'; 
+                                $status_icon = 'fa-times-circle';
+                            }
+                    ?>
+                    <tr class="approval-row" data-status="<?php echo strtolower($status); ?>" data-type="<?php echo $category; ?>">
+                        <td>
+                            <span class="doc-title"><?php echo htmlspecialchars($title); ?></span>
+                            <span class="doc-meta"><i class="far fa-calendar-alt"></i> <?php echo $formatted_date; ?></span>
+                        </td>
+                        <td>
+                            <span class="type-badge <?php echo $type_class; ?>"><?php echo htmlspecialchars($category); ?></span>
+                        </td>
+                        <td>
+                            <strong><?php echo htmlspecialchars($submitter_id); ?></strong>
+                        </td>
+                        <td>
+                            <div class="status-badge <?php echo $status_class; ?>">
+                                <i class="fas <?php echo $status_icon; ?>"></i> <?php echo $status; ?>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="action-group">
+                                <button class="btn btn-primary review-btn" title="Detailed Review"
+                                    data-id="<?php echo $id; ?>"
+                                    data-title="<?php echo htmlspecialchars($title); ?>"
+                                    data-submitter="<?php echo htmlspecialchars($submitter_id); ?>"
+                                    data-status="<?php echo $status; ?>"
+                                    data-remark="<?php echo htmlspecialchars($remark ?? ''); ?>">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                
+                                <a href="<?php echo htmlspecialchars($filepath); ?>" class="btn btn-outline btn-icon" title="Download File" download>
+                                    <i class="fas fa-download"></i>
+                                </a>
+
+                                <?php if (strtolower($status) == 'pending') : ?>
+                                <button class="btn btn-success btn-icon quick-action-btn" title="Quick Approve" data-id="<?php echo $id; ?>" data-action="Approved">
+                                    <i class="fas fa-check"></i>
+                                </button>
+                                <button class="btn btn-danger btn-icon quick-action-btn" title="Quick Reject" data-id="<?php echo $id; ?>" data-action="Rejected">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                                <?php endif; ?>
+                            </div>
+                        </td>
+                    </tr>
+                    <?php 
+                        }
+                    } else {
+                        echo "<tr><td colspan='5' style='text-align:center; padding: 2rem;'>No items found requiring approval.</td></tr>";
+                    }
+                    ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="reviewModal" class="modal">
+        <div style="background: white; padding: 2rem; border-radius: 10px; max-width: 600px; width: 90%; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; border-bottom: 1px solid #eee; padding-bottom: 1rem;">
+                <h3 style="color: #667eea; font-size: 1.4rem; margin: 0;"><i class="fas fa-clipboard-check"></i> Approval Decision</h3>
+                <button id="closeModal" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #999;">&times;</button>
+            </div>
+            
+            <div style="margin-bottom: 1.5rem; padding: 1rem; background: #f8f9fa; border-radius: 5px; border-left: 4px solid #667eea;">
+                <h4 style="margin: 0 0 0.5rem 0;" id="modalTitle">Submission Title</h4>
+                <p style="color: #666; margin: 0;">Submitted By ID: <strong id="modalSubmitter">ID</strong></p>
+            </div>
+            
+            <form id="reviewForm">
+                <input type="hidden" name="action" value="review">
+                <input type="hidden" id="reviewDocId" name="fyp_docid">
+                
+                <div style="margin-bottom: 1.5rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #444;">Status Decision</label>
+                    <select id="modalStatus" name="fyp_docstatus" required style="width: 100%; padding: 0.8rem; border: 1px solid #ddd; border-radius: 5px; font-size: 0.95rem; background: #fff;">
+                        <option value="Pending">Pending Review</option>
+                        <option value="Approved">Approve</option>
+                        <option value="Needs Revision">Request Revision</option>
+                        <option value="Rejected">Reject</option>
+                    </select>
+                </div>
+                
+                <div style="margin-bottom: 1.5rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #444;">Remarks / Feedback</label>
+                    <textarea id="modalRemark" name="fyp_remark" rows="5" placeholder="Enter comments for the student/supervisor..." style="width: 100%; padding: 0.8rem; border: 1px solid #ddd; border-radius: 5px; font-size: 0.95rem; font-family: inherit; resize: vertical;"></textarea>
+                </div>
+                
+                <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                    <button type="button" id="cancelBtn" style="padding: 0.8rem 1.5rem; background: #f1f3f5; color: #333; border: none; border-radius: 5px; cursor: pointer; font-weight: 600;">Cancel</button>
+                    <button type="submit" style="padding: 0.8rem 1.5rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: 600;">Confirm Decision</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const reviewModal = document.getElementById('reviewModal');
+        const closeModalBtn = document.getElementById('closeModal');
+        const cancelBtn = document.getElementById('cancelBtn');
+        const reviewButtons = document.querySelectorAll('.review-btn');
+
+        reviewButtons.forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.getElementById('reviewDocId').value = this.getAttribute('data-id');
+                document.getElementById('modalTitle').textContent = this.getAttribute('data-title');
+                document.getElementById('modalSubmitter').textContent = this.getAttribute('data-submitter');
+                document.getElementById('modalStatus').value = this.getAttribute('data-status');
+                document.getElementById('modalRemark').value = this.getAttribute('data-remark');
+                reviewModal.style.display = 'flex';
+            });
+        });
+
+        function closeReviewModal() { reviewModal.style.display = 'none'; }
+        closeModalBtn.addEventListener('click', closeReviewModal);
+        cancelBtn.addEventListener('click', closeReviewModal);
+        window.addEventListener('click', (e) => { if (e.target === reviewModal) closeReviewModal(); });
+
+        document.getElementById('reviewForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            submitData(formData);
+        });
+
+        document.querySelectorAll('.quick-action-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const id = this.getAttribute('data-id');
+                const actionStatus = this.getAttribute('data-action'); 
+                
+                if(confirm(`Are you sure you want to set status to ${actionStatus}?`)) {
+                    const formData = new FormData();
+                    formData.append('action', 'quick_status');
+                    formData.append('fyp_docid', id);
+                    formData.append('fyp_docstatus', actionStatus);
+                    submitData(formData);
+                }
+            });
+        });
+
+        function submitData(formData) {
+            fetch('', { method: 'POST', body: formData })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert(data.message);
+                    closeReviewModal();
+                    window.location.reload(); 
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred.');
+            });
+        }
+
+        const tableRows = document.querySelectorAll('.approval-row');
+        const searchInput = document.getElementById('tableSearch');
+        const typeFilter = document.getElementById('typeFilter');
+        const tabs = document.querySelectorAll('.tab');
+
+        function filterItems() {
+            const term = searchInput.value.toLowerCase();
+            const type = typeFilter.value.toLowerCase();
+            const activeTab = document.querySelector('.tab.active').getAttribute('data-filter');
+
+            tableRows.forEach(row => {
+                const text = row.innerText.toLowerCase();
+                const rowStatus = row.getAttribute('data-status'); 
+                const rowType = row.getAttribute('data-type').toLowerCase();
+
+                let show = true;
+
+                if (activeTab === 'pending' && rowStatus !== 'pending') show = false;
+                if (activeTab === 'approved' && rowStatus !== 'approved') show = false;
+                if (activeTab === 'rejected' && rowStatus !== 'rejected' && rowStatus !== 'needs revision') show = false;
+
+                if (term && !text.includes(term)) show = false;
+
+                if (type && !rowType.includes(type)) show = false;
+
+                row.style.display = show ? '' : 'none';
+            });
+        }
+
+        searchInput.addEventListener('input', filterItems);
+        typeFilter.addEventListener('change', filterItems);
+        
+        tabs.forEach(tab => {
+            tab.addEventListener('click', function() {
+                tabs.forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+                filterItems();
+            });
+        });
+    </script>
+</body>
+</html>
