@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// 0. 数据库连接
+// Student_mainpage.php - Main Dashboard & Routing
 // ====================================================
 include("connect.php");
 
@@ -98,7 +98,7 @@ if ($current_page == 'appointments' && !empty($stud_data['fyp_projectid'])) {
     while ($row = $res_app->fetch_assoc()) $my_appointments[] = $row;
 }
 
-// 4. 定义菜单
+// 4. 定义菜单 [UPDATED HERE]
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Student_mainpage.php?page=dashboard'],
     'profile' => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'std_profile.php'], 
@@ -107,7 +107,8 @@ $menu_items = [
         'icon' => 'fa-project-diagram',
         'sub_items' => [
             'group_setup' => ['name' => 'Project Registration', 'icon' => 'fa-users', 'link' => 'std_projectreg.php'], 
-            'team_invitations' => ['name' => 'Team Invitations', 'icon' => 'fa-envelope-open-text', 'link' => 'std_team.php'], // 指向新文件
+            // [UPDATED] Link to the new status page
+            'team_invitations' => ['name' => 'Request & Team Status', 'icon' => 'fa-tasks', 'link' => 'std_request_status.php'], 
             'proposals' => ['name' => 'Proposal Submission', 'icon' => 'fa-file-alt', 'link' => '?page=proposals'],
             'doc_submission' => ['name' => 'Document Upload', 'icon' => 'fa-cloud-upload-alt', 'link' => '?page=doc_submission'],
         ]
