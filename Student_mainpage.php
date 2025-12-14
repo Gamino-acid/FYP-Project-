@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// Student_mainpage.php - Main Dashboard & Routing
+// Student_mainpage.php - Main Dashboard & Routing (Updated Dashboard Logic)
 // ====================================================
 include("connect.php");
 
@@ -73,7 +73,81 @@ if ($current_page == 'dashboard') {
     while ($row = $res->fetch_assoc()) $announcements[] = $row;
 }
 
-// 3.4 获取预约信息
+// 3.3 [关键更新] 获取 Dashboard 实时状态 (项目 & 导师)
+$dashboard_data = [
+    'project_status' => 'Not Registered', 
+    'next_deadline' => 'TBA', 
+    'supervisor_name' => 'Please apply for a project'
+];
+
+if ($current_page == 'dashboard' && !empty($stud_data['fyp_studid'])) {
+    $my_id = $stud_data['fyp_studid'];
+
+    // 1. 检查 fyp_registration (是否已正式获得项目)
+    $sql_reg = "SELECT r.*, s.fyp_name 
+                FROM fyp_registration r 
+                JOIN supervisor s ON r.fyp_supervisorid = s.fyp_supervisorid 
+                WHERE r.fyp_studid = ? LIMIT 1";
+    
+    $is_registered = false;
+    if ($stmt = $conn->prepare($sql_reg)) {
+        $stmt->bind_param("s", $my_id);
+        $stmt->execute();
+        $res_reg = $stmt->get_result();
+        if ($row_reg = $res_reg->fetch_assoc()) {
+            $is_registered = true;
+            $dashboard_data['project_status'] = 'Active (Registered)';
+            $dashboard_data['supervisor_name'] = $row_reg['fyp_name'];
+            $dashboard_data['next_deadline'] = 'Check Schedule'; 
+        }
+        $stmt->close();
+    }
+
+    // 2. 如果没注册，检查申请状态 (Pending/Reject)
+    if (!$is_registered) {
+        $applicant_id = $my_id;
+        
+        // 检查我是否是组员 (如果是，需要查队长的申请)
+        $sql_mem = "SELECT g.leader_id FROM group_request gr 
+                    JOIN student_group g ON gr.group_id = g.group_id 
+                    WHERE gr.invitee_id = ? AND gr.request_status = 'Accepted'";
+        if ($stmt_m = $conn->prepare($sql_mem)) {
+            $stmt_m->bind_param("s", $my_id);
+            $stmt_m->execute();
+            $res_m = $stmt_m->get_result();
+            if ($row_m = $res_m->fetch_assoc()) {
+                $applicant_id = $row_m['leader_id'];
+            }
+            $stmt_m->close();
+        }
+
+        // 查询最新的申请记录
+        $sql_req = "SELECT pr.fyp_requeststatus, s.fyp_name 
+                    FROM project_request pr 
+                    LEFT JOIN supervisor s ON pr.fyp_supervisorid = s.fyp_supervisorid 
+                    WHERE pr.fyp_studid = ? 
+                    ORDER BY pr.fyp_datecreated DESC LIMIT 1";
+        
+        if ($stmt_r = $conn->prepare($sql_req)) {
+            $stmt_r->bind_param("s", $applicant_id);
+            $stmt_r->execute();
+            $res_r = $stmt_r->get_result();
+            if ($row_r = $res_r->fetch_assoc()) {
+                $status = $row_r['fyp_requeststatus'];
+                if ($status == 'Pending') {
+                    $dashboard_data['project_status'] = 'Pending Approval';
+                    $dashboard_data['supervisor_name'] = $row_r['fyp_name'] . " (Pending)";
+                } elseif ($status == 'Reject') {
+                    $dashboard_data['project_status'] = 'Application Rejected';
+                    $dashboard_data['supervisor_name'] = 'Please apply again';
+                }
+            }
+            $stmt_r->close();
+        }
+    }
+}
+
+// 3.4 获取预约信息 (原有逻辑)
 $supervisor_data = null; $available_schedules = []; $my_appointments = []; $pairing_data = null;
 if ($current_page == 'appointments' && !empty($stud_data['fyp_projectid'])) {
     $proj_id = $stud_data['fyp_projectid'];
@@ -98,7 +172,7 @@ if ($current_page == 'appointments' && !empty($stud_data['fyp_projectid'])) {
     while ($row = $res_app->fetch_assoc()) $my_appointments[] = $row;
 }
 
-// 4. 定义菜单 [UPDATED HERE]
+// 4. 定义菜单
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Student_mainpage.php?page=dashboard'],
     'profile' => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'std_profile.php'], 
@@ -107,7 +181,6 @@ $menu_items = [
         'icon' => 'fa-project-diagram',
         'sub_items' => [
             'group_setup' => ['name' => 'Project Registration', 'icon' => 'fa-users', 'link' => 'std_projectreg.php'], 
-            // [UPDATED] Link to the new status page
             'team_invitations' => ['name' => 'Request & Team Status', 'icon' => 'fa-tasks', 'link' => 'std_request_status.php'], 
             'proposals' => ['name' => 'Proposal Submission', 'icon' => 'fa-file-alt', 'link' => '?page=proposals'],
             'doc_submission' => ['name' => 'Document Upload', 'icon' => 'fa-cloud-upload-alt', 'link' => '?page=doc_submission'],
@@ -115,10 +188,7 @@ $menu_items = [
     ],
     'appointments' => ['name' => 'Appointment', 'icon' => 'fa-calendar-check', 'sub_items' => ['book_session' => ['name' => 'Make Appointment', 'icon' => 'fa-plus-circle', 'link' => '?page=appointments']]],
     'grades' => ['name' => 'My Grades', 'icon' => 'fa-star', 'link' => '?page=grades'],
-    'announcements' => ['name' => 'Announcements', 'icon' => 'fa-bullhorn', 'link' => 'Student_mainpage.php?page=announcements'],
 ];
-
-$dashboard_data = ['project_status' => 'Ongoing - Chapter 2 Review', 'next_deadline' => 'Chapter 3 Draft: 2026-01-15', 'supervisor_name' => 'Dr. Alex Smith'];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -226,9 +296,7 @@ $dashboard_data = ['project_status' => 'Ongoing - Chapter 2 Review', 'next_deadl
                 <span class="user-name-display"><?php echo htmlspecialchars($user_name); ?></span>
                 <span class="user-role-badge">Student</span>
             </div>
-            <div class="user-avatar-circle">
-                <img src="<?php echo $favicon; ?>" alt="User Avatar">
-            </div>
+            <div class="user-avatar-circle"><img src="<?php echo $favicon; ?>" alt="User Avatar"></div>
             <a href="login.php" class="logout-btn"><i class="fa fa-sign-out-alt"></i> Logout</a>
         </div>
     </header>

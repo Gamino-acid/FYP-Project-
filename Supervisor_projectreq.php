@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// supervisor_projectreq.php - Request Management (No Pairing Logic)
+// supervisor_projectreq.php - Request Management (With Group Details & Status Update)
 // ====================================================
 include("connect.php");
 
@@ -62,7 +62,7 @@ if (isset($_GET['action']) && isset($_GET['req_id']) && $sv_id) {
             echo "<script>alert('Cannot Approve: Quota Limit Exceeded! (Current: $current_count / Max: $limit)'); window.location.href='supervisor_projectreq.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
         } else {
             // ==========================================================
-            // [CORE LOGIC] Only Update Request & Insert Registration
+            // [CORE LOGIC] Register Leader AND Team Members
             // ==========================================================
             
             // 1. 获取 Request 详情
@@ -70,29 +70,48 @@ if (isset($_GET['action']) && isset($_GET['req_id']) && $sv_id) {
             $req_res = $conn->query($req_sql);
             
             if ($req_row = $req_res->fetch_assoc()) {
-                $target_stud_id = $req_row['fyp_studid'];
+                $target_stud_id = $req_row['fyp_studid']; // 这是 Leader ID
                 $target_proj_id = $req_row['fyp_projectid'];
                 $date_now = date('Y-m-d H:i:s');
 
-                // 2. 插入 FYP_REGISTRATION 表 (不填 pairingid，不填 moderator)
-                // 只填我们目前知道的: 学生ID, 项目ID, 导师ID, 时间
-                $ins_reg = $conn->prepare("INSERT INTO fyp_registration (fyp_studid, fyp_projectid, fyp_supervisorid, fyp_datecreated) VALUES (?, ?, ?, ?)");
-                $ins_reg->bind_param("siis", $target_stud_id, $target_proj_id, $sv_id, $date_now);
-                
-                if ($ins_reg->execute()) {
-                    $ins_reg->close();
+                // 2. 准备要注册的学生列表 (默认为队长一人)
+                $students_to_register = [$target_stud_id];
 
-                    // 3. 更新 Request 状态为 Approve
-                    $upd_req = $conn->prepare("UPDATE project_request SET fyp_requeststatus = 'Approve' WHERE fyp_requestid = ?");
-                    $upd_req->bind_param("i", $req_id);
-                    $upd_req->execute();
-                    $upd_req->close();
-
-                    echo "<script>alert('Request Approved! Student registered into system.'); window.location.href='supervisor_projectreq.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
-                
-                } else {
-                    echo "<script>alert('Error inserting into registration table.');</script>";
+                // 检查是否为 Group Leader，如果是，找出所有队员
+                $g_chk = $conn->query("SELECT group_id FROM student_group WHERE leader_id = '$target_stud_id' LIMIT 1");
+                if ($grp = $g_chk->fetch_assoc()) {
+                    $gid = $grp['group_id'];
+                    // 找出 Accepted 的队员
+                    $m_res = $conn->query("SELECT invitee_id FROM group_request WHERE group_id = '$gid' AND request_status = 'Accepted'");
+                    while ($m = $m_res->fetch_assoc()) {
+                        $students_to_register[] = $m['invitee_id'];
+                    }
                 }
+
+                // 3. 循环注册每一位学生到 FYP_REGISTRATION 表
+                $success_count = 0;
+                $ins_reg = $conn->prepare("INSERT INTO fyp_registration (fyp_studid, fyp_projectid, fyp_supervisorid, fyp_datecreated) VALUES (?, ?, ?, ?)");
+                
+                foreach ($students_to_register as $sid) {
+                    // 简单查重，防止重复插入
+                    $dup_chk = $conn->query("SELECT fyp_regid FROM fyp_registration WHERE fyp_studid = '$sid'");
+                    if ($dup_chk->num_rows == 0) {
+                        $ins_reg->bind_param("siis", $sid, $target_proj_id, $sv_id, $date_now);
+                        if ($ins_reg->execute()) {
+                            $success_count++;
+                        }
+                    }
+                }
+                $ins_reg->close();
+
+                // 4. 更新 Request 状态为 Approve
+                $conn->query("UPDATE project_request SET fyp_requeststatus = 'Approve' WHERE fyp_requestid = $req_id");
+                
+                // 5. 【关键更新】更新 Project 状态为 Taken
+                // 这样一来，在学生端的 std_projectreg.php 中，这个项目就会变成 "Taken" 状态，按钮变灰不可选
+                $conn->query("UPDATE project SET fyp_projectstatus = 'Taken' WHERE fyp_projectid = $target_proj_id");
+
+                echo "<script>alert('Request Approved! Project is now TAKEN. $success_count student(s) registered.'); window.location.href='supervisor_projectreq.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
             } else {
                 echo "<script>alert('Request data not found.');</script>";
             }
@@ -100,17 +119,47 @@ if (isset($_GET['action']) && isset($_GET['req_id']) && $sv_id) {
     }
 }
 
-// 4. Fetch Requests Data
+// 4. Fetch Requests Data (With Group Info)
 $requests = [];
 if ($sv_id) {
-    $sql_req = "SELECT r.*, s.fyp_studname, s.fyp_studfullid, p.fyp_projecttitle 
+    // 同时也获取 project type
+    $sql_req = "SELECT r.*, s.fyp_studname, s.fyp_studfullid, p.fyp_projecttitle, p.fyp_projecttype 
                 FROM project_request r
                 JOIN student s ON r.fyp_studid = s.fyp_studid
                 JOIN project p ON r.fyp_projectid = p.fyp_projectid
                 WHERE r.fyp_supervisorid = '$sv_id' 
                 ORDER BY r.fyp_datecreated DESC";
     $res_req = $conn->query($sql_req);
+    
     while($row = $res_req->fetch_assoc()){
+        // 初始化 Group 数据
+        $row['group_details'] = null; 
+        
+        // 如果是 Group Project，去查找该学生领导的队伍信息
+        if ($row['fyp_projecttype'] == 'Group') {
+            $leader_id = $row['fyp_studid'];
+            $g_sql = "SELECT group_id, group_name FROM student_group WHERE leader_id = '$leader_id' LIMIT 1";
+            $g_res = $conn->query($g_sql);
+            
+            if ($g_info = $g_res->fetch_assoc()) {
+                // 找到队伍了，存入组名
+                $row['group_details'] = [
+                    'name' => $g_info['group_name'],
+                    'members' => []
+                ];
+                
+                // 查找队员
+                $gid = $g_info['group_id'];
+                $m_sql = "SELECT s.fyp_studname, s.fyp_studfullid 
+                          FROM group_request gr 
+                          JOIN student s ON gr.invitee_id = s.fyp_studid 
+                          WHERE gr.group_id = '$gid' AND gr.request_status = 'Accepted'";
+                $m_res = $conn->query($m_sql);
+                while($mem = $m_res->fetch_assoc()){
+                    $row['group_details']['members'][] = $mem;
+                }
+            }
+        }
         $requests[] = $row;
     }
 }
@@ -126,6 +175,14 @@ $menu_items = [
         'sub_items' => [
             'project_requests' => ['name' => 'Project Requests', 'icon' => 'fa-envelope-open-text', 'link' => 'supervisor_projectreq.php'],
             'student_list'     => ['name' => 'Student List', 'icon' => 'fa-list', 'link' => 'Supervisor_mainpage.php?page=student_list'],
+        ]
+    ],
+    'fyp_project' => [
+        'name' => 'FYP Project',
+        'icon' => 'fa-project-diagram',
+        'sub_items' => [
+            'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'supervisor_purpose.php'],
+            'my_projects'     => ['name' => 'My Projects', 'icon' => 'fa-folder-open', 'link' => 'Supervisor_mainpage.php?page=my_projects'],
         ]
     ],
     'schedule'  => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'Supervisor_mainpage.php?page=schedule'],
@@ -186,6 +243,11 @@ $menu_items = [
         .btn-approve { background-color: #28a745; }
         .btn-reject { background-color: #dc3545; }
         .empty-state { text-align: center; padding: 50px; color: #999; }
+        
+        .group-info-box { margin-top:10px; background:#f0f7ff; padding:10px 15px; border-radius:8px; border-left:4px solid #007bff; }
+        .group-name-title { font-weight:600; color:#0056b3; font-size:14px; margin-bottom:5px; }
+        .group-mem-list { margin:0; padding-left:20px; font-size:13px; color:#555; }
+        
         @media (max-width: 900px) { .layout-container { flex-direction: column; } .sidebar { width: 100%; min-height: auto; } .req-card { flex-direction: column; gap: 15px; } .req-actions { width: 100%; flex-direction: row; } .btn-act { flex: 1; justify-content: center; } }
     </style>
 </head>
@@ -263,16 +325,30 @@ $menu_items = [
                     if ($status == 'Reject') $badgeClass = 'status-reject';
                 ?>
                     <div class="req-card">
-                        <div class="req-info">
+                        <div class="req-info" style="flex:1;">
                             <span class="req-status <?php echo $badgeClass; ?>"><?php echo $status; ?></span>
                             <h3><?php echo htmlspecialchars($req['fyp_studname']); ?> <small style="font-size:14px; color:#999;">(<?php echo htmlspecialchars($req['fyp_studfullid']); ?>)</small></h3>
                             <p><strong>Project:</strong> <?php echo htmlspecialchars($req['fyp_projecttitle']); ?></p>
+                            
+                            <!-- Group Details Section -->
+                            <?php if (!empty($req['group_details'])): ?>
+                                <div class="group-info-box">
+                                    <div class="group-name-title"><i class="fa fa-users"></i> Team: <?php echo htmlspecialchars($req['group_details']['name']); ?></div>
+                                    <ul class="group-mem-list">
+                                        <li><b>Leader:</b> <?php echo htmlspecialchars($req['fyp_studname']); ?></li>
+                                        <?php foreach($req['group_details']['members'] as $mem): ?>
+                                            <li><b>Member:</b> <?php echo htmlspecialchars($mem['fyp_studname']); ?> (<?php echo $mem['fyp_studfullid']; ?>)</li>
+                                        <?php endforeach; ?>
+                                    </ul>
+                                </div>
+                            <?php endif; ?>
+
                             <p class="req-meta"><i class="fa fa-calendar-alt"></i> Applied on: <?php echo $req['fyp_datecreated']; ?></p>
                         </div>
                         
                         <div class="req-actions">
                             <?php if ($status == 'Pending'): ?>
-                                <a href="?auth_user_id=<?php echo $auth_user_id; ?>&action=Approve&req_id=<?php echo $req['fyp_requestid']; ?>" class="btn-act btn-approve" onclick="return confirm('Accept this student?')">
+                                <a href="?auth_user_id=<?php echo $auth_user_id; ?>&action=Approve&req_id=<?php echo $req['fyp_requestid']; ?>" class="btn-act btn-approve" onclick="return confirm('Accept this student/team?')">
                                     <i class="fa fa-check"></i> Accept
                                 </a>
                                 <a href="?auth_user_id=<?php echo $auth_user_id; ?>&action=Reject&req_id=<?php echo $req['fyp_requestid']; ?>" class="btn-act btn-reject" onclick="return confirm('Reject this request?')">

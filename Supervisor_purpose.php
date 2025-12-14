@@ -1,13 +1,12 @@
 <?php
 // ====================================================
-// supervisor_purpose.php - 提议新项目页面
+// supervisor_purpose.php - 提议新项目页面 (已修复：绑定 Supervisor ID)
 // ====================================================
 
 include("connect.php");
 
 // 1. 基础验证
 $auth_user_id = $_GET['auth_user_id'] ?? null;
-// 手动设置当前页面为 purpose_project 以高亮菜单
 $current_page = 'propose_project'; 
 
 // 安全检查
@@ -17,83 +16,85 @@ if (!$auth_user_id) {
 }
 
 // ====================================================
-// 2. 表单提交处理逻辑 (实时获取导师信息并插入项目)
+// 2. 表单提交处理逻辑
 // ====================================================
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     
-    // A. 实时获取导师最新信息 (根据 User ID 锁定)
+    // A. 实时获取导师 ID 和 信息
+    $real_sv_id = 0;
     $real_sv_name = "Unknown Supervisor";
     $real_sv_contact = "";
     
-    // 即使 Session 里可能有名字，我们也从数据库查最新的，确保 "Real-time"
-    $sql_fetch_sv = "SELECT fyp_name, fyp_email, fyp_contactno FROM supervisor WHERE fyp_userid = ?";
+    // 关键修复：同时获取 fyp_supervisorid
+    $sql_fetch_sv = "SELECT fyp_supervisorid, fyp_name, fyp_email, fyp_contactno FROM supervisor WHERE fyp_userid = ?";
     if ($stmt_fetch = $conn->prepare($sql_fetch_sv)) {
         $stmt_fetch->bind_param("i", $auth_user_id);
         $stmt_fetch->execute();
         $res_fetch = $stmt_fetch->get_result();
         if ($row_sv = $res_fetch->fetch_assoc()) {
+            $real_sv_id   = $row_sv['fyp_supervisorid']; // 获取 ID
             $real_sv_name = $row_sv['fyp_name'];
-            // 优先使用 Email 作为联系方式，或者使用 Contact No
             $real_sv_contact = !empty($row_sv['fyp_email']) ? $row_sv['fyp_email'] : $row_sv['fyp_contactno'];
         }
         $stmt_fetch->close();
     }
 
-    // B. 获取表单数据
-    $p_title = $_POST['project_title'];
-    $p_domain = $_POST['project_domain'];
-    $p_desc = $_POST['project_description'];
-    $p_req = $_POST['requirements'];
-    $p_type = $_POST['project_type']; // Individual or Group
-    
-    // 修改：锁定 Course Req 为 FIST
-    $p_course_req = 'FIST';
-    
-    // C. 设定默认状态
-    $p_status = 'Open'; // 默认 Open，被学生选了才会变成 Taken
-
-    // D. 插入数据库
-    // 注意：这里根据您的数据库表结构插入。假设 project 表包含以下字段。
-    // 如果没有 fyp_supervisorid 字段，我们依靠 fyp_contactpersonname/email 来识别
-    $sql_insert = "INSERT INTO project (
-        fyp_projecttitle, 
-        fyp_description, 
-        fyp_projectcat, 
-        fyp_projecttype, 
-        fyp_projectstatus, 
-        fyp_requirement, 
-        fyp_coursereq, 
-        fyp_contactperson, 
-        fyp_contactpersonname, 
-        fyp_datecreated
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())";
-
-    if ($stmt_insert = $conn->prepare($sql_insert)) {
-        // 绑定参数: s = string
-        $stmt_insert->bind_param("sssssssss", 
-            $p_title, 
-            $p_desc, 
-            $p_domain, 
-            $p_type, 
-            $p_status, 
-            $p_req, 
-            $p_course_req,
-            $real_sv_contact, 
-            $real_sv_name
-        );
-
-        if ($stmt_insert->execute()) {
-            echo "<script>alert('Project proposed successfully! Status is now OPEN.'); window.location.href='Supervisor_mainpage.php?page=my_projects&auth_user_id=" . $auth_user_id . "';</script>";
-        } else {
-            echo "<script>alert('Error posting project: " . $stmt_insert->error . "');</script>";
-        }
-        $stmt_insert->close();
+    if ($real_sv_id == 0) {
+        echo "<script>alert('Error: Supervisor Profile not found. Please update your profile first.');</script>";
     } else {
-        echo "<script>alert('Database Preparation Error: " . $conn->error . "');</script>";
+        // B. 获取表单数据
+        $p_title = $_POST['project_title'];
+        $p_domain = $_POST['project_domain'];
+        $p_desc = $_POST['project_description'];
+        $p_req = $_POST['requirements'];
+        $p_type = $_POST['project_type']; 
+        $p_course_req = 'FIST'; // 锁定
+        $p_status = 'Open'; 
+
+        // C. 插入数据库 (包含 fyp_supervisorid)
+        // 请确保数据库 project 表已经添加了 fyp_supervisorid 字段！
+        $sql_insert = "INSERT INTO project (
+            fyp_supervisorid,
+            fyp_projecttitle, 
+            fyp_description, 
+            fyp_projectcat, 
+            fyp_projecttype, 
+            fyp_projectstatus, 
+            fyp_requirement, 
+            fyp_coursereq, 
+            fyp_contactperson, 
+            fyp_contactpersonname, 
+            fyp_datecreated
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())";
+
+        if ($stmt_insert = $conn->prepare($sql_insert)) {
+            // 参数绑定: i = int, s = string (共10个参数)
+            $stmt_insert->bind_param("isssssssss", 
+                $real_sv_id,
+                $p_title, 
+                $p_desc, 
+                $p_domain, 
+                $p_type, 
+                $p_status, 
+                $p_req, 
+                $p_course_req,
+                $real_sv_contact, 
+                $real_sv_name
+            );
+
+            if ($stmt_insert->execute()) {
+                echo "<script>alert('Project proposed successfully!'); window.location.href='Supervisor_mainpage.php?page=my_projects&auth_user_id=" . $auth_user_id . "';</script>";
+            } else {
+                echo "<script>alert('Database Error: " . $stmt_insert->error . "');</script>";
+            }
+            $stmt_insert->close();
+        } else {
+            echo "<script>alert('SQL Prepare Error: " . $conn->error . "');</script>";
+        }
     }
 }
 
-// 3. 获取用户信息用于显示 (Top bar)
+// 3. 获取用户信息用于显示 Topbar
 $user_name = "Supervisor"; 
 $user_avatar = "image/user.png"; 
 
@@ -110,7 +111,7 @@ if (isset($conn)) {
     }
 }
 
-// 4. 菜单定义 (保持一致)
+// 4. 菜单定义
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Supervisor_mainpage.php?page=dashboard'],
     'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'supervisor_profile.php'],
@@ -147,7 +148,6 @@ $menu_items = [
         :root { --primary-color: #0056b3; --primary-hover: #004494; --secondary-color: #f4f4f9; --text-color: #333; --border-color: #e0e0e0; --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); --gradient-start: #eef2f7; --gradient-end: #ffffff; --sidebar-width: 260px; }
         body { font-family: 'Poppins', sans-serif; margin: 0; background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end)); color: var(--text-color); min-height: 100vh; display: flex; flex-direction: column; }
         
-        /* 布局类 */
         .topbar { display: flex; justify-content: space-between; align-items: center; padding: 15px 40px; background-color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); z-index: 100; position: sticky; top: 0; }
         .logo { font-size: 22px; font-weight: 600; color: var(--primary-color); display: flex; align-items: center; gap: 10px; }
         .topbar-right { display: flex; align-items: center; gap: 20px; }
@@ -264,7 +264,6 @@ $menu_items = [
                     <strong>Contact Info:</strong> Your name and email (<?php echo htmlspecialchars($user_name); ?>) will be automatically linked to this project upon submission.
                 </div>
                 
-                <!-- Action 为空表示提交给自己 -->
                 <form action="" method="POST">
                     
                     <div class="form-group">

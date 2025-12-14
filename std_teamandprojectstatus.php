@@ -1,127 +1,240 @@
 <?php
 // ====================================================
-// std_projectreg.php - Logic: Insert into Request ONLY
+// std_teamandprojectstatus.php - 项目申请状态 & 组队管理整合页
 // ====================================================
 include("connect.php");
 
-// 1. AJAX Search (保留之前的逻辑，这里省略以节省篇幅，跟之前一样)
-if (isset($_GET['action'])) {
-    // ... (保留之前的 AJAX 代码: search_students, search_supervisors) ...
-    // 如果你需要我完整贴出这部分请告诉我
+// 1. 验证用户登录
+$auth_user_id = $_GET['auth_user_id'] ?? null;
+if (!$auth_user_id) { header("location: login.php"); exit; }
+
+// 2. 获取当前登录学生信息
+$stud_data = [];
+$current_stud_id = '';
+$current_stud_name = 'Student';
+$current_stud_group_status = 'Individual';
+
+if (isset($conn)) {
+    $sql_user = "SELECT fyp_username FROM `USER` WHERE fyp_userid = ?";
+    if ($stmt = $conn->prepare($sql_user)) { 
+        $stmt->bind_param("i", $auth_user_id); $stmt->execute(); 
+        $res = $stmt->get_result(); 
+        if ($row = $res->fetch_assoc()) $current_stud_name = $row['fyp_username']; 
+        $stmt->close(); 
+    }
+    
+    $sql_stud = "SELECT * FROM STUDENT WHERE fyp_userid = ?";
+    if ($stmt = $conn->prepare($sql_stud)) { 
+        $stmt->bind_param("i", $auth_user_id); $stmt->execute(); 
+        $res = $stmt->get_result(); 
+        if ($row = $res->fetch_assoc()) { 
+            $stud_data = $row; 
+            $current_stud_id = $row['fyp_studid'];
+            if (!empty($row['fyp_studname'])) $current_stud_name = $row['fyp_studname'];
+            if (!empty($row['fyp_group'])) $current_stud_group_status = $row['fyp_group'];
+        }
+        $stmt->close(); 
+    }
+}
+
+// ====================================================
+// MODULE A: PROJECT APPLICATION STATUS (查询项目申请记录)
+// ====================================================
+$my_project_request = null;
+$req_sql = "SELECT pr.*, p.fyp_projecttitle, p.fyp_projecttype, s.fyp_name as sv_name 
+            FROM project_request pr 
+            LEFT JOIN project p ON pr.fyp_projectid = p.fyp_projectid 
+            LEFT JOIN supervisor s ON pr.fyp_supervisorid = s.fyp_supervisorid
+            WHERE pr.fyp_studid = ? 
+            ORDER BY pr.fyp_datecreated DESC LIMIT 1"; // 获取最新的一条申请
+
+if ($stmt = $conn->prepare($req_sql)) {
+    $stmt->bind_param("s", $current_stud_id);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    if ($row = $res->fetch_assoc()) {
+        $my_project_request = $row;
+    }
+    $stmt->close();
+}
+
+// ====================================================
+// MODULE B: TEAM MANAGEMENT LOGIC (组队逻辑)
+// ====================================================
+
+// 3. 判断当前用户是否属于某个小组 (作为 Leader 或 Member)
+$my_group = null; // 存储我的小组信息 (student_group 表的数据)
+$my_role = '';    // 'Leader' 或 'Member'
+
+if ($current_stud_id) {
+    // 3a. 检查我是否是 Leader
+    $sql_leader = "SELECT * FROM student_group WHERE leader_id = ?";
+    if ($stmt = $conn->prepare($sql_leader)) {
+        $stmt->bind_param("s", $current_stud_id);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        if ($row = $res->fetch_assoc()) {
+            $my_group = $row;
+            $my_role = 'Leader';
+        }
+    }
+
+    // 3b. 如果不是 Leader，检查我是否是 Member
+    if (!$my_group) {
+        $sql_member = "SELECT g.*, gr.request_id 
+                       FROM group_request gr 
+                       JOIN student_group g ON gr.group_id = g.group_id 
+                       WHERE gr.invitee_id = ? AND gr.request_status = 'Accepted'";
+        if ($stmt = $conn->prepare($sql_member)) {
+            $stmt->bind_param("s", $current_stud_id);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            if ($row = $res->fetch_assoc()) {
+                $my_group = $row;
+                $my_role = 'Member';
+            }
+        }
+    }
+}
+
+// 4. AJAX 搜索功能 (用于邀请)
+if (isset($_GET['action']) && $_GET['action'] == 'search_students') {
     header('Content-Type: application/json');
     $keyword = $_GET['keyword'] ?? '';
     if (strlen($keyword) < 1) { echo json_encode([]); exit; }
     $keyword = "%" . $keyword . "%";
+    
+    $sql = "SELECT s.fyp_studid, s.fyp_studname, s.fyp_studfullid 
+            FROM STUDENT s
+            LEFT JOIN student_group g ON s.fyp_studid = g.leader_id
+            WHERE s.fyp_studname LIKE ? 
+            AND s.fyp_userid != ? 
+            AND s.fyp_group = 'Individual'
+            AND g.group_id IS NULL
+            LIMIT 5";
+    $result = [];
+    if ($stmt = $conn->prepare($sql)) {
+        $stmt->bind_param("si", $keyword, $auth_user_id);
+        $stmt->execute(); $res = $stmt->get_result();
+        while ($row = $res->fetch_assoc()) {
+            $result[] = ['studid' => $row['fyp_studid'], 'name' => $row['fyp_studname'], 'fullid' => $row['fyp_studfullid']];
+        }
+    }
+    echo json_encode($result); exit;
+}
 
-    if ($_GET['action'] == 'search_supervisors') {
-        $sql = "SELECT fyp_supervisorid, fyp_name FROM supervisor WHERE fyp_name LIKE ? LIMIT 5";
-        $result = [];
-        if ($stmt = $conn->prepare($sql)) {
-            $stmt->bind_param("s", $keyword);
-            $stmt->execute(); $res = $stmt->get_result();
-            while ($row = $res->fetch_assoc()) {
-                $result[] = ['id' => $row['fyp_supervisorid'], 'name' => $row['fyp_name']];
+// 5. 处理 POST/GET 请求 (组队相关)
+// A. 创建小组
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['create_group'])) {
+    $group_name = trim($_POST['group_name']);
+    if (empty($group_name)) { echo "<script>alert('Please enter a group name.');</script>"; } 
+    else {
+        $chk = $conn->prepare("SELECT group_id FROM student_group WHERE group_name = ?");
+        $chk->bind_param("s", $group_name); $chk->execute();
+        if ($chk->get_result()->num_rows > 0) { echo "<script>alert('Group Name taken.');</script>"; } 
+        else {
+            $sql_ins = "INSERT INTO student_group (group_name, leader_id, created_at, status) VALUES (?, ?, NOW(), 'Recruiting')";
+            if ($stmt = $conn->prepare($sql_ins)) {
+                $stmt->bind_param("ss", $group_name, $current_stud_id);
+                if ($stmt->execute()) { echo "<script>alert('Group Created!'); window.location.href='std_teamandprojectstatus.php?auth_user_id=".urlencode($auth_user_id)."';</script>"; }
             }
         }
-        echo json_encode($result); exit;
-    }
-    // 注意：在这个流程下，Teammate Search 暂时用不到了，因为申请通过后才能拉人
-    // 但为了不报错，可以保留 search_students 的接口
-    if ($_GET['action'] == 'search_students') {
-         // ... (保留原代码) ...
-         echo json_encode([]); exit; 
     }
 }
 
-// 2. Auth Check
-$auth_user_id = $_GET['auth_user_id'] ?? null;
-if (!$auth_user_id) { header("location: login.php"); exit; }
-
-// 3. Get Student Data
-$stud_data = [];
-$user_name = 'Student';
-if (isset($conn)) {
-    $sql_user = "SELECT fyp_username FROM `USER` WHERE fyp_userid = ?";
-    if ($stmt = $conn->prepare($sql_user)) { $stmt->bind_param("i", $auth_user_id); $stmt->execute(); $res=$stmt->get_result(); if($row=$res->fetch_assoc()) $user_name=$row['fyp_username']; $stmt->close(); }
-    
-    $sql_stud = "SELECT * FROM STUDENT WHERE fyp_userid = ?";
-    if ($stmt = $conn->prepare($sql_stud)) { $stmt->bind_param("i", $auth_user_id); $stmt->execute(); $res=$stmt->get_result(); if($row=$res->fetch_assoc()){ $stud_data=$row; if(!empty($row['fyp_studname'])) $user_name=$row['fyp_studname']; } else { $stud_data=['fyp_studid'=>'', 'fyp_studname'=>$user_name, 'fyp_studfullid'=>'', 'fyp_projectid'=>null, 'fyp_profileimg'=>'']; } $stmt->close(); }
+// B. 发起邀请
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['invite_teammate'])) {
+    if ($my_role != 'Leader') { echo "<script>alert('Only Leader can invite.');</script>"; } 
+    else {
+        $target_stud_id = $_POST['target_stud_id'];
+        $my_group_id = $my_group['group_id'];
+        // Check count
+        $sql_count = "SELECT count(*) as c FROM group_request WHERE group_id = ? AND request_status = 'Accepted'";
+        $stmt_c = $conn->prepare($sql_count); $stmt_c->bind_param("i", $my_group_id); $stmt_c->execute();
+        $cnt = $stmt_c->get_result()->fetch_assoc()['c'];
+        
+        if (($cnt + 1) >= 3) { echo "<script>alert('Team is full.');</script>"; } 
+        else {
+            // Check existing
+            $chk = $conn->prepare("SELECT request_id FROM group_request WHERE group_id = ? AND invitee_id = ? AND request_status != 'Rejected'");
+            $chk->bind_param("is", $my_group_id, $target_stud_id); $chk->execute();
+            if ($chk->get_result()->num_rows == 0) {
+                $ins = $conn->prepare("INSERT INTO group_request (group_id, inviter_id, invitee_id, request_status) VALUES (?, ?, ?, 'Pending')");
+                $ins->bind_param("iss", $my_group_id, $current_stud_id, $target_stud_id);
+                if ($ins->execute()) { echo "<script>alert('Invitation Sent!'); window.location.href='std_teamandprojectstatus.php?auth_user_id=".urlencode($auth_user_id)."';</script>"; }
+            } else { echo "<script>alert('Already invited.');</script>"; }
+        }
+    }
 }
-$my_stud_id = $stud_data['fyp_studid'];
 
-// ----------------------------------------------------
-// 4. Registration Logic (POST) -> Modified to use project_request
-// ----------------------------------------------------
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_project_confirm'])) {
+// C. 接受/拒绝邀请
+if (isset($_GET['action']) && isset($_GET['req_id'])) {
+    $req_id = $_GET['req_id'];
+    $sql_req = "SELECT gr.*, g.leader_id FROM group_request gr JOIN student_group g ON gr.group_id = g.group_id WHERE gr.request_id = ? AND gr.invitee_id = ?";
+    $stmt_r = $conn->prepare($sql_req); $stmt_r->bind_param("is", $req_id, $current_stud_id); $stmt_r->execute();
+    $res_r = $stmt_r->get_result();
     
-    $proj_id = $_POST['project_id'];
-    $selected_type = $_POST['selected_type']; 
-    $selected_sv_id = $_POST['selected_sv_id'];
-    $date_now = date('Y-m-d H:i:s');
-
-    // Validation
-    if (empty($selected_sv_id)) {
-        echo "<script>alert('Please select a supervisor!'); window.history.back();</script>"; exit;
-    }
-
-    // 1. Check if already registered (Active Project)
-    $check_reg = "SELECT fyp_regid FROM fyp_registration WHERE fyp_studid = ? LIMIT 1";
-    $is_registered = false;
-    if ($stmt = $conn->prepare($check_reg)) {
-        $stmt->bind_param("s", $my_stud_id);
-        $stmt->execute(); $stmt->store_result();
-        if ($stmt->num_rows > 0) $is_registered = true;
-    }
-
-    // 2. Check if there is already a PENDING REQUEST
-    $check_req = "SELECT fyp_requestid FROM project_request WHERE fyp_studid = ? AND fyp_requeststatus = 'Pending' LIMIT 1";
-    $has_pending = false;
-    if ($stmt = $conn->prepare($check_req)) {
-        $stmt->bind_param("s", $my_stud_id);
-        $stmt->execute(); $stmt->store_result();
-        if ($stmt->num_rows > 0) $has_pending = true;
-    }
-
-    if ($is_registered) {
-        echo "<script>alert('You already have an active project!'); window.location.href='std_projectreg.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
-    } elseif ($has_pending) {
-        echo "<script>alert('You already have a Pending Request. Please check your Status page.'); window.location.href='std_projectreg.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
-    } else {
+    if ($row_req = $res_r->fetch_assoc()) {
+        $group_id = $row_req['group_id'];
+        $leader_id = $row_req['leader_id'];
         
-        // --- NEW LOGIC: Insert into project_request ONLY ---
-        // We do NOT insert into PAIRING or REGISTRATION yet.
-        // We assume 'fyp_academicid' is not used or same as supervisor, leaving it null for now based on your logic.
-        
-        $sql = "INSERT INTO project_request (fyp_studid, fyp_supervisorid, fyp_projectid, fyp_requeststatus, fyp_datecreated) VALUES (?, ?, ?, 'Pending', ?)";
-        
-        if ($stmt = $conn->prepare($sql)) {
-            $stmt->bind_param("ssis", $my_stud_id, $selected_sv_id, $proj_id, $date_now);
+        if ($_GET['action'] == 'AcceptInvite') {
+            $sql_check = "SELECT count(*) as c FROM group_request WHERE group_id = ? AND request_status = 'Accepted'";
+            $stmt_ck = $conn->prepare($sql_check); $stmt_ck->bind_param("i", $group_id); $stmt_ck->execute();
+            $curr_mem = $stmt_ck->get_result()->fetch_assoc()['c'];
             
-            if ($stmt->execute()) {
-                // Success
-                if ($selected_type == 'Group') {
-                    echo "<script>alert('Request submitted! Once your supervisor APPROVES, you can invite your teammates in the Team Status page.'); window.location.href='std_projectreg.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
-                } else {
-                    echo "<script>alert('Request submitted to Supervisor! Please wait for approval.'); window.location.href='std_projectreg.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
-                }
-            } else {
-                echo "<script>alert('Error submitting request.');</script>";
+            if (($curr_mem + 1) >= 3) { echo "<script>alert('Team is full.');</script>"; } 
+            else {
+                $conn->query("UPDATE group_request SET request_status = 'Accepted' WHERE request_id = $req_id");
+                $conn->query("UPDATE STUDENT SET fyp_group = 'Group' WHERE fyp_studid = '$current_stud_id'");
+                $conn->query("UPDATE STUDENT SET fyp_group = 'Group' WHERE fyp_studid = '$leader_id'");
+                echo "<script>alert('Joined Team!'); window.location.href='std_teamandprojectstatus.php?auth_user_id=".urlencode($auth_user_id)."';</script>";
             }
-            $stmt->close();
+        }
+        if ($_GET['action'] == 'RejectInvite') {
+            $conn->query("UPDATE group_request SET request_status = 'Rejected' WHERE request_id = $req_id");
+            echo "<script>alert('Invitation Rejected.'); window.location.href='std_teamandprojectstatus.php?auth_user_id=".urlencode($auth_user_id)."';</script>";
         }
     }
 }
 
-// 5. Get Project List
-$available_projects = [];
-$sql = "SELECT * FROM PROJECT"; 
-$res = $conn->query($sql);
-while ($row = $res->fetch_assoc()) {
-    $available_projects[] = $row;
+// 6. 准备视图数据
+// A. Incoming Invites
+$incoming_invites = [];
+if (!$my_group) {
+    $sql_inc = "SELECT gr.*, g.group_name, s.fyp_studname as leader_name 
+                FROM group_request gr 
+                JOIN student_group g ON gr.group_id = g.group_id
+                JOIN STUDENT s ON g.leader_id = s.fyp_studid
+                WHERE gr.invitee_id = ? AND gr.request_status = 'Pending'";
+    if ($stmt = $conn->prepare($sql_inc)) { $stmt->bind_param("s", $current_stud_id); $stmt->execute(); $res = $stmt->get_result(); while ($row = $res->fetch_assoc()) $incoming_invites[] = $row; }
 }
 
-// 6. Define Menu (Updated Sidebar Item Name)
-$current_page = 'group_setup';
+// B. Team Members
+$team_members = [];
+if ($my_group) {
+    $group_id = $my_group['group_id'];
+    // Leader
+    $sql_l = "SELECT fyp_studname, fyp_studid FROM STUDENT WHERE fyp_studid = ?";
+    $stmt_l = $conn->prepare($sql_l); $stmt_l->bind_param("s", $my_group['leader_id']); $stmt_l->execute();
+    $leader_info = $stmt_l->get_result()->fetch_assoc();
+    if ($leader_info) { $team_members[] = ['role' => 'Leader', 'name' => $leader_info['fyp_studname'], 'id' => $leader_info['fyp_studid'], 'status' => 'Active']; }
+    // Members
+    $sql_m = "SELECT gr.*, s.fyp_studname, s.fyp_studid FROM group_request gr JOIN STUDENT s ON gr.invitee_id = s.fyp_studid WHERE gr.group_id = ? AND gr.request_status = 'Accepted'";
+    $stmt_m = $conn->prepare($sql_m); $stmt_m->bind_param("i", $group_id); $stmt_m->execute(); $res_m = $stmt_m->get_result();
+    while ($row = $res_m->fetch_assoc()) { $team_members[] = ['role' => 'Member', 'name' => $row['fyp_studname'], 'id' => $row['fyp_studid'], 'status' => 'Active']; }
+}
+
+// C. Pending Outgoing Requests
+$pending_requests = [];
+if ($my_role == 'Leader') {
+    $sql_p = "SELECT gr.*, s.fyp_studname FROM group_request gr JOIN STUDENT s ON gr.invitee_id = s.fyp_studid WHERE gr.group_id = ? AND gr.request_status = 'Pending'";
+    $stmt_p = $conn->prepare($sql_p); $stmt_p->bind_param("i", $my_group['group_id']); $stmt_p->execute(); $res_p = $stmt_p->get_result();
+    while ($row = $res_p->fetch_assoc()) $pending_requests[] = $row;
+}
+
+// 7. Menu Definition
+$current_page = 'team_invitations';
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Student_mainpage.php?page=dashboard'],
     'profile' => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'std_profile.php'],
@@ -130,13 +243,10 @@ $menu_items = [
         'icon' => 'fa-project-diagram',
         'sub_items' => [
             'group_setup' => ['name' => 'Project Registration', 'icon' => 'fa-users', 'link' => 'std_projectreg.php'], 
-            // 名字改了一下，更符合你现在的逻辑
-            'team_invitations' => ['name' => 'Request & Team Status', 'icon' => 'fa-tasks', 'link' => 'Student_mainpage.php?page=team_invitations'],
+            'team_invitations' => ['name' => 'Request & Team Status', 'icon' => 'fa-tasks', 'link' => 'std_teamandprojectstatus.php'],
             'proposals' => ['name' => 'Proposal Submission', 'icon' => 'fa-file-alt', 'link' => 'Student_mainpage.php?page=proposals'],
-            'doc_submission' => ['name' => 'Document Upload', 'icon' => 'fa-cloud-upload-alt', 'link' => 'Student_mainpage.php?page=doc_submission'],
         ]
     ],
-    'appointments' => ['name' => 'Appointment', 'icon' => 'fa-calendar-check', 'sub_items' => ['book_session' => ['name' => 'Make Appointment', 'icon' => 'fa-plus-circle', 'link' => 'Student_mainpage.php?page=appointments']]],
     'grades' => ['name' => 'My Grades', 'icon' => 'fa-star', 'link' => 'Student_mainpage.php?page=grades'],
 ];
 ?>
@@ -146,13 +256,12 @@ $menu_items = [
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Project Registration</title>
+    <title>Status Dashboard</title>
     <?php $favicon = !empty($stud_data['fyp_profileimg']) ? $stud_data['fyp_profileimg'] : "image/user.png"; ?>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        /* CSS Same as before */
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap');
-        :root { --primary-color: #0056b3; --primary-hover: #004494; --secondary-color: #f4f4f9; --text-color: #333; --border-color: #e0e0e0; --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); --gradient-start: #eef2f7; --gradient-end: #ffffff; --sidebar-width: 260px; --student-accent: #007bff; }
+        :root { --primary-color: #0056b3; --primary-hover: #004494; --secondary-color: #f4f4f9; --text-color: #333; --border-color: #e0e0e0; --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); --gradient-start: #eef2f7; --gradient-end: #ffffff; --sidebar-width: 260px; }
         body { font-family: 'Poppins', sans-serif; margin: 0; background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end)); color: var(--text-color); min-height: 100vh; display: flex; flex-direction: column; }
         .topbar { display: flex; justify-content: space-between; align-items: center; padding: 15px 40px; background-color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); z-index: 100; position: sticky; top: 0; }
         .logo { font-size: 22px; font-weight: 600; color: var(--primary-color); display: flex; align-items: center; gap: 10px; }
@@ -177,45 +286,44 @@ $menu_items = [
         .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; }
         .welcome-card { background: #fff; padding: 30px; border-radius: 12px; box-shadow: var(--card-shadow); border-left: 5px solid var(--primary-color); }
         .page-title { font-size: 24px; margin: 0 0 10px 0; color: var(--text-color); }
-        .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 25px; }
-        .project-card { border: 1px solid #eee; border-radius: 10px; padding: 25px; background: #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.03); display: flex; flex-direction: column; justify-content: space-between; border-top: 4px solid var(--primary-color); transition: transform 0.3s, box-shadow 0.3s; position: relative; }
-        .project-card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.08); }
-        .project-title { font-size: 18px; font-weight: 600; color: #333; margin-bottom: 10px; line-height: 1.4; }
-        .project-meta { font-size: 13px; color: #777; margin-bottom: 15px; display: flex; flex-wrap: wrap; gap: 10px; }
-        .badge { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-        .badge-cat { background: #e3f2fd; color: #1565c0; }
-        .badge-type { background: #f3e5f5; color: #7b1fa2; }
-        .project-desc { font-size: 14px; color: #555; margin-bottom: 20px; line-height: 1.6; flex-grow: 1; border-top: 1px solid #f0f0f0; padding-top: 15px; }
-        .btn-select-proj { background-color: var(--primary-color); color: white; border: none; padding: 12px; border-radius: 8px; cursor: pointer; width: 100%; font-weight: 600; transition: background-color 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; }
-        .btn-select-proj:hover { background-color: var(--primary-hover); }
-        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; backdrop-filter: blur(2px); justify-content: center; align-items: center; opacity: 0; transition: opacity 0.3s ease; }
-        .modal-overlay.show { display: flex; opacity: 1; }
-        .modal-box { background: #fff; padding: 35px; border-radius: 12px; width: 90%; max-width: 600px; text-align: center; box-shadow: 0 15px 35px rgba(0,0,0,0.2); transform: scale(0.9); transition: transform 0.3s ease; }
-        .modal-overlay.show .modal-box { transform: scale(1); }
-        .modal-title { font-size: 20px; font-weight: 600; margin-bottom: 10px; color: #333; }
-        .modal-actions { display: flex; gap: 15px; justify-content: center; margin-top: 20px; }
-        .btn-confirm { background: var(--primary-color); color: white; padding: 12px 25px; border: none; border-radius: 8px; cursor: pointer; font-weight: 500; font-size: 15px; }
-        .btn-cancel { background: #f1f1f1; color: #444; padding: 12px 25px; border: none; border-radius: 8px; cursor: pointer; font-weight: 500; font-size: 15px; transition: background 0.2s; }
-        .modal-info-grid { display: grid; grid-template-columns: 1fr; gap: 15px; text-align: left; margin-bottom: 20px; background: #f8f9fa; padding: 15px; border-radius: 8px; }
-        .info-group label { display: block; font-size: 12px; color: #888; margin-bottom: 3px; }
-        .info-group span { font-weight: 600; color: #333; font-size: 14px; }
-        .search-container { position: relative; margin-bottom: 5px; }
-        .search-results { position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #ddd; border-top: none; border-radius: 0 0 8px 8px; max-height: 200px; overflow-y: auto; z-index: 1000; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: none; }
-        .search-item { padding: 10px 15px; cursor: pointer; border-bottom: 1px solid #f0f0f0; transition: background 0.2s; display: flex; justify-content: space-between; align-items: center; }
-        .search-item:hover { background-color: #f9f9f9; color: var(--primary-color); }
-        .selected-teammates { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-        .teammate-tag { background-color: #e3effd; color: var(--primary-color); padding: 5px 12px; border-radius: 20px; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
-        .form-select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-family: inherit; }
-        .form-input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-family: inherit; box-sizing: border-box; }
+        
+        .status-card { background: #fff; border-radius: 10px; padding: 25px; box-shadow: 0 4px 10px rgba(0,0,0,0.03); border: 1px solid #eee; margin-bottom: 20px; }
+        .card-header { font-size: 18px; font-weight: 600; color: #333; margin-bottom: 15px; border-bottom: 1px solid #f0f0f0; padding-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+        
+        /* Application Status Styles */
+        .app-status-box { background: #f8f9fa; border-radius: 8px; padding: 20px; border: 1px solid #e9ecef; }
+        .app-status-row { display: flex; margin-bottom: 10px; align-items: center; }
+        .app-label { width: 140px; color: #666; font-size: 14px; font-weight: 500; }
+        .app-value { font-weight: 600; color: #333; font-size: 15px; }
+        .st-badge { padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
+        .st-Pending { background: #fff3cd; color: #856404; }
+        .st-Approve { background: #d4edda; color: #155724; }
+        .st-Reject { background: #f8d7da; color: #721c24; }
+
+        /* Team Styles */
+        .btn-action { background: var(--primary-color); color: white; border: none; padding: 8px 15px; border-radius: 6px; cursor: pointer; text-decoration: none; font-size: 14px; }
+        .btn-reject { background: #dc3545; } .btn-accept { background: #28a745; }
+        .form-input { padding: 10px; border: 1px solid #ddd; border-radius: 6px; width: 100%; box-sizing: border-box; }
+        .team-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        .team-table th { text-align: left; padding: 10px; background: #f8f9fa; color: #555; font-size: 13px; }
+        .team-table td { padding: 10px; border-bottom: 1px solid #eee; font-size: 14px; }
+        .search-results { position: absolute; background: white; border: 1px solid #ddd; width: 100%; z-index: 10; display: none; }
+        .search-item { padding: 10px; cursor: pointer; border-bottom: 1px solid #eee; }
+        .search-item:hover { background: #f5f5f5; }
+        .group-badge { background: #e3effd; color: var(--primary-color); padding: 5px 12px; border-radius: 15px; font-weight: 600; }
+
         @media (max-width: 900px) { .layout-container { flex-direction: column; } .sidebar { width: 100%; min-height: auto; } }
     </style>
 </head>
 <body>
 
     <header class="topbar">
-        <div class="logo"> FYP System</div>
+        <div class="logo"><img src="image/ladybug.png" alt="Logo" style="width: 32px; margin-right: 10px;"> FYP System</div>
         <div class="topbar-right">
-            <span class="user-name-display"><?php echo htmlspecialchars($user_name); ?></span>
+            <div class="user-profile-summary">
+                <span class="user-name-display"><?php echo htmlspecialchars($current_stud_name); ?></span>
+                <span class="user-role-badge">Student</span>
+            </div>
             <div class="user-avatar-circle"><img src="<?php echo $favicon; ?>" alt="User Avatar"></div>
             <a href="login.php" class="logout-btn"><i class="fa fa-sign-out-alt"></i> Logout</a>
         </div>
@@ -233,12 +341,11 @@ $menu_items = [
                                 if ($sub_key == $current_page) { $hasActiveChild = true; break; }
                             }
                         }
+                        
                         $linkUrl = isset($item['link']) ? $item['link'] : "#";
                         if (strpos($linkUrl, '.php') !== false) {
                              $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?';
                              $linkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
-                        } elseif (strpos($linkUrl, '?') === 0) {
-                             $linkUrl .= "&auth_user_id=" . urlencode($auth_user_id);
                         }
                     ?>
                     <li class="menu-item <?php echo $hasActiveChild ? 'has-active-child' : ''; ?>">
@@ -253,8 +360,6 @@ $menu_items = [
                                     if (strpos($subLinkUrl, '.php') !== false) {
                                         $separator = (strpos($subLinkUrl, '?') !== false) ? '&' : '?';
                                         $subLinkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
-                                    } elseif (strpos($subLinkUrl, '?') === 0) {
-                                        $subLinkUrl .= "&auth_user_id=" . urlencode($auth_user_id);
                                     }
                                 ?>
                                     <li><a href="<?php echo $subLinkUrl; ?>" class="menu-link <?php echo ($sub_key == $current_page) ? 'active' : ''; ?>">
@@ -270,159 +375,202 @@ $menu_items = [
 
         <main class="main-content">
             <div class="welcome-card">
-                <h1 class="page-title">Project Registration</h1>
-                <p style="color: #666; margin: 0;">Select a project topic and choose your supervisor.</p>
+                <div>
+                    <h1 class="page-title">Request & Team Status</h1>
+                    <p style="color: #666; margin: 0;">Track your Project Application and Manage your Team in one place.</p>
+                </div>
             </div>
 
-            <div class="project-grid">
-                <?php if (count($available_projects) > 0): ?>
-                    <?php foreach ($available_projects as $proj): ?>
-                        <div class="project-card">
-                            <div>
-                                <div class="project-title"><?php echo htmlspecialchars($proj['fyp_projecttitle']); ?></div>
-                                <div class="project-meta">
-                                    <span class="badge badge-cat"><?php echo htmlspecialchars($proj['fyp_projectcat']); ?></span>
-                                    <?php $statusColor = ($proj['fyp_projectstatus'] == 'Taken') ? '#dc3545' : '#28a745'; ?>
-                                    <span class="badge" style="background-color: <?php echo $statusColor; ?>; color: white;">
-                                        <?php echo htmlspecialchars($proj['fyp_projectstatus']); ?>
-                                    </span>
-                                </div>
-                                <div class="project-desc"><?php echo nl2br(htmlspecialchars($proj['fyp_description'])); ?></div>
-                            </div>
-                            <button type="button" class="btn-select-proj" 
-                                onclick="initRegistration(
-                                    '<?php echo $proj['fyp_projectid']; ?>', 
-                                    '<?php echo addslashes($proj['fyp_projecttitle']); ?>', 
-                                    '<?php echo addslashes($proj['fyp_description']); ?>', 
-                                    '<?php echo $proj['fyp_projectstatus']; ?>'
-                                )">
-                                <i class="fa fa-check-circle"></i> Select Topic
-                            </button>
+            <!-- SECTION 1: PROJECT APPLICATION STATUS -->
+            <div class="status-card">
+                <div class="card-header">
+                    <span><i class="fa fa-file-contract"></i> My Project Application</span>
+                </div>
+                
+                <?php if ($my_project_request): ?>
+                    <div class="app-status-box">
+                        <div class="app-status-row">
+                            <div class="app-label">Project Title:</div>
+                            <div class="app-value"><?php echo htmlspecialchars($my_project_request['fyp_projecttitle']); ?></div>
                         </div>
-                    <?php endforeach; ?>
+                        <div class="app-status-row">
+                            <div class="app-label">Type:</div>
+                            <div class="app-value"><?php echo htmlspecialchars($my_project_request['fyp_projecttype']); ?></div>
+                        </div>
+                        <div class="app-status-row">
+                            <div class="app-label">Supervisor:</div>
+                            <div class="app-value"><?php echo htmlspecialchars($my_project_request['sv_name']); ?></div>
+                        </div>
+                        <div class="app-status-row">
+                            <div class="app-label">Status:</div>
+                            <div class="app-value">
+                                <span class="st-badge st-<?php echo $my_project_request['fyp_requeststatus']; ?>">
+                                    <?php echo $my_project_request['fyp_requeststatus']; ?>
+                                </span>
+                            </div>
+                        </div>
+                        <div class="app-status-row">
+                            <div class="app-label">Submitted On:</div>
+                            <div class="app-value" style="font-weight:400; font-size:13px; color:#777;">
+                                <?php echo $my_project_request['fyp_datecreated']; ?>
+                            </div>
+                        </div>
+                        
+                        <?php if($my_project_request['fyp_requeststatus'] == 'Reject'): ?>
+                            <div style="margin-top:15px; border-top:1px dashed #ddd; padding-top:10px;">
+                                <a href="std_projectreg.php?auth_user_id=<?php echo $auth_user_id; ?>" class="btn-action" style="background:#6c757d;">
+                                    <i class="fa fa-redo"></i> Apply for another project
+                                </a>
+                            </div>
+                        <?php endif; ?>
+                    </div>
                 <?php else: ?>
-                    <div class="empty-state">No projects available.</div>
+                    <div style="text-align:center; padding:30px; color:#999; background:#f9f9f9; border-radius:8px;">
+                        <i class="fa fa-folder-open" style="font-size:32px; margin-bottom:10px; display:block; opacity:0.3;"></i>
+                        You have not applied for any project yet.
+                        <br><br>
+                        <a href="std_projectreg.php?auth_user_id=<?php echo $auth_user_id; ?>" class="btn-action">Browse Projects</a>
+                    </div>
                 <?php endif; ?>
             </div>
+
+            <!-- SECTION 2: TEAM MANAGEMENT -->
+            <div class="status-card">
+                <div class="card-header">
+                    <span><i class="fa fa-users"></i> Team Management</span>
+                    <span class="group-badge"><?php echo $current_stud_group_status; ?></span>
+                </div>
+
+                <?php if (!$my_group): ?>
+                    <!-- NO GROUP VIEW -->
+                    <div style="display:flex; gap:20px; flex-wrap:wrap;">
+                        <!-- Create Team -->
+                        <div style="flex:1; min-width:300px;">
+                            <h4 style="margin-top:0;">Create a Team</h4>
+                            <p style="font-size:13px; color:#666;">Want to be a leader? Create a group first.</p>
+                            <form method="POST" style="display:flex; gap:10px;">
+                                <input type="text" name="group_name" class="form-input" placeholder="Enter Team Name..." required>
+                                <button type="submit" name="create_group" class="btn-action">Create</button>
+                            </form>
+                        </div>
+                        
+                        <!-- Incoming Invites -->
+                        <div style="flex:1; min-width:300px; border-left:1px solid #eee; padding-left:20px;">
+                            <h4 style="margin-top:0;">Incoming Invitations</h4>
+                            <?php if (count($incoming_invites) > 0): ?>
+                                <table class="team-table">
+                                    <thead><tr><th>Team</th><th>Leader</th><th>Action</th></tr></thead>
+                                    <tbody>
+                                        <?php foreach ($incoming_invites as $inv): ?>
+                                            <tr>
+                                                <td><?php echo htmlspecialchars($inv['group_name']); ?></td>
+                                                <td><?php echo htmlspecialchars($inv['leader_name']); ?></td>
+                                                <td>
+                                                    <a href="?auth_user_id=<?php echo $auth_user_id; ?>&action=AcceptInvite&req_id=<?php echo $inv['request_id']; ?>" class="btn-action btn-accept" style="padding:4px 8px; font-size:12px;">Accept</a>
+                                                    <a href="?auth_user_id=<?php echo $auth_user_id; ?>&action=RejectInvite&req_id=<?php echo $inv['request_id']; ?>" class="btn-action btn-reject" style="padding:4px 8px; font-size:12px;">Reject</a>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            <?php else: ?>
+                                <p style="color:#999; font-style:italic;">No invitations.</p>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
+                <?php else: ?>
+                    <!-- HAS GROUP VIEW -->
+                    <div style="background:#e3effd; padding:10px 15px; border-radius:6px; margin-bottom:15px; display:flex; justify-content:space-between; align-items:center;">
+                        <span style="color:#0056b3; font-weight:600;"><i class="fa fa-users"></i> Team: <?php echo htmlspecialchars($my_group['group_name']); ?></span>
+                        <span style="font-size:12px; color:#666;">Role: <?php echo $my_role; ?></span>
+                    </div>
+
+                    <table class="team-table">
+                        <thead><tr><th>Role</th><th>Name</th><th>Student ID</th><th>Status</th></tr></thead>
+                        <tbody>
+                            <?php foreach ($team_members as $mem): ?>
+                                <tr>
+                                    <td><?php if($mem['role']=='Leader') echo '<i class="fa fa-crown" style="color:#f39c12; margin-right:5px;"></i>'; echo $mem['role']; ?></td>
+                                    <td><?php echo htmlspecialchars($mem['name']); ?></td>
+                                    <td><?php echo $mem['id']; ?></td>
+                                    <td><span style="color:green; font-weight:600;">Active</span></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+
+                    <?php if ($my_role == 'Leader'): ?>
+                        <div style="margin-top:20px; padding-top:20px; border-top:1px solid #eee;">
+                            <h4 style="margin:0 0 10px 0;">Invite Members <small style="font-weight:400; color:#666;">(Max 3 members total)</small></h4>
+                            
+                            <?php if (count($team_members) < 3): ?>
+                                <div style="position:relative; max-width:500px;">
+                                    <form method="POST" style="display:flex; gap:10px;">
+                                        <input type="hidden" name="target_stud_id" id="targetStudId">
+                                        <input type="text" id="studSearch" class="form-input" placeholder="Search student name..." autocomplete="off">
+                                        <button type="submit" name="invite_teammate" id="btnInvite" class="btn-action" disabled>Invite</button>
+                                        <div id="searchRes" class="search-results"></div>
+                                    </form>
+                                </div>
+                            <?php else: ?>
+                                <div style="color:#28a745;"><i class="fa fa-check-circle"></i> Team is Full.</div>
+                            <?php endif; ?>
+
+                            <?php if (count($pending_requests) > 0): ?>
+                                <div style="margin-top:15px;">
+                                    <strong>Pending Invites:</strong>
+                                    <ul style="list-style:none; padding:0; font-size:14px;">
+                                        <?php foreach ($pending_requests as $pr): ?>
+                                            <li style="padding:5px 0; color:#666;">
+                                                <i class="fa fa-clock"></i> Invited <b><?php echo htmlspecialchars($pr['fyp_studname']); ?></b> (Waiting for response...)
+                                            </li>
+                                        <?php endforeach; ?>
+                                    </ul>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    <?php endif; ?>
+                <?php endif; ?>
+            </div>
+
         </main>
     </div>
 
-    <div id="registerModal" class="modal-overlay">
-        <div class="modal-box">
-            <div class="modal-icon"><i class="fa fa-file-contract"></i></div>
-            <div class="modal-title">Confirm Selection</div>
-            
-            <form method="POST" id="regForm">
-                <input type="hidden" name="project_id" id="modProjId">
-                <input type="hidden" name="selected_sv_id" id="selectedSvId">
-
-                <div class="modal-info-grid">
-                    <div class="info-group"><label>Project Title</label><span id="modTitle"></span></div>
-                    <div class="info-group"><label>Description</label><span id="modDesc" style="font-weight:400; font-size:13px;"></span></div>
-                    
-                    <div class="info-group" style="border-top: 1px solid #eee; padding-top: 10px;">
-                        <label style="margin-bottom: 5px;">Select Type</label>
-                        <select name="selected_type" id="typeSelect" class="form-select">
-                            <option value="Individual">Individual</option>
-                            <option value="Group">Group</option>
-                        </select>
-                    </div>
-
-                    <div class="info-group">
-                        <label style="margin-bottom: 5px;">Select Supervisor</label>
-                        <div class="search-container">
-                            <input type="text" id="svSearchInput" class="form-input" placeholder="Search lecturer name..." autocomplete="off">
-                            <div id="svSearchResults" class="search-results"></div>
-                        </div>
-                        <div id="svSelectedDisplay" style="font-size: 13px; font-weight: 600; color: var(--primary-color); display:none;">
-                            Selected: <span id="svNameText"></span> <i class="fa fa-times" style="color:red; cursor:pointer;" onclick="clearSv()"></i>
-                        </div>
-                    </div>
-                    
-                    <div id="groupNote" style="display:none; font-size:12px; color:#e67e22; margin-top:5px;">
-                        <i class="fa fa-info-circle"></i> For Group projects, you can invite teammates <b>after</b> your supervisor approves your request.
-                    </div>
-                </div>
-
-                <div class="modal-actions">
-                    <button type="button" class="btn-cancel" onclick="closeRegModal()">Cancel</button>
-                    <button type="submit" name="register_project_confirm" class="btn-confirm">Submit Request</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
     <script>
-        const regModal = document.getElementById('registerModal');
-        const svInput = document.getElementById('svSearchInput');
-        const svResults = document.getElementById('svSearchResults');
-        const svHiddenId = document.getElementById('selectedSvId');
-        const typeSelect = document.getElementById('typeSelect');
-        const groupNote = document.getElementById('groupNote');
+        const searchInput = document.getElementById('studSearch');
+        const searchBox = document.getElementById('searchRes');
+        const targetInput = document.getElementById('targetStudId');
+        const inviteBtn = document.getElementById('btnInvite');
 
-        function initRegistration(id, title, desc, status) {
-            if (status.trim() === 'Taken') { alert('This project is TAKEN.'); return; }
-            
-            document.getElementById('modProjId').value = id;
-            document.getElementById('modTitle').innerText = title;
-            document.getElementById('modDesc').innerText = desc.substring(0, 100) + '...';
-            
-            // Reset UI
-            typeSelect.value = 'Individual';
-            groupNote.style.display = 'none';
-            clearSv();
-            
-            regModal.classList.add('show');
+        if (searchInput) {
+            searchInput.addEventListener('input', function() {
+                const val = this.value.trim();
+                if (val.length < 1) { searchBox.style.display = 'none'; return; }
+                
+                fetch(`std_teamandprojectstatus.php?action=search_students&keyword=${encodeURIComponent(val)}&auth_user_id=<?php echo $auth_user_id; ?>`)
+                    .then(res => res.json())
+                    .then(data => {
+                        searchBox.innerHTML = '';
+                        if (data.length > 0) {
+                            searchBox.style.display = 'block';
+                            data.forEach(stud => {
+                                const div = document.createElement('div');
+                                div.className = 'search-item';
+                                div.innerHTML = `<strong>${stud.name}</strong> <small>(${stud.fullid || stud.studid})</small>`;
+                                div.onclick = () => {
+                                    searchInput.value = stud.name;
+                                    targetInput.value = stud.studid;
+                                    searchBox.style.display = 'none';
+                                    inviteBtn.disabled = false;
+                                };
+                                searchBox.appendChild(div);
+                            });
+                        } else { searchBox.style.display = 'none'; }
+                    });
+            });
+            document.addEventListener('click', (e) => { if (e.target !== searchInput) searchBox.style.display = 'none'; });
         }
-
-        function closeRegModal() { regModal.classList.remove('show'); }
-
-        // 简单的显示/隐藏提示语
-        typeSelect.addEventListener('change', function() {
-            if (this.value === 'Group') {
-                groupNote.style.display = 'block';
-            } else {
-                groupNote.style.display = 'none';
-            }
-        });
-
-        // Supervisor Search Logic (Same as before)
-        svInput.addEventListener('keyup', function() {
-            const val = this.value;
-            if (val.length < 2) { svResults.style.display = 'none'; return; }
-            fetch(`std_projectreg.php?action=search_supervisors&keyword=${encodeURIComponent(val)}`)
-                .then(res => res.json())
-                .then(data => {
-                    svResults.innerHTML = '';
-                    if (data.length > 0) {
-                        svResults.style.display = 'block';
-                        data.forEach(sv => {
-                            const div = document.createElement('div');
-                            div.className = 'search-item';
-                            div.innerHTML = `<i class="fa fa-user-tie"></i> ${sv.name}`;
-                            div.onclick = () => selectSv(sv);
-                            svResults.appendChild(div);
-                        });
-                    } else { svResults.style.display = 'none'; }
-                });
-        });
-
-        function selectSv(sv) {
-            svHiddenId.value = sv.id;
-            document.getElementById('svNameText').innerText = sv.name;
-            document.getElementById('svSelectedDisplay').style.display = 'block';
-            svInput.style.display = 'none';
-            svResults.style.display = 'none';
-        }
-
-        function clearSv() {
-            svHiddenId.value = '';
-            svInput.value = '';
-            svInput.style.display = 'block';
-            document.getElementById('svSelectedDisplay').style.display = 'none';
-        }
-
-        window.onclick = function(e) { if (e.target.classList.contains('modal-overlay')) closeRegModal(); }
     </script>
 </body>
 </html>
