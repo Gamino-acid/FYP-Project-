@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// Supervisor_mainpage.php - 导师主页 (动态数据版)
+// Supervisor_mainpage.php - 导师主页 (动态数据版 + Announcement Menu)
 // ====================================================
 
 include("connect.php");
@@ -112,6 +112,16 @@ $menu_items = [
             'my_projects'     => ['name' => 'My Projects', 'icon' => 'fa-folder-open', 'link' => '?page=my_projects'],
         ]
     ],
+    // --- 新增: Announcement ---
+    'announcement' => [
+        'name' => 'Announcement',
+        'icon' => 'fa-bullhorn',
+        'sub_items' => [
+            'post_announcement' => ['name' => 'Post Announcement', 'icon' => 'fa-pen-square', 'link' => 'supervisor_announcement.php'],
+            'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => '?page=view_announcements'], // Placeholder
+        ]
+    ],
+    // --------------------------
     'schedule'  => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => '?page=schedule'],
 ];
 ?>
@@ -189,6 +199,7 @@ $menu_items = [
                     <?php 
                         $isActive = ($key == $current_page);
                         $hasActiveChild = false;
+                        // 检查子菜单是否激活
                         if (isset($item['sub_items'])) {
                             foreach ($item['sub_items'] as $sub_key => $sub) {
                                 if ($sub_key == $current_page) { $hasActiveChild = true; break; }
