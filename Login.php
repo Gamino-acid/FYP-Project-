@@ -1,215 +1,157 @@
 <?php
+ob_start();
 session_start();
-include 'db_connect.php';
+require_once 'db_connect.php';
+date_default_timezone_set('Asia/Kuala_Lumpur');
 
-// Set timezone to your local time to avoid confusion (Optional, but good practice)
-date_default_timezone_set('Asia/Kuala_Lumpur'); 
+$view = 'login';
+$login_err = '';
+$reset_msg = ''; 
+$reset_err = '';
 
-$username = $password = "";
-$login_err = "";
-$reset_msg = "";
-$reset_err = "";
-
-$view = 'login'; 
-if (isset($_GET['view'])) {
+// --- VIEW HANDLING ---
+if (isset($_GET['view']) && in_array($_GET['view'], ['login', 'forgot', 'reset'])) {
     $view = $_GET['view'];
 }
 
-// Helper function to check token validity using PHP time
+// --- HELPER FUNCTION ---
 function checkToken($conn, $token_hash) {
-    $current_time = date("Y-m-d H:i:s");
+    $now = date("Y-m-d H:i:s");
     $sql = "SELECT fyp_userid FROM user WHERE reset_token_hash = ? AND reset_token_expires_at > ?";
     if ($stmt = $conn->prepare($sql)) {
-        $stmt->bind_param("ss", $token_hash, $current_time);
+        $stmt->bind_param("ss", $token_hash, $now);
         $stmt->execute();
         $stmt->store_result();
-        if ($stmt->num_rows === 1) {
-            $stmt->close();
-            return true;
-        }
-        $stmt->close();
+        return $stmt->num_rows === 1;
     }
     return false;
 }
 
+// --- MAIN POST LOGIC ---
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
-    // --- LOGIN LOGIC ---
+    // 1. LOGIN
     if (isset($_POST['login'])) {
-        $view = 'login';
         $username = trim($_POST['username']);
-        $password = $_POST['password']; 
-        
+        $password = $_POST['password'];
+
         if (empty($username) || empty($password)) {
             $login_err = "Please enter both username and password.";
         } else {
-            $sql = "SELECT fyp_userid, fyp_username, fyp_passwordhash, fyp_usertype FROM user WHERE fyp_username = ? LIMIT 1";
-            if ($stmt = $conn->prepare($sql)) {
-                $stmt->bind_param("s", $username);
-                $stmt->execute();
-                $result = $stmt->get_result();
-                if ($result->num_rows == 1) {
-                    $user = $result->fetch_assoc();
-                    if (password_verify($password, $user['fyp_passwordhash']) || $password === $user['fyp_passwordhash']) {
-                        session_regenerate_id(true);
-                        $_SESSION['user_id'] = $user['fyp_userid'];
-                        $_SESSION['username'] = $user['fyp_username'];
-                        $_SESSION['user_type'] = $user['fyp_usertype'];
+            // Fetch User
+            $stmt = $conn->prepare("SELECT fyp_userid, fyp_username, fyp_passwordhash, fyp_usertype FROM user WHERE fyp_username = ? LIMIT 1");
+            $stmt->bind_param("s", $username);
+            $stmt->execute();
+            $result = $stmt->get_result();
+
+            if ($row = $result->fetch_assoc()) {
+                // Verify Password
+                if (password_verify($password, $row['fyp_passwordhash']) || $password === $row['fyp_passwordhash']) {
+                    
+                    // SET SESSION
+                    session_regenerate_id(true);
+                    $_SESSION['user_id']   = $row['fyp_userid'];
+                    $_SESSION['username']  = $row['fyp_username'];
+                    $_SESSION['user_role'] = strtolower(trim($row['fyp_usertype']));
+
+                    $role = $_SESSION['user_role'];
+
+                    if ($role === 'student') {
+                        // CHECK IF REGISTERED IN 'STUDENT' TABLE
+                        $chk = $conn->prepare("SELECT fyp_studid FROM student WHERE fyp_userid = ?");
+                        $chk->bind_param("i", $row['fyp_userid']);
+                        $chk->execute();
                         
-                        // Check user type and redirect accordingly
-                        $user_type = strtolower($user['fyp_usertype']);
-                        
-                        if ($user_type === 'student') {
-                            header("Location: Studentdashboard.php");
-                            exit;
-                        } else if ($user_type === 'lecturer' || $user_type === 'coordinator') {
-                            header("Location: Coordinator_mainpage.php");
+                        if ($chk->get_result()->num_rows === 0) {
+                            // User exists, but Student Profile missing -> Go to Registration
+                            header("Location: Registration.php");
                             exit;
                         } else {
-                            $login_err = "Login failed: Unknown user type ($user_type).";
+                            // Student Profile exists -> Go to Main Page
+                            header("Location: Student_mainpage.php");
+                            exit;
                         }
+                    } elseif ($role === 'lecturer' || $role === 'coordinator') {
+                        header("Location: Supervisor_mainpage.php");
+                        exit;
                     } else {
-                        $login_err = "Invalid password.";
+                        $login_err = "Unknown user role: $role";
                     }
-                } else {
-                    $login_err = "No account found.";
-                }
-                $stmt->close();
-            }
-        }
 
-    // --- FORGOT PASSWORD REQUEST ---
-    } elseif (isset($_POST['reset_password'])) {
+                } else {
+                    $login_err = "Invalid password.";
+                }
+            } else {
+                $login_err = "No account found.";
+            }
+            $stmt->close();
+        }
+    }
+
+    // 2. FORGOT PASSWORD
+    elseif (isset($_POST['reset_password'])) {
         $view = 'forgot';
         $email = trim($_POST['email']);
         
-        if (empty($email)) {
-            $reset_err = "Please enter your email.";
-        } else {
-            $sql = "SELECT fyp_userid FROM user WHERE fyp_email = ? LIMIT 1";
-            if ($stmt = $conn->prepare($sql)) {
-                $stmt->bind_param("s", $email);
-                $stmt->execute();
-                $stmt->store_result();
-                if ($stmt->num_rows == 1) {
-                    
-                    // Generate Token
-                    $token = bin2hex(random_bytes(16));
-                    $token_hash = hash("sha256", $token);
-                    
-                    // Fix: Set expiry to 24 hours to be safe against timezone issues
-                    $expiry = date("Y-m-d H:i:s", time() + (60 * 60 * 24)); 
-                    
-                    $update_sql = "UPDATE user SET reset_token_hash = ?, reset_token_expires_at = ? WHERE fyp_email = ?";
-                    if ($upd = $conn->prepare($update_sql)) {
-                        $upd->bind_param("sss", $token_hash, $expiry, $email);
-                        $upd->execute();
-                        
-                        $link = "http://$_SERVER[HTTP_HOST]$_SERVER[PHP_SELF]?token=$token";
-                        
-                        $subject = "Reset Password";
-                        $msg = "Click: $link";
-                        $headers = "From: no-reply@fyp.com";
-                        
-                        if (@mail($email, $subject, $msg, $headers)) {
-                            $reset_msg = "Check your email for the link.";
-                            $view = 'login';
-                        } else {
-                            $reset_msg = "<b>LOCALHOST SUCCESS!</b><br>Click this link to reset:<br><a href='$link' style='color:#0056b3;font-weight:bold;text-decoration:underline;'>RESET PASSWORD LINK</a>";
-                            $view = 'login';
-                        }
-                    }
-                } else {
-                    $reset_err = "Email not found.";
-                }
-            }
-        }
+        $stmt = $conn->prepare("SELECT fyp_userid FROM user WHERE fyp_email = ? LIMIT 1");
+        $stmt->bind_param("s", $email);
+        $stmt->execute();
+        if ($stmt->get_result()->num_rows == 1) {
+            $token = bin2hex(random_bytes(16));
+            $hash  = hash("sha256", $token);
+            $exp   = date("Y-m-d H:i:s", time() + 86400);
 
-    // --- SAVE NEW PASSWORD ---
-    } elseif (isset($_POST['save_new_password'])) {
+            $upd = $conn->prepare("UPDATE user SET reset_token_hash = ?, reset_token_expires_at = ? WHERE fyp_email = ?");
+            $upd->bind_param("sss", $hash, $exp, $email);
+            $upd->execute();
+
+            $link = "http://$_SERVER[HTTP_HOST]$_SERVER[PHP_SELF]?token=$token";
+            $reset_msg = "<b>LOCALHOST LINK:</b><br><a href='$link' style='color:#0056b3;font-weight:bold;'>RESET LINK</a>";
+            $view = 'login';
+        } else {
+            $reset_err = "Email not found.";
+        }
+    }
+
+    // 3. SAVE NEW PASSWORD
+    elseif (isset($_POST['save_new_password'])) {
         $view = 'reset';
         $token = $_POST['token'];
         $p1 = $_POST['new_password'];
         $p2 = $_POST['confirm_password'];
-        
+
         if ($p1 !== $p2) {
             $reset_err = "Passwords do not match.";
         } else {
-            $token_hash = hash("sha256", $token);
-            
-            // Check Token with Timezone Fix
-            if (checkToken($conn, $token_hash)) {
+            $hash_token = hash("sha256", $token);
+            if (checkToken($conn, $hash_token)) {
                 // Get User ID
-                $sql = "SELECT fyp_userid FROM user WHERE reset_token_hash = ?";
-                $uid = null;
-                if ($stmt = $conn->prepare($sql)) {
-                    $stmt->bind_param("s", $token_hash);
-                    $stmt->execute();
-                    $res = $stmt->get_result();
-                    $row = $res->fetch_assoc();
-                    $uid = $row['fyp_userid'];
-                    $stmt->close();
-                }
+                $stmt = $conn->prepare("SELECT fyp_userid FROM user WHERE reset_token_hash = ?");
+                $stmt->bind_param("s", $hash_token);
+                $stmt->execute();
+                $uid = $stmt->get_result()->fetch_assoc()['fyp_userid'];
 
-                if ($uid) {
-                    $new_hash = password_hash($p1, PASSWORD_DEFAULT);
-                    $upd = $conn->prepare("UPDATE user SET fyp_passwordhash = ?, reset_token_hash = NULL, reset_token_expires_at = NULL WHERE fyp_userid = ?");
-                    $upd->bind_param("si", $new_hash, $uid);
-                    $upd->execute();
-                    
-                    $reset_msg = "Password changed! Please login.";
-                    $view = 'login';
-                }
+                // Update Password
+                $new_pwd_hash = password_hash($p1, PASSWORD_DEFAULT);
+                $upd = $conn->prepare("UPDATE user SET fyp_passwordhash = ?, reset_token_hash = NULL, reset_token_expires_at = NULL WHERE fyp_userid = ?");
+                $upd->bind_param("si", $new_pwd_hash, $uid);
+                $upd->execute();
+
+                $reset_msg = "Password changed! Please login.";
+                $view = 'login';
             } else {
-                // Fallback for Developer (Raw Token Check)
-                // This handles cases where you manually copy the hash from DB
-                $raw_check_sql = "SELECT fyp_userid FROM user WHERE reset_token_hash = ?"; 
-                // We skip time check for raw paste to allow manual debugging
-                if ($stmt = $conn->prepare($raw_check_sql)) {
-                    $stmt->bind_param("s", $token);
-                    $stmt->execute();
-                    $res = $stmt->get_result();
-                    if ($res->num_rows === 1) {
-                        $row = $res->fetch_assoc();
-                        $uid = $row['fyp_userid'];
-                        
-                        $new_hash = password_hash($p1, PASSWORD_DEFAULT);
-                        $upd = $conn->prepare("UPDATE user SET fyp_passwordhash = ?, reset_token_hash = NULL, reset_token_expires_at = NULL WHERE fyp_userid = ?");
-                        $upd->bind_param("si", $new_hash, $uid);
-                        $upd->execute();
-                        $reset_msg = "Password changed! Please login.";
-                        $view = 'login';
-                    } else {
-                        $reset_err = "Invalid or expired token.";
-                    }
-                }
+                $reset_err = "Invalid or expired token.";
             }
         }
     }
 }
 
-// --- HANDLE URL TOKEN CLICK ---
+// --- HANDLE GET TOKEN (Link Clicked) ---
 if (isset($_GET['token'])) {
-    $raw_token = $_GET['token'];
-    $token_hash = hash("sha256", $raw_token);
-    
-    // Check with Timezone Fix
-    if (checkToken($conn, $token_hash)) {
+    if (checkToken($conn, hash("sha256", $_GET['token']))) {
         $view = 'reset';
     } else {
-        // Fallback: Check if user pasted hash directly
-        $sql = "SELECT fyp_userid FROM user WHERE reset_token_hash = ?"; 
-        if ($stmt = $conn->prepare($sql)) {
-            $stmt->bind_param("s", $raw_token);
-            $stmt->execute();
-            $stmt->store_result();
-            if ($stmt->num_rows === 1) {
-                $view = 'reset'; // Allow it for debugging
-            } else {
-                $reset_err = "Token expired or invalid.";
-                $view = 'login';
-            }
-        }
+        $reset_err = "Token expired or invalid.";
     }
 }
 ?>
@@ -221,31 +163,33 @@ if (isset($_GET['token'])) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FYP Portal</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="css/Login.css?v=<?php echo time(); ?>">
     <style>
-        .alert-success {
-            background-color: #d4edda; color: #155724; padding: 15px;
-            border: 1px solid #c3e6cb; border-radius: 4px; margin-bottom: 20px; 
-            text-align: center;
-        }
-        .alert-error {
-            background-color: #fce4e4; color: #cc0033; padding: 10px;
-            border: 1px solid #fcc2c3; border-radius: 4px; margin-bottom: 20px; 
-            text-align: center;
-        }
-        form { animation: fadeIn 0.5s; }
-        @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+        body { font-family: sans-serif; background: #f4f6f9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .login-wrapper { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 350px; }
+        .input-group { margin-bottom: 15px; }
+        .input-group label { display: block; margin-bottom: 5px; font-weight: 600; font-size: 0.9em; }
+        .input-group input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        .login-button { width: 100%; padding: 10px; background: #0d6efd; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1em; }
+        .login-button:hover { background: #0b5ed7; }
+        .btn-danger { background: #dc3545; color: white; text-decoration: none; padding: 10px; display: block; text-align: center; border-radius: 4px; }
+        .btn-danger:hover { background: #bb2d3b; }
+        .alert-success { background-color: #d4edda; color: #155724; padding: 10px; border-radius: 4px; margin-bottom: 15px; text-align: center; }
+        .alert-error { background-color: #fce4e4; color: #cc0033; padding: 10px; border-radius: 4px; margin-bottom: 15px; text-align: center; }
+        .form-links { text-align: right; margin-top: 10px; font-size: 0.85em; }
+        .form-links a { color: #666; text-decoration: none; }
+        .password-wrapper { position: relative; }
+        .toggle-password { position: absolute; right: 10px; top: 12px; cursor: pointer; color: #888; }
+        hr { margin: 20px 0; border: 0; border-top: 1px solid #eee; }
     </style>
 </head>
 <body>
 
 <div class="login-wrapper">
 
-    <!-- LOGIN VIEW -->
+    <!-- LOGIN FORM -->
     <?php if ($view === 'login'): ?>
     <form id="loginForm" method="post" action="">
-        <img src="image/mmu_logo.png" alt="Logo" class="logo" onerror="this.style.display='none'"> 
-        <h2 style="margin-top:0;">FYP Portal</h2>
+        <h2 style="text-align:center; margin-top:0;">FYP Portal</h2>
 
         <?php if($login_err) echo "<div class='alert-error'>$login_err</div>"; ?>
         <?php if($reset_msg) echo "<div class='alert-success'>$reset_msg</div>"; ?>
@@ -258,7 +202,7 @@ if (isset($_GET['token'])) {
 
         <div class="input-group">
             <label>Password</label>
-            <div class="password-wrapper" style="width: 100%;">
+            <div class="password-wrapper">
                 <input type="password" id="password" name="password" placeholder="Enter password" required>
                 <i class="fa fa-eye-slash toggle-password" onclick="togglePass()"></i>
             </div>
@@ -271,12 +215,11 @@ if (isset($_GET['token'])) {
     </form>
     <?php endif; ?>
 
-    <!-- FORGOT PASSWORD VIEW -->
+    <!-- FORGOT PASSWORD FORM -->
     <?php if ($view === 'forgot'): ?>
     <form id="forgotForm" method="post" action="">
-        <img src="image/mmu_logo.png" alt="Logo" class="logo" onerror="this.style.display='none'"> 
-        <h2 style="margin-top:0;">Reset Password</h2>
-        <p style="text-align:center;color:#666;">Enter your email to reset password.</p>
+        <h2 style="text-align:center; margin-top:0;">Reset Password</h2>
+        <p style="text-align:center;color:#666;font-size:0.9em;">Enter your email to receive a reset link.</p>
 
         <?php if($reset_err) echo "<div class='alert-error'>$reset_err</div>"; ?>
 
@@ -292,11 +235,10 @@ if (isset($_GET['token'])) {
     </form>
     <?php endif; ?>
 
-    <!-- NEW PASSWORD VIEW -->
+    <!-- RESET PASSWORD FORM -->
     <?php if ($view === 'reset'): ?>
     <form id="resetForm" method="post" action="">
-        <img src="image/mmu_logo.png" alt="Logo" class="logo" onerror="this.style.display='none'"> 
-        <h2 style="margin-top:0;">New Password</h2>
+        <h2 style="text-align:center; margin-top:0;">New Password</h2>
 
         <?php if($reset_err) echo "<div class='alert-error'>$reset_err</div>"; ?>
         
@@ -315,6 +257,18 @@ if (isset($_GET['token'])) {
     </form>
     <?php endif; ?>
 
+    <!-- EXTERNAL LINKS -->
+    <hr>
+    <a href="google_login.php" class="btn btn-danger w-100">
+        <i class="fab fa-google me-2"></i> Login with Google
+    </a>
+    <hr>
+    <p style="text-align:center; font-size:14px; margin-bottom:0;">
+        New student?
+        <a href="Registration.php" style="color:#0056b3; font-weight:600;">
+            Register for FYP
+        </a>
+    </p>
 </div>
 
 <script>
@@ -335,3 +289,4 @@ function togglePass() {
 
 </body>
 </html>
+<?php ob_end_flush(); ?>
