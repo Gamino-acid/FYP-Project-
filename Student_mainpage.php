@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// Student_mainpage.php - Main Dashboard & Routing (Updated Dashboard Logic)
+// Student_mainpage.php - Main Dashboard (Full Height Announcement Feed)
 // ====================================================
 include("connect.php");
 
@@ -8,17 +8,12 @@ include("connect.php");
 $auth_user_id = $_GET['auth_user_id'] ?? null;
 $current_page = $_GET['page'] ?? 'dashboard';
 
-// Sidebar 跳转逻辑
 if ($current_page == 'book_session') $current_page = 'appointments';
-
-// 安全检查
 if (!$auth_user_id) { header("location: login.php"); exit; }
 
 // ====================================================
-// 2. 逻辑处理 (POST 请求)
+// 2. 逻辑处理 (POST 请求 - 预约)
 // ====================================================
-
-// B. Appointment Booking (预约)
 if ($current_page == 'appointments' && $_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['book_appointment'])) {
     $post_schedule_id = $_POST['schedule_id'];
     $post_supervisor_id = $_POST['supervisor_id'];
@@ -45,16 +40,13 @@ $user_name = 'Student';
 if (isset($conn)) {
     $sql_user = "SELECT fyp_username FROM `USER` WHERE fyp_userid = ?";
     if ($stmt = $conn->prepare($sql_user)) { 
-        $stmt->bind_param("i", $auth_user_id); 
-        $stmt->execute(); 
-        $res=$stmt->get_result(); 
-        if($row=$res->fetch_assoc()) $user_name=$row['fyp_username']; 
+        $stmt->bind_param("i", $auth_user_id); $stmt->execute(); 
+        $res = $stmt->get_result(); if($row=$res->fetch_assoc()) $user_name=$row['fyp_username']; 
         $stmt->close(); 
     }
     $sql_stud = "SELECT * FROM STUDENT WHERE fyp_userid = ?";
     if ($stmt = $conn->prepare($sql_stud)) { 
-        $stmt->bind_param("i", $auth_user_id); 
-        $stmt->execute(); 
+        $stmt->bind_param("i", $auth_user_id); $stmt->execute(); 
         $res=$stmt->get_result(); 
         if($res->num_rows > 0) { 
             $stud_data = $res->fetch_assoc(); 
@@ -66,27 +58,28 @@ if (isset($conn)) {
     }
 }
 
-// 3.2 获取公告 (Dashboard Only)
-$announcements = [];
-if ($current_page == 'dashboard') {
-    $res = $conn->query("SELECT * FROM announcement ORDER BY fyp_datecreated DESC");
-    while ($row = $res->fetch_assoc()) $announcements[] = $row;
-}
-
-// 3.3 [关键更新] 获取 Dashboard 实时状态 (项目 & 导师)
+// ----------------------------------------------------
+// 3.2 获取 Dashboard 实时状态 & 关键过滤参数
+// ----------------------------------------------------
 $dashboard_data = [
     'project_status' => 'Not Registered', 
     'next_deadline' => 'TBA', 
     'supervisor_name' => 'Please apply for a project'
 ];
 
-if ($current_page == 'dashboard' && !empty($stud_data['fyp_studid'])) {
+// 初始化过滤变量
+$my_sv_id = null;         // 我的导师ID
+$my_sv_name = "";         // 我的导师名字
+$my_project_title = "";   // 我的项目标题
+
+if (!empty($stud_data['fyp_studid'])) {
     $my_id = $stud_data['fyp_studid'];
 
-    // 1. 检查 fyp_registration (是否已正式获得项目)
-    $sql_reg = "SELECT r.*, s.fyp_name 
+    // 1. 检查 fyp_registration (优先：已注册项目)
+    $sql_reg = "SELECT r.*, s.fyp_name, s.fyp_supervisorid, p.fyp_projecttitle
                 FROM fyp_registration r 
                 JOIN supervisor s ON r.fyp_supervisorid = s.fyp_supervisorid 
+                JOIN project p ON r.fyp_projectid = p.fyp_projectid
                 WHERE r.fyp_studid = ? LIMIT 1";
     
     $is_registered = false;
@@ -99,6 +92,9 @@ if ($current_page == 'dashboard' && !empty($stud_data['fyp_studid'])) {
             $dashboard_data['project_status'] = 'Active (Registered)';
             $dashboard_data['supervisor_name'] = $row_reg['fyp_name'];
             $dashboard_data['next_deadline'] = 'Check Schedule'; 
+            
+            $my_sv_id = $row_reg['fyp_supervisorid'];
+            $my_project_title = trim($row_reg['fyp_projecttitle']);
         }
         $stmt->close();
     }
@@ -106,8 +102,6 @@ if ($current_page == 'dashboard' && !empty($stud_data['fyp_studid'])) {
     // 2. 如果没注册，检查申请状态 (Pending/Reject)
     if (!$is_registered) {
         $applicant_id = $my_id;
-        
-        // 检查我是否是组员 (如果是，需要查队长的申请)
         $sql_mem = "SELECT g.leader_id FROM group_request gr 
                     JOIN student_group g ON gr.group_id = g.group_id 
                     WHERE gr.invitee_id = ? AND gr.request_status = 'Accepted'";
@@ -121,10 +115,10 @@ if ($current_page == 'dashboard' && !empty($stud_data['fyp_studid'])) {
             $stmt_m->close();
         }
 
-        // 查询最新的申请记录
-        $sql_req = "SELECT pr.fyp_requeststatus, s.fyp_name 
+        $sql_req = "SELECT pr.fyp_requeststatus, s.fyp_name, s.fyp_supervisorid, p.fyp_projecttitle, p.fyp_contactpersonname
                     FROM project_request pr 
                     LEFT JOIN supervisor s ON pr.fyp_supervisorid = s.fyp_supervisorid 
+                    LEFT JOIN project p ON pr.fyp_projectid = p.fyp_projectid
                     WHERE pr.fyp_studid = ? 
                     ORDER BY pr.fyp_datecreated DESC LIMIT 1";
         
@@ -134,12 +128,21 @@ if ($current_page == 'dashboard' && !empty($stud_data['fyp_studid'])) {
             $res_r = $stmt_r->get_result();
             if ($row_r = $res_r->fetch_assoc()) {
                 $status = $row_r['fyp_requeststatus'];
+                $current_sv_name = !empty($row_r['fyp_name']) ? $row_r['fyp_name'] : $row_r['fyp_contactpersonname'];
+                
                 if ($status == 'Pending') {
                     $dashboard_data['project_status'] = 'Pending Approval';
-                    $dashboard_data['supervisor_name'] = $row_r['fyp_name'] . " (Pending)";
+                    $dashboard_data['supervisor_name'] = $current_sv_name . " (Pending)";
+                    
+                    $my_sv_id = $row_r['fyp_supervisorid'];
+                    $my_sv_name = $current_sv_name;
+                    $my_project_title = trim($row_r['fyp_projecttitle']);
+
                 } elseif ($status == 'Reject') {
                     $dashboard_data['project_status'] = 'Application Rejected';
                     $dashboard_data['supervisor_name'] = 'Please apply again';
+                    $my_sv_id = null;
+                    $my_project_title = "";
                 }
             }
             $stmt_r->close();
@@ -147,7 +150,59 @@ if ($current_page == 'dashboard' && !empty($stud_data['fyp_studid'])) {
     }
 }
 
-// 3.4 获取预约信息 (原有逻辑)
+// ----------------------------------------------------
+// 3.3 获取并过滤公告 (Dashboard Only)
+// ----------------------------------------------------
+$announcements = [];
+if ($current_page == 'dashboard') {
+    $sql_ann = "SELECT a.*, s.fyp_name as sender_name, s.fyp_supervisorid as sv_real_id, s.fyp_profileimg
+                FROM announcement a 
+                LEFT JOIN supervisor s ON a.fyp_supervisorid = s.fyp_supervisorid 
+                ORDER BY a.fyp_datecreated DESC";
+    $res = $conn->query($sql_ann);
+    if ($res) {
+        while ($row = $res->fetch_assoc()) {
+            
+            $display_name = "Supervisor"; 
+            if (!empty($row['sender_name'])) {
+                $display_name = $row['sender_name'];
+            } elseif (!empty($row['fyp_supervisorid']) && !is_numeric($row['fyp_supervisorid'])) {
+                $display_name = $row['fyp_supervisorid'];
+            }
+            $row['final_display_name'] = $display_name;
+            
+            $should_show = false;
+            $receiver = trim($row['fyp_receiver']); 
+            
+            $sender_sv_id = $row['sv_real_id'] ? $row['sv_real_id'] : $row['fyp_supervisorid'];
+            $sender_sv_name = $display_name;
+
+            if (strcasecmp($receiver, 'All Students') == 0) {
+                $should_show = true;
+            } 
+            elseif (strcasecmp($receiver, 'My Supervisees') == 0) {
+                if ($my_sv_id && $sender_sv_id == $my_sv_id && $my_sv_id != 0) {
+                    $should_show = true;
+                }
+                elseif ($my_sv_name && strcasecmp($sender_sv_name, $my_sv_name) == 0) {
+                    $should_show = true;
+                }
+            } 
+            elseif (strpos($receiver, 'Project: ') === 0) {
+                $target_project = trim(substr($receiver, 9)); 
+                if ($my_project_title && strcasecmp($target_project, $my_project_title) == 0) {
+                    $should_show = true;
+                }
+            }
+
+            if ($should_show) {
+                $announcements[] = $row;
+            }
+        }
+    }
+}
+
+// 3.4 获取预约信息
 $supervisor_data = null; $available_schedules = []; $my_appointments = []; $pairing_data = null;
 if ($current_page == 'appointments' && !empty($stud_data['fyp_projectid'])) {
     $proj_id = $stud_data['fyp_projectid'];
@@ -186,7 +241,7 @@ $menu_items = [
             'doc_submission' => ['name' => 'Document Upload', 'icon' => 'fa-cloud-upload-alt', 'link' => '?page=doc_submission'],
         ]
     ],
-    'appointments' => ['name' => 'Appointment', 'icon' => 'fa-calendar-check', 'sub_items' => ['book_session' => ['name' => 'Make Appointment', 'icon' => 'fa-plus-circle', 'link' => '?page=appointments']]],
+   'appointments' => ['name' => 'Appointment', 'icon' => 'fa-calendar-check', 'sub_items' => ['book_session' => ['name' => 'Book Consultation', 'icon' => 'fa-comments', 'link' => 'student_appointment_meeting.php'], 'presentation' => ['name' => 'Final Presentation', 'icon' => 'fa-chalkboard-teacher', 'link' => '?page=presentation']]],
     'grades' => ['name' => 'My Grades', 'icon' => 'fa-star', 'link' => '?page=grades'],
 ];
 ?>
@@ -216,13 +271,14 @@ $menu_items = [
         .sidebar { width: var(--sidebar-width); background: #fff; border-radius: 12px; box-shadow: var(--card-shadow); padding: 20px 0; flex-shrink: 0; min-height: calc(100vh - 120px); }
         .menu-list { list-style: none; padding: 0; margin: 0; }
         .menu-item { margin-bottom: 5px; }
-        .menu-link { display: flex; align-items: center; padding: 12px 25px; text-decoration: none; color: #555; font-weight: 500; font-size: 15px; transition: all 0.3s; border-left: 4px solid transparent; }
+        .menu-link { display: flex; align-items: center; padding: 12px 25px; text-decoration: none; color: #555; font-weight: 500; font-size: 15px; transition: all 0.3s; border-left: 4px solid transparent; position: relative; }
         .menu-link:hover { background-color: var(--secondary-color); color: var(--primary-color); }
         .menu-link.active { background-color: #e3effd; color: var(--primary-color); border-left-color: var(--primary-color); }
         .menu-icon { width: 24px; margin-right: 10px; text-align: center; }
         .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: none; }
         .menu-item.has-active-child .submenu, .menu-item:hover .submenu { display: block; }
         .submenu .menu-link { padding-left: 58px; font-size: 14px; padding-top: 10px; padding-bottom: 10px; }
+        
         .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; }
         .welcome-card { background: #fff; padding: 30px; border-radius: 12px; box-shadow: var(--card-shadow); border-left: 5px solid var(--primary-color); }
         .page-title { font-size: 24px; margin: 0 0 10px 0; color: var(--text-color); }
@@ -231,16 +287,17 @@ $menu_items = [
         .info-card:hover { transform: translateY(-3px); }
         .info-card h3 { margin: 0 0 15px 0; color: var(--student-accent); font-size: 16px; font-weight: 600; }
         
-        /* Announcement Styles */
-        .announcement-feed { max-height: 400px; overflow-y: auto; padding-right: 10px; }
-        .announcement-feed::-webkit-scrollbar { width: 8px; }
-        .announcement-feed::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
-        .announcement-feed::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
+        /* Announcement Styles - FULL HEIGHT FIX */
+        .announcement-feed { 
+            /* Removed fixed height and overflow to allow full page scrolling */
+        } 
+        
         .ann-card { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 15px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); border-left: 5px solid #6264A7; transition: transform 0.2s; position: relative; }
         .ann-card:hover { transform: translateX(3px); }
         .ann-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #eee; }
         .ann-sender-info { display: flex; align-items: center; gap: 10px; }
-        .ann-avatar { width: 40px; height: 40px; background-color: #6264A7; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 18px; }
+        .ann-avatar { width: 40px; height: 40px; background-color: #6264A7; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 18px; overflow: hidden; }
+        .ann-avatar img { width: 100%; height: 100%; object-fit: cover; }
         .ann-sender-name { font-weight: 600; color: #333; font-size: 15px; }
         .ann-role { font-size: 12px; color: #888; background: #f0f0f0; padding: 2px 8px; border-radius: 10px; margin-left: 8px;}
         .ann-date { font-size: 12px; color: #999; display: flex; align-items: center; gap: 5px; }
@@ -272,7 +329,7 @@ $menu_items = [
         .status-pending { background: #fff3cd; color: #856404; }
         .status-approved { background: #d4edda; color: #155724; }
         .status-rejected { background: #f8d7da; color: #721c24; }
-        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; backdrop-filter: blur(2px); justify-content: center; align-items: center; opacity: 0; transition: opacity 0.3s ease; }
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; opacity: 0; transition: opacity 0.3s ease; }
         .modal-overlay.show { display: flex; opacity: 1; }
         .modal-box { background: #fff; padding: 35px; border-radius: 12px; width: 90%; max-width: 450px; text-align: center; box-shadow: 0 15px 35px rgba(0,0,0,0.2); transform: scale(0.9); transition: transform 0.3s ease; }
         .modal-overlay.show .modal-box { transform: scale(1); }
@@ -302,18 +359,11 @@ $menu_items = [
     </header>
 
     <div class="layout-container">
-        
         <aside class="sidebar">
             <ul class="menu-list">
                 <?php foreach ($menu_items as $key => $item): ?>
                     <?php 
                         $isActive = ($key == $current_page);
-                        $hasActiveChild = false;
-                        if (isset($item['sub_items'])) {
-                            foreach ($item['sub_items'] as $sub_key => $sub) {
-                                if ($sub_key == $current_page) { $hasActiveChild = true; break; }
-                            }
-                        }
                         $linkUrl = isset($item['link']) ? $item['link'] : "#";
                         if (strpos($linkUrl, '.php') !== false) {
                              $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?';
@@ -354,6 +404,9 @@ $menu_items = [
                 <?php if ($current_page == 'appointments'): ?>
                     <h1 class="page-title">Make Appointment</h1>
                     <p style="color: #666; margin: 0;">Book a consultation slot with your supervisor.</p>
+                <?php elseif ($current_page == 'presentation'): ?>
+                    <h1 class="page-title">Final Presentation</h1>
+                    <p style="color: #666; margin: 0;">Book your final presentation slot.</p>
                 <?php else: ?>
                     <h1 class="page-title">Hello, <?php echo htmlspecialchars($user_name); ?>! 👋</h1>
                     <p style="color: #666; margin: 0;">Welcome to your Student Dashboard.</p>
@@ -383,9 +436,18 @@ $menu_items = [
                             <div class="ann-card">
                                 <div class="ann-header">
                                     <div class="ann-sender-info">
-                                        <div class="ann-avatar"><?php echo strtoupper(substr($ann['fyp_supervisorid'], 0, 1)); ?></div>
+                                        <div class="ann-avatar">
+                                            <?php 
+                                            // 检查是否有头像图片，如果有则显示图片，否则显示名字首字母
+                                            if (!empty($ann['fyp_profileimg'])) {
+                                                echo "<img src='" . $ann['fyp_profileimg'] . "' alt='SV'>";
+                                            } else {
+                                                echo strtoupper(substr($ann['final_display_name'] ?? 'S', 0, 1)); 
+                                            }
+                                            ?>
+                                        </div>
                                         <div>
-                                            <div class="ann-sender-name"><?php echo htmlspecialchars($ann['fyp_supervisorid']); ?><span class="ann-role">Lecturer</span></div>
+                                            <div class="ann-sender-name"><?php echo htmlspecialchars($ann['final_display_name']); ?> <span class="ann-role">Supervisor</span></div>
                                             <div style="font-size: 11px; color: #888;">To: <?php echo htmlspecialchars($ann['fyp_receiver']); ?></div>
                                         </div>
                                     </div>
@@ -483,6 +545,18 @@ $menu_items = [
                         <p style="color: #777;">You have no booking history.</p>
                     <?php endif; ?>
                 <?php endif; ?>
+
+            <!-- NEW SECTION -->
+            <?php elseif ($current_page == 'presentation'): ?>
+                <div style="background: #fff; padding: 40px; border-radius: 12px; box-shadow: var(--card-shadow); text-align: center;">
+                    <i class="fa fa-chalkboard-teacher" style="font-size: 48px; color: #6c757d; margin-bottom: 20px;"></i>
+                    <h2 style="color: #333; margin-bottom: 10px;">Final Presentation Booking</h2>
+                    <p style="color: #666;">The slot booking for Final Year Project presentation will open soon.</p>
+                    <div style="margin-top: 20px; padding: 10px 20px; background: #e9ecef; display: inline-block; border-radius: 20px; font-size: 13px; color: #555;">
+                        <i class="fa fa-info-circle"></i> Please wait for coordinator announcement.
+                    </div>
+                </div>
+            <!-- END NEW SECTION -->
 
             <?php else: ?>
                 <div style="background: #fff; padding: 30px; border-radius: 12px; box-shadow: var(--card-shadow); text-align: center;">

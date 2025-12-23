@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// supervisor_announcement.php - 发布公告页面
+// supervisor_announcement.php - 发布公告页面 (Targeted)
 // ====================================================
 
 include("connect.php");
@@ -16,10 +16,12 @@ if (!$auth_user_id) {
     exit; 
 }
 
-// 2. 获取导师信息
+// 2. 获取导师信息 & 负责的项目列表 (Active Projects)
 $user_name = "Supervisor"; 
 $user_avatar = "image/user.png"; 
 $sv_name_for_post = "Supervisor";
+$sv_id = 0;
+$my_active_targets = []; // 用于存储可选的发送对象
 
 if (isset($conn)) {
     $sql_sv = "SELECT * FROM supervisor WHERE fyp_userid = ?";
@@ -28,13 +30,44 @@ if (isset($conn)) {
         $res = $stmt->get_result();
         if ($res->num_rows > 0) {
             $row = $res->fetch_assoc();
+            $sv_id = $row['fyp_supervisorid'];
             if (!empty($row['fyp_name'])) {
                 $user_name = $row['fyp_name'];
-                $sv_name_for_post = $row['fyp_name']; // 用于写入公告发送者
+                $sv_name_for_post = $row['fyp_name']; 
             }
             if (!empty($row['fyp_profileimg'])) $user_avatar = $row['fyp_profileimg'];
         }
         $stmt->close();
+    }
+
+    // 获取该导师负责的所有 Active Projects (用于特定发送)
+    // 我们获取 Project ID, Title, Type 和 学生名单
+    if ($sv_id > 0) {
+        $sql_targets = "SELECT p.fyp_projecttitle, p.fyp_projecttype, 
+                               GROUP_CONCAT(s.fyp_studname SEPARATOR ', ') as students
+                        FROM fyp_registration r
+                        JOIN project p ON r.fyp_projectid = p.fyp_projectid
+                        JOIN student s ON r.fyp_studid = s.fyp_studid
+                        WHERE r.fyp_supervisorid = ?
+                        GROUP BY r.fyp_projectid";
+        
+        if ($stmt_t = $conn->prepare($sql_targets)) {
+            $stmt_t->bind_param("i", $sv_id);
+            $stmt_t->execute();
+            $res_t = $stmt_t->get_result();
+            while ($row_t = $res_t->fetch_assoc()) {
+                // 格式化显示名称: "[Group] Project Title (Alice, Bob)" 或 "[Indi] Project Title (Charlie)"
+                $type_tag = ($row_t['fyp_projecttype'] == 'Group') ? '[Group]' : '[Indiv]';
+                $label = $type_tag . " " . substr($row_t['fyp_projecttitle'], 0, 30) . "... (" . $row_t['students'] . ")";
+                
+                // 这里的 value 我们存入特定的格式，方便之后识别
+                // 我们直接存 "Target: {Project Title}" 或者简单的标识
+                // 为了兼容现有结构，我们将 value 设为一段描述性文本，例如 "Project: AI Chatbot Team"
+                $value = "Project: " . $row_t['fyp_projecttitle']; 
+                $my_active_targets[] = ['label' => $label, 'value' => $value];
+            }
+            $stmt_t->close();
+        }
     }
 }
 
@@ -44,21 +77,23 @@ if (isset($conn)) {
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $subject = $_POST['subject'];
     $description = $_POST['description'];
-    $receiver = $_POST['receiver']; // e.g. "All Students" or specific group
+    $receiver_type = $_POST['receiver_type'];
     $date_now = date('Y-m-d H:i:s');
+    
+    // 确定最终的 receiver 字符串
+    $final_receiver = "";
+    if ($receiver_type == 'specific') {
+        $final_receiver = $_POST['specific_target']; // 例如 "Project: AI System"
+    } else {
+        $final_receiver = $receiver_type; // "All Students" 或 "My Supervisees"
+    }
 
-    // 注意：请确保你的 announcement 表有这些字段
-    // fyp_announcementid (Auto Inc), fyp_subject, fyp_description, fyp_receiver, fyp_datecreated, fyp_supervisorid (Name or ID)
-    
-    // 这里我们将导师名字存入 fyp_supervisorid 字段，用于显示发送者
-    // 或者你可以存 ID，然后在读取时 JOIN。这里为了简单演示直接存名字。
-    
     $sql_insert = "INSERT INTO announcement (fyp_subject, fyp_description, fyp_receiver, fyp_datecreated, fyp_supervisorid) VALUES (?, ?, ?, ?, ?)";
     
     if ($stmt = $conn->prepare($sql_insert)) {
-        $stmt->bind_param("sssss", $subject, $description, $receiver, $date_now, $sv_name_for_post);
+        $stmt->bind_param("sssss", $subject, $description, $final_receiver, $date_now, $sv_name_for_post);
         if ($stmt->execute()) {
-            echo "<script>alert('Announcement posted successfully!'); window.location.href='Supervisor_mainpage.php?auth_user_id=" . $auth_user_id . "';</script>";
+            echo "<script>alert('Announcement posted successfully to: $final_receiver'); window.location.href='Supervisor_mainpage.php?auth_user_id=" . $auth_user_id . "';</script>";
         } else {
             echo "<script>alert('Error posting announcement: " . $stmt->error . "');</script>";
         }
@@ -152,6 +187,8 @@ $menu_items = [
         .btn-submit { background-color: var(--primary-color); color: white; border: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: background 0.2s; display: inline-flex; align-items: center; gap: 8px; }
         .btn-submit:hover { background-color: var(--primary-hover); }
         
+        .specific-target-container { display: none; margin-top: 10px; padding: 15px; background: #f8f9fa; border-radius: 6px; border: 1px dashed #ddd; }
+        
         @media (max-width: 900px) { .layout-container { flex-direction: column; } .sidebar { width: 100%; min-height: auto; } }
     </style>
 </head>
@@ -227,11 +264,28 @@ $menu_items = [
                     </div>
 
                     <div class="form-group">
-                        <label for="receiver">Receiver <span style="color:red">*</span></label>
-                        <select id="receiver" name="receiver" class="form-control">
-                            <option value="All Students">All Students</option>
-                            <option value="My Supervisees">My Supervisees Only</option>
+                        <label for="receiver_type">Receiver <span style="color:red">*</span></label>
+                        <select id="receiver_type" name="receiver_type" class="form-control" onchange="toggleSpecificTarget(this.value)">
+                            <option value="All Students">All Students (Public)</option>
+                            <option value="My Supervisees">All My Supervisees</option>
+                            <option value="specific">Specific Project / Team</option>
                         </select>
+                        
+                        <!-- 二级联动菜单：Specific Target -->
+                        <div id="specific_target_container" class="specific-target-container">
+                            <label for="specific_target" style="font-size:13px; color:#555;">Select Project / Team:</label>
+                            <select id="specific_target" name="specific_target" class="form-control">
+                                <?php if(empty($my_active_targets)): ?>
+                                    <option value="" disabled>No active projects found under your supervision.</option>
+                                <?php else: ?>
+                                    <?php foreach ($my_active_targets as $tgt): ?>
+                                        <option value="<?php echo htmlspecialchars($tgt['value']); ?>">
+                                            <?php echo htmlspecialchars($tgt['label']); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </select>
+                        </div>
                     </div>
 
                     <div class="form-group">
@@ -244,5 +298,16 @@ $menu_items = [
             </div>
         </main>
     </div>
+
+    <script>
+        function toggleSpecificTarget(val) {
+            const container = document.getElementById('specific_target_container');
+            if (val === 'specific') {
+                container.style.display = 'block';
+            } else {
+                container.style.display = 'none';
+            }
+        }
+    </script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// Supervisor_mainpage.php - 导师主页 (动态数据版 + Announcement Menu)
+// Supervisor_mainpage.php - 导师主页 (动态数据版 + Announcement Menu + Schedule Link Update)
 // ====================================================
 
 include("connect.php");
@@ -112,7 +112,7 @@ $menu_items = [
             'my_projects'     => ['name' => 'My Projects', 'icon' => 'fa-folder-open', 'link' => '?page=my_projects'],
         ]
     ],
-    // --- 新增: Announcement ---
+    // --- Announcement ---
     'announcement' => [
         'name' => 'Announcement',
         'icon' => 'fa-bullhorn',
@@ -121,8 +121,8 @@ $menu_items = [
             'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => '?page=view_announcements'], // Placeholder
         ]
     ],
-    // --------------------------
-    'schedule'  => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => '?page=schedule'],
+    // --- UPDATED: Schedule now links to supervisor_meeting.php ---
+    'schedule'  => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'supervisor_meeting.php'],
 ];
 ?>
 <!DOCTYPE html>

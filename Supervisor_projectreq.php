@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// supervisor_projectreq.php - Request Management (With Group Details & Status Update)
+// supervisor_projectreq.php - Request Management (With Filters & Sorting)
 // ====================================================
 include("connect.php");
 
@@ -37,7 +37,6 @@ if (isset($_GET['action']) && isset($_GET['req_id']) && $sv_id) {
     $action = $_GET['action']; // 'Approve' or 'Reject'
 
     if ($action == 'Reject') {
-        // Simple Reject
         $conn->query("UPDATE project_request SET fyp_requeststatus = 'Reject' WHERE fyp_requestid = $req_id");
         echo "<script>alert('Request Rejected.'); window.location.href='supervisor_projectreq.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
     } 
@@ -61,39 +60,30 @@ if (isset($_GET['action']) && isset($_GET['req_id']) && $sv_id) {
         if ($current_count >= $limit) {
             echo "<script>alert('Cannot Approve: Quota Limit Exceeded! (Current: $current_count / Max: $limit)'); window.location.href='supervisor_projectreq.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
         } else {
-            // ==========================================================
-            // [CORE LOGIC] Register Leader AND Team Members
-            // ==========================================================
-            
-            // 1. 获取 Request 详情
+            // Register Logic
             $req_sql = "SELECT fyp_studid, fyp_projectid FROM project_request WHERE fyp_requestid = $req_id LIMIT 1";
             $req_res = $conn->query($req_sql);
             
             if ($req_row = $req_res->fetch_assoc()) {
-                $target_stud_id = $req_row['fyp_studid']; // 这是 Leader ID
+                $target_stud_id = $req_row['fyp_studid'];
                 $target_proj_id = $req_row['fyp_projectid'];
                 $date_now = date('Y-m-d H:i:s');
 
-                // 2. 准备要注册的学生列表 (默认为队长一人)
                 $students_to_register = [$target_stud_id];
 
-                // 检查是否为 Group Leader，如果是，找出所有队员
                 $g_chk = $conn->query("SELECT group_id FROM student_group WHERE leader_id = '$target_stud_id' LIMIT 1");
                 if ($grp = $g_chk->fetch_assoc()) {
                     $gid = $grp['group_id'];
-                    // 找出 Accepted 的队员
                     $m_res = $conn->query("SELECT invitee_id FROM group_request WHERE group_id = '$gid' AND request_status = 'Accepted'");
                     while ($m = $m_res->fetch_assoc()) {
                         $students_to_register[] = $m['invitee_id'];
                     }
                 }
 
-                // 3. 循环注册每一位学生到 FYP_REGISTRATION 表
                 $success_count = 0;
                 $ins_reg = $conn->prepare("INSERT INTO fyp_registration (fyp_studid, fyp_projectid, fyp_supervisorid, fyp_datecreated) VALUES (?, ?, ?, ?)");
                 
                 foreach ($students_to_register as $sid) {
-                    // 简单查重，防止重复插入
                     $dup_chk = $conn->query("SELECT fyp_regid FROM fyp_registration WHERE fyp_studid = '$sid'");
                     if ($dup_chk->num_rows == 0) {
                         $ins_reg->bind_param("siis", $sid, $target_proj_id, $sv_id, $date_now);
@@ -104,11 +94,7 @@ if (isset($_GET['action']) && isset($_GET['req_id']) && $sv_id) {
                 }
                 $ins_reg->close();
 
-                // 4. 更新 Request 状态为 Approve
                 $conn->query("UPDATE project_request SET fyp_requeststatus = 'Approve' WHERE fyp_requestid = $req_id");
-                
-                // 5. 【关键更新】更新 Project 状态为 Taken
-                // 这样一来，在学生端的 std_projectreg.php 中，这个项目就会变成 "Taken" 状态，按钮变灰不可选
                 $conn->query("UPDATE project SET fyp_projectstatus = 'Taken' WHERE fyp_projectid = $target_proj_id");
 
                 echo "<script>alert('Request Approved! Project is now TAKEN. $success_count student(s) registered.'); window.location.href='supervisor_projectreq.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
@@ -119,48 +105,59 @@ if (isset($_GET['action']) && isset($_GET['req_id']) && $sv_id) {
     }
 }
 
-// 4. Fetch Requests Data (With Group Info)
+// ----------------------------------------------------
+// 4. Fetch Requests Data (With Filters & Sorting)
+// ----------------------------------------------------
 $requests = [];
+
+// 获取筛选参数
+$filter_status = $_GET['filter_status'] ?? 'Pending'; // 默认显示 Pending
+$sort_order = $_GET['sort_order'] ?? 'DESC'; // 默认倒序 (最新在前)
+
 if ($sv_id) {
-    // 同时也获取 project type
     $sql_req = "SELECT r.*, s.fyp_studname, s.fyp_studfullid, p.fyp_projecttitle, p.fyp_projecttype 
                 FROM project_request r
                 JOIN student s ON r.fyp_studid = s.fyp_studid
                 JOIN project p ON r.fyp_projectid = p.fyp_projectid
-                WHERE r.fyp_supervisorid = '$sv_id' 
-                ORDER BY r.fyp_datecreated DESC";
+                WHERE r.fyp_supervisorid = '$sv_id'";
+    
+    // 应用状态筛选
+    if ($filter_status != 'All') {
+        $sql_req .= " AND r.fyp_requeststatus = '" . $conn->real_escape_string($filter_status) . "'";
+    }
+
+    // 应用排序
+    $sort_dir = ($sort_order == 'ASC') ? 'ASC' : 'DESC';
+    $sql_req .= " ORDER BY r.fyp_datecreated $sort_dir";
+
     $res_req = $conn->query($sql_req);
     
-    while($row = $res_req->fetch_assoc()){
-        // 初始化 Group 数据
-        $row['group_details'] = null; 
-        
-        // 如果是 Group Project，去查找该学生领导的队伍信息
-        if ($row['fyp_projecttype'] == 'Group') {
-            $leader_id = $row['fyp_studid'];
-            $g_sql = "SELECT group_id, group_name FROM student_group WHERE leader_id = '$leader_id' LIMIT 1";
-            $g_res = $conn->query($g_sql);
-            
-            if ($g_info = $g_res->fetch_assoc()) {
-                // 找到队伍了，存入组名
-                $row['group_details'] = [
-                    'name' => $g_info['group_name'],
-                    'members' => []
-                ];
-                
-                // 查找队员
-                $gid = $g_info['group_id'];
-                $m_sql = "SELECT s.fyp_studname, s.fyp_studfullid 
-                          FROM group_request gr 
-                          JOIN student s ON gr.invitee_id = s.fyp_studid 
-                          WHERE gr.group_id = '$gid' AND gr.request_status = 'Accepted'";
-                $m_res = $conn->query($m_sql);
-                while($mem = $m_res->fetch_assoc()){
-                    $row['group_details']['members'][] = $mem;
+    if ($res_req) {
+        while($row = $res_req->fetch_assoc()){
+            // Group Logic (Keep existing)
+            $row['group_details'] = null; 
+            if ($row['fyp_projecttype'] == 'Group') {
+                $leader_id = $row['fyp_studid'];
+                $g_sql = "SELECT group_id, group_name FROM student_group WHERE leader_id = '$leader_id' LIMIT 1";
+                $g_res = $conn->query($g_sql);
+                if ($g_info = $g_res->fetch_assoc()) {
+                    $row['group_details'] = [
+                        'name' => $g_info['group_name'],
+                        'members' => []
+                    ];
+                    $gid = $g_info['group_id'];
+                    $m_sql = "SELECT s.fyp_studname, s.fyp_studfullid 
+                              FROM group_request gr 
+                              JOIN student s ON gr.invitee_id = s.fyp_studid 
+                              WHERE gr.group_id = '$gid' AND gr.request_status = 'Accepted'";
+                    $m_res = $conn->query($m_sql);
+                    while($mem = $m_res->fetch_assoc()){
+                        $row['group_details']['members'][] = $mem;
+                    }
                 }
             }
+            $requests[] = $row;
         }
-        $requests[] = $row;
     }
 }
 
@@ -183,6 +180,14 @@ $menu_items = [
         'sub_items' => [
             'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'supervisor_purpose.php'],
             'my_projects'     => ['name' => 'My Projects', 'icon' => 'fa-folder-open', 'link' => 'Supervisor_mainpage.php?page=my_projects'],
+        ]
+    ],
+    'announcement' => [
+        'name' => 'Announcement',
+        'icon' => 'fa-bullhorn',
+        'sub_items' => [
+            'post_announcement' => ['name' => 'Post Announcement', 'icon' => 'fa-pen-square', 'link' => 'supervisor_announcement.php'],
+            'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Supervisor_mainpage.php?page=view_announcements'],
         ]
     ],
     'schedule'  => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'Supervisor_mainpage.php?page=schedule'],
@@ -248,7 +253,14 @@ $menu_items = [
         .group-name-title { font-weight:600; color:#0056b3; font-size:14px; margin-bottom:5px; }
         .group-mem-list { margin:0; padding-left:20px; font-size:13px; color:#555; }
         
-        @media (max-width: 900px) { .layout-container { flex-direction: column; } .sidebar { width: 100%; min-height: auto; } .req-card { flex-direction: column; gap: 15px; } .req-actions { width: 100%; flex-direction: row; } .btn-act { flex: 1; justify-content: center; } }
+        /* Filter Bar Styles */
+        .filter-card { background: #fff; padding: 15px 20px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #e0e0e0; display: flex; gap: 15px; align-items: flex-end; }
+        .filter-group { flex: 1; }
+        .filter-group label { display: block; font-size: 12px; color: #666; margin-bottom: 5px; font-weight: 600; }
+        .filter-select { width: 100%; padding: 8px; border-radius: 5px; border: 1px solid #ccc; font-size: 14px; }
+        .btn-filter { padding: 8px 20px; border-radius: 5px; background: var(--primary-color); color: #fff; border: none; font-weight: 600; cursor: pointer; height: 35px; }
+        
+        @media (max-width: 900px) { .layout-container { flex-direction: column; } .sidebar { width: 100%; min-height: auto; } .req-card { flex-direction: column; gap: 15px; } .req-actions { width: 100%; flex-direction: row; } .btn-act { flex: 1; justify-content: center; } .filter-card { flex-direction: column; align-items: stretch; } }
     </style>
 </head>
 <body>
@@ -258,7 +270,7 @@ $menu_items = [
         <div class="topbar-right">
             <div class="user-profile-summary">
                 <span class="user-name-display"><?php echo htmlspecialchars($user_name); ?></span>
-                <span class="user-role-badge">Lecturer</span>
+                <span class="user-role-badge">Supervisor</span>
             </div>
             <div class="user-avatar-circle"><img src="<?php echo $favicon; ?>" alt="User Avatar"></div>
             <a href="login.php" class="logout-btn"><i class="fa fa-sign-out-alt"></i> Logout</a>
@@ -314,6 +326,31 @@ $menu_items = [
                 <h1 class="page-title">Project Requests</h1>
                 <p style="color: #666; margin: 0;">Manage student project supervision requests.</p>
             </div>
+
+            <!-- FILTER BAR -->
+            <form method="GET" action="" class="filter-card">
+                <input type="hidden" name="auth_user_id" value="<?php echo htmlspecialchars($auth_user_id); ?>">
+                
+                <div class="filter-group">
+                    <label>Status</label>
+                    <select name="filter_status" class="filter-select">
+                        <option value="Pending" <?php if($filter_status == 'Pending') echo 'selected'; ?>>Pending (Default)</option>
+                        <option value="Approve" <?php if($filter_status == 'Approve') echo 'selected'; ?>>Approved</option>
+                        <option value="Reject" <?php if($filter_status == 'Reject') echo 'selected'; ?>>Rejected</option>
+                        <option value="All" <?php if($filter_status == 'All') echo 'selected'; ?>>All Requests</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label>Sort By Date</label>
+                    <select name="sort_order" class="filter-select">
+                        <option value="DESC" <?php if($sort_order == 'DESC') echo 'selected'; ?>>Newest First</option>
+                        <option value="ASC" <?php if($sort_order == 'ASC') echo 'selected'; ?>>Oldest First</option>
+                    </select>
+                </div>
+
+                <button type="submit" class="btn-filter"><i class="fa fa-filter"></i> Apply</button>
+            </form>
 
             <?php if (count($requests) > 0): ?>
                 <?php foreach ($requests as $req): 

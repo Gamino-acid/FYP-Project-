@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// std_projectreg.php - 学生申请项目 (优化版: Member 禁用 + 已申请禁用)
+// std_projectreg.php - 学生申请项目 (优化版: Member 禁用 + 已申请禁用 + 搜索过滤)
 // ====================================================
 include("connect.php");
 
@@ -75,7 +75,6 @@ $has_active_application = false;
 $active_app_status = '';
 
 // 检查 project_request 表 (Pending/Approve)
-// 注意：如果是 Group Member，我们检查的是 $target_applicant_id (即 Leader)
 $chk_app_sql = "SELECT fyp_requeststatus FROM project_request 
                 WHERE fyp_studid = '$target_applicant_id' 
                 AND (fyp_requeststatus = 'Pending' OR fyp_requeststatus = 'Approve') 
@@ -85,6 +84,20 @@ if ($res_app && $res_app->num_rows > 0) {
     $has_active_application = true;
     $row_app = $res_app->fetch_assoc();
     $active_app_status = $row_app['fyp_requeststatus'];
+}
+
+// ----------------------------------------------------
+// 【拒绝检查】获取该学生（或团队）被拒绝过的 Project ID 列表
+// ----------------------------------------------------
+$rejected_project_ids = [];
+$chk_rej_sql = "SELECT fyp_projectid FROM project_request 
+                WHERE fyp_studid = '$target_applicant_id' 
+                AND fyp_requeststatus = 'Reject'";
+$res_rej = $conn->query($chk_rej_sql);
+if ($res_rej) {
+    while ($row_rej = $res_rej->fetch_assoc()) {
+        $rejected_project_ids[] = $row_rej['fyp_projectid'];
+    }
 }
 
 // ----------------------------------------------------
@@ -99,6 +112,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_project_confi
 
     $proj_id = $_POST['project_id'];
     $date_now = date('Y-m-d H:i:s');
+
+    // 如果该项目之前被拒绝过，拦截
+    if (in_array($proj_id, $rejected_project_ids)) {
+        echo "<script>alert('You cannot re-apply to a project that has already rejected you.'); window.history.back();</script>"; exit;
+    }
 
     // A. 再次获取项目详情
     $chk_proj_sql = "SELECT fyp_projecttype, fyp_supervisorid, fyp_projectstatus FROM PROJECT WHERE fyp_projectid = ?";
@@ -118,12 +136,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_project_confi
     $proj_status = $proj_info['fyp_projectstatus'];
 
     // B. 验证逻辑
-    // 1. 检查项目是否已被占用
     if ($proj_status == 'Taken') {
         echo "<script>alert('Sorry, this project is already TAKEN.'); window.history.back();</script>"; exit;
     }
 
-    // 2. 核心：检查类型匹配
     if ($my_group_status != $proj_type) {
         $msg = ($my_group_status == 'Individual') 
             ? "You are currently an 'Individual' student. You cannot apply for a 'Group' project." 
@@ -131,33 +147,28 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_project_confi
         echo "<script>alert(\"$msg\"); window.history.back();</script>"; exit;
     }
 
-    // 3. 如果是 Group Project，后端二次检查是否为 Leader
     if ($proj_type == 'Group' && !$is_leader) {
         echo "<script>alert('Only the Team Leader can apply for a Group Project.'); window.history.back();</script>"; exit;
     }
     
-    // 3b. 检查小组人数 (必须满3人)
     if ($proj_type == 'Group' && $is_leader) {
         $count_mem_sql = "SELECT count(*) as member_count FROM group_request WHERE group_id = '$my_group_id' AND request_status = 'Accepted'";
         $cnt_res = $conn->query($count_mem_sql);
         $cnt_row = $cnt_res->fetch_assoc();
         $member_count = $cnt_row['member_count'];
-        
-        $total_size = 1 + $member_count; // 1 Leader + Members
+        $total_size = 1 + $member_count;
 
         if ($total_size < 3) {
             echo "<script>alert('Application Failed: Your team must have exactly 3 members (Accepted) to apply. Current size: " . $total_size . "'); window.history.back();</script>"; exit;
         }
     }
 
-    // C. 插入数据库 (project_request)
+    // C. 插入数据库
     $sql_ins = "INSERT INTO project_request (fyp_studid, fyp_supervisorid, fyp_projectid, fyp_requeststatus, fyp_datecreated) VALUES (?, ?, ?, 'Pending', ?)";
-    
     if ($stmt = $conn->prepare($sql_ins)) {
         $stmt->bind_param("ssis", $my_stud_id, $target_sv_id, $proj_id, $date_now);
-        
         if ($stmt->execute()) {
-            echo "<script>alert('Application Submitted Successfully! Please wait for Supervisor approval.'); window.location.href='std_projectreg.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
+            echo "<script>alert('Application Submitted Successfully!'); window.location.href='std_projectreg.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
         } else {
             echo "<script>alert('Error submitting request: " . $stmt->error . "');</script>";
         }
@@ -165,12 +176,38 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_project_confi
     }
 }
 
-// 4. 获取项目列表
+// ----------------------------------------------------
+// 4. 获取项目列表 (含搜索和过滤功能)
+// ----------------------------------------------------
 $available_projects = [];
+
+// 获取 GET 参数
+$filter_status = $_GET['filter_status'] ?? '';
+$search_title = $_GET['search_title'] ?? '';
+$search_sv = $_GET['search_sv'] ?? '';
+
+// 构建 SQL
 $sql = "SELECT p.*, s.fyp_name as sv_name, s.fyp_email as sv_email, s.fyp_contactno as sv_phone 
         FROM PROJECT p 
-        LEFT JOIN supervisor s ON p.fyp_supervisorid = s.fyp_supervisorid
-        ORDER BY p.fyp_datecreated DESC"; 
+        LEFT JOIN supervisor s ON p.fyp_supervisorid = s.fyp_supervisorid 
+        WHERE 1=1"; 
+
+// 动态添加过滤条件
+if (!empty($filter_status)) {
+    $sql .= " AND p.fyp_projectstatus = '" . $conn->real_escape_string($filter_status) . "'";
+}
+
+if (!empty($search_title)) {
+    $sql .= " AND p.fyp_projecttitle LIKE '%" . $conn->real_escape_string($search_title) . "%'";
+}
+
+if (!empty($search_sv)) {
+    // 搜索 Supervisor 名字，同时也匹配 contactpersonname 作为 fallback
+    $sv_term = $conn->real_escape_string($search_sv);
+    $sql .= " AND (s.fyp_name LIKE '%$sv_term%' OR p.fyp_contactpersonname LIKE '%$sv_term%')";
+}
+
+$sql .= " ORDER BY p.fyp_datecreated DESC"; 
 
 $res = $conn->query($sql);
 if ($res) {
@@ -240,7 +277,17 @@ $menu_items = [
         .my-status-box { text-align: right; }
         .status-pill { background: #e3effd; color: var(--primary-color); padding: 5px 15px; border-radius: 20px; font-weight: 600; font-size: 13px; display: inline-block; margin-top: 5px; }
 
-        .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 25px; }
+        /* Filter Bar Styles */
+        .filter-card { background: #fff; padding: 20px; border-radius: 12px; box-shadow: var(--card-shadow); margin-bottom: 5px; display: flex; gap: 15px; flex-wrap: wrap; align-items: flex-end; }
+        .filter-group { flex: 1; min-width: 150px; }
+        .filter-group label { display: block; font-size: 12px; font-weight: 600; color: #666; margin-bottom: 5px; }
+        .filter-input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-family: inherit; font-size: 14px; box-sizing: border-box; }
+        .btn-filter { background-color: var(--primary-color); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; height: 40px; display: inline-flex; align-items: center; gap: 5px; }
+        .btn-filter:hover { background-color: var(--primary-hover); }
+        .btn-reset { background-color: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; height: 40px; box-sizing: border-box; }
+        .btn-reset:hover { background-color: #5a6268; }
+
+        .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 25px; margin-top: 20px; }
         .project-card { background: #fff; border-radius: 12px; padding: 25px; box-shadow: var(--card-shadow); display: flex; flex-direction: column; transition: transform 0.3s; border-top: 4px solid #ddd; position: relative; }
         .project-card:hover { transform: translateY(-5px); box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
         
@@ -372,6 +419,33 @@ $menu_items = [
                     </div>
                 </div>
             <?php endif; ?>
+            
+            <!-- FILTER BAR -->
+            <form method="GET" action="" class="filter-card">
+                <input type="hidden" name="auth_user_id" value="<?php echo htmlspecialchars($auth_user_id); ?>">
+                
+                <div class="filter-group">
+                    <label>Status</label>
+                    <select name="filter_status" class="filter-input">
+                        <option value="">All</option>
+                        <option value="Open" <?php if($filter_status == 'Open') echo 'selected'; ?>>Open</option>
+                        <option value="Taken" <?php if($filter_status == 'Taken') echo 'selected'; ?>>Taken</option>
+                    </select>
+                </div>
+                
+                <div class="filter-group" style="flex: 2;">
+                    <label>Search Title</label>
+                    <input type="text" name="search_title" class="filter-input" placeholder="e.g. AI Chatbot" value="<?php echo htmlspecialchars($search_title); ?>">
+                </div>
+                
+                <div class="filter-group" style="flex: 2;">
+                    <label>Search Supervisor</label>
+                    <input type="text" name="search_sv" class="filter-input" placeholder="e.g. Dr. Smith" value="<?php echo htmlspecialchars($search_sv); ?>">
+                </div>
+                
+                <button type="submit" class="btn-filter"><i class="fa fa-search"></i> Filter</button>
+                <a href="std_projectreg.php?auth_user_id=<?php echo urlencode($auth_user_id); ?>" class="btn-reset">Reset</a>
+            </form>
 
             <div class="project-grid">
                 <?php if (count($available_projects) > 0): ?>
@@ -387,13 +461,17 @@ $menu_items = [
                             // 2. Global "Already Applied" Restriction
                             $isAlreadyApplied = $has_active_application;
 
+                            // 3. Specific Project Rejection Restriction
+                            $isRejected = in_array($proj['fyp_projectid'], $rejected_project_ids);
+
                             // Total Disabled Flag
-                            $isDisabled = $isTaken || $isMismatch || $isMemberRestrict || $isAlreadyApplied;
+                            $isDisabled = $isTaken || $isMismatch || $isMemberRestrict || $isAlreadyApplied || $isRejected;
                             
                             // Button Text Logic
                             $btnText = "View & Apply";
                             if ($isTaken) $btnText = "Taken";
-                            else if ($isAlreadyApplied) $btnText = "Already Applied"; // 优先级高
+                            else if ($isRejected) $btnText = "Application Rejected"; // 被拒绝显示
+                            else if ($isAlreadyApplied) $btnText = "Already Applied"; 
                             else if ($isMismatch) $btnText = "Type Mismatch";
                             else if ($isMemberRestrict) $btnText = "Leader Only"; 
                         ?>
@@ -429,7 +507,7 @@ $menu_items = [
                         </div>
                     <?php endforeach; ?>
                 <?php else: ?>
-                    <div style="text-align:center; padding:40px; color:#999; grid-column: 1/-1;">No projects available at the moment.</div>
+                    <div style="text-align:center; padding:40px; color:#999; grid-column: 1/-1;">No projects match your criteria.</div>
                 <?php endif; ?>
             </div>
         </main>
