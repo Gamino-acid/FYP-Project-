@@ -110,6 +110,9 @@ $menu_items = [
         'sub_items' => [
             'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'supervisor_purpose.php'],
             'my_projects'     => ['name' => 'My Projects', 'icon' => 'fa-folder-open', 'link' => '?page=my_projects'],
+            // --- Updated Icon Here ---
+            'propose_assignment' => ['name' => 'Propose Assignment', 'icon' => 'fa-tasks','link' => 'supervisor_assignment_purpose.php'],
+            'grade_assignment' => ['name' => 'Grade Assignments', 'icon' => 'fa-check-square', 'link' => 'supervisor_assignment_grade.php'],
         ]
     ],
     // --- Announcement ---
@@ -199,13 +202,11 @@ $menu_items = [
                     <?php 
                         $isActive = ($key == $current_page);
                         $hasActiveChild = false;
-                        // 检查子菜单是否激活
                         if (isset($item['sub_items'])) {
                             foreach ($item['sub_items'] as $sub_key => $sub) {
                                 if ($sub_key == $current_page) { $hasActiveChild = true; break; }
                             }
                         }
-                        
                         $linkUrl = isset($item['link']) ? $item['link'] : "#";
                         if ($linkUrl !== "#") {
                              $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?';

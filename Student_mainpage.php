@@ -237,7 +237,7 @@ $menu_items = [
         'sub_items' => [
             'group_setup' => ['name' => 'Project Registration', 'icon' => 'fa-users', 'link' => 'std_projectreg.php'], 
             'team_invitations' => ['name' => 'Request & Team Status', 'icon' => 'fa-tasks', 'link' => 'std_request_status.php'], 
-            'proposals' => ['name' => 'Proposal Submission', 'icon' => 'fa-file-alt', 'link' => '?page=proposals'],
+            'assignment' => ['name' => 'Assignment', 'icon' => 'fa-file-alt', 'link' => 'student_assignment.php'],
             'doc_submission' => ['name' => 'Document Upload', 'icon' => 'fa-cloud-upload-alt', 'link' => '?page=doc_submission'],
         ]
     ],

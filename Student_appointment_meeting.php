@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// student_appointment_meeting.php - 预约导师会议 (Calendar View)
+// student_appointment_meeting.php - 预约导师会议 (UI Updated + Cancelled Status)
 // ====================================================
 include("connect.php");
 
@@ -12,7 +12,7 @@ if (!$auth_user_id) { header("location: login.php"); exit; }
 $stud_data = [];
 $current_stud_id = '';
 $user_name = 'Student';
-// 默认头像
+// 默认头像，稍后会被数据库覆盖
 $user_avatar = 'image/user.png'; 
 
 if (isset($conn)) {
@@ -39,7 +39,7 @@ if (isset($conn)) {
 }
 
 // ====================================================
-// 3. 核心逻辑：获取我的 Supervisor
+// 3. 核心逻辑：获取我的 Supervisor (不通过 Pairing)
 // ====================================================
 $my_supervisor = null;
 $sv_id = 0;
@@ -58,6 +58,7 @@ if ($current_stud_id) {
     }
 }
 
+// 如果找到了导师 ID，获取导师详细资料
 if ($sv_id > 0) {
     $sql_sv = "SELECT * FROM supervisor WHERE fyp_supervisorid = ?";
     if ($stmt = $conn->prepare($sql_sv)) {
@@ -102,27 +103,27 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['confirm_booking'])) {
     $target_schedule_id = $_POST['schedule_id'];
     $reason = $_POST['reason'] ?? ''; // 获取咨询原因
     
-    // 插入预约记录 (默认 Pending)
+    // 插入 appointment_meeting 表
+    // 注意：请确保您已在数据库执行了 ALTER TABLE appointment_meeting ADD COLUMN fyp_reason TEXT...
     $sql_book = "INSERT INTO appointment_meeting (fyp_studid, fyp_scheduleid, fyp_supervisorid, fyp_status, fyp_reason, fyp_datecreated) 
                  VALUES (?, ?, ?, 'Pending', ?, NOW())";
                  
     if ($stmt = $conn->prepare($sql_book)) {
         $stmt->bind_param("siis", $current_stud_id, $target_schedule_id, $sv_id, $reason);
         if ($stmt->execute()) {
-            // 预约后立即锁定时间段，防止他人重复预约
-            // 状态为 'Pending' 时，通常我们也先把时间段锁住，或者您可以选择不锁，允许多人申请同一时间段
-            // 这里我们先锁住，避免冲突
+            // 预约后将 schedule 锁住 (变 Booked)
             $conn->query("UPDATE schedule_meeting SET fyp_status = 'Booked' WHERE fyp_scheduleid = '$target_schedule_id'");
-            echo "<script>alert('Appointment Requested Successfully! Waiting for supervisor approval.'); window.location.href='student_appointment_meeting.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
+            
+            echo "<script>alert('Appointment Requested Successfully!'); window.location.href='student_appointment_meeting.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
         } else {
-            echo "<script>alert('Error booking slot.');</script>";
+            echo "<script>alert('Error booking slot: " . $stmt->error . "');</script>";
         }
         $stmt->close();
     }
 }
 
 // ====================================================
-// 6. 获取我的预约历史
+// 6. 获取我的预约历史 (My History)
 // ====================================================
 $my_history = [];
 if ($current_stud_id) {
@@ -142,11 +143,8 @@ if ($current_stud_id) {
     }
 }
 
-// ----------------------------------------------------
-// 菜单定义 (完全同步 Student_mainpage.php)
-// ----------------------------------------------------
-$current_page = 'book_session'; // 高亮当前页
-
+// 菜单定义
+$current_page = 'book_session'; // 标记当前页面，用于高亮
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Student_mainpage.php?page=dashboard'],
     'profile' => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'std_profile.php'], 
@@ -164,7 +162,7 @@ $menu_items = [
         'name' => 'Appointment', 
         'icon' => 'fa-calendar-check', 
         'sub_items' => [
-            'book_session' => ['name' => 'Book Consultation', 'icon' => 'fa-comments', 'link' => 'student_appointment_meeting.php'], 
+            'book_session' => ['name' => 'Book Consultation', 'icon' => 'fa-comments', 'link' => 'student_appointment_meeting.php'],
             'presentation' => ['name' => 'Final Presentation', 'icon' => 'fa-chalkboard-teacher', 'link' => 'Student_mainpage.php?page=presentation']
         ]
     ],
@@ -182,7 +180,7 @@ $menu_items = [
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <style>
-        /* === 1. Base Styles (From Student_mainpage.php) === */
+        /* === 1. Base Styles === */
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap');
         :root { --primary-color: #0056b3; --primary-hover: #004494; --secondary-color: #f4f4f9; --text-color: #333; --border-color: #e0e0e0; --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); --gradient-start: #eef2f7; --gradient-end: #ffffff; --sidebar-width: 260px; --student-accent: #007bff; }
         body { font-family: 'Poppins', sans-serif; margin: 0; background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end)); color: var(--text-color); min-height: 100vh; display: flex; flex-direction: column; }
@@ -274,9 +272,12 @@ $menu_items = [
         .app-time { font-weight: 600; font-size: 15px; color: #333; }
         .app-loc { font-size: 13px; color: #777; margin-top: 2px; }
         .app-status { font-size: 12px; padding: 3px 10px; border-radius: 20px; font-weight: 600; display: inline-block; margin-top: 5px; }
+        
+        /* Updated Status Colors */
         .status-Pending { background: #fff3cd; color: #856404; }
         .status-Approved { background: #d4edda; color: #155724; }
         .status-Rejected { background: #f8d7da; color: #721c24; }
+        .status-Cancelled { background: #e2e3e5; color: #383d41; } /* Grey for cancelled */
 
         /* Modal */
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; backdrop-filter: blur(2px); justify-content: center; align-items: center; opacity: 0; transition: opacity 0.3s ease; }
@@ -291,9 +292,7 @@ $menu_items = [
         .btn-cancel { background: #f1f1f1; color: #444; padding: 12px 25px; border: none; border-radius: 8px; cursor: pointer; font-weight: 500; font-size: 15px; transition: background 0.2s; }
         .btn-cancel:hover { background: #e0e0e0; }
         
-        /* New Textarea Style */
         .reason-input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-family: inherit; margin-bottom: 20px; resize: vertical; min-height: 80px; box-sizing: border-box; }
-
         .empty-state { text-align: center; padding: 40px; color: #999; background: #fff; border-radius: 12px; border: 1px dashed #ddd; }
 
         @media (max-width: 900px) { .layout-container { flex-direction: column; } .sidebar { width: 100%; min-height: auto; } .sv-card { flex-direction: column; text-align: center; } }
@@ -319,7 +318,6 @@ $menu_items = [
             <ul class="menu-list">
                 <?php foreach ($menu_items as $key => $item): ?>
                     <?php 
-                        // Logic to check active state including sub-items
                         $isActive = ($key == $current_page);
                         $hasActiveChild = false;
                         if (isset($item['sub_items'])) {
@@ -414,6 +412,7 @@ $menu_items = [
                                 $statusClass = 'status-Pending';
                                 if(strtolower($myapp['fyp_status']) == 'approved') $statusClass = 'status-Approved';
                                 if(strtolower($myapp['fyp_status']) == 'rejected') $statusClass = 'status-Rejected';
+                                if(strtolower($myapp['fyp_status']) == 'cancelled') $statusClass = 'status-Cancelled'; // 灰色
                                 $dateObj = date_create($myapp['fyp_date']);
                             ?>
                             <div class="app-item">
