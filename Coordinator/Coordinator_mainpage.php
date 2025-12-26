@@ -146,18 +146,318 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_pairing'])) {
     $stmt->close();
 }
 
-// --- Create Assessment Set ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_set'])) {
-    $set_name = $_POST['set_name'];
-    $academic_id = $_POST['academic_id'];
+// ===================== RUBRICS ASSESSMENT HANDLERS =====================
+
+// --- Create/Update Assessment Set ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_set'])) {
+    $set_id = $_POST['set_id'] ?? '';
+    $project_phase = intval($_POST['project_phase'] ?? 1);
+    $academic_id = !empty($_POST['academic_id']) ? intval($_POST['academic_id']) : null;
     
-    $stmt = $conn->prepare("INSERT INTO `set` (fyp_setname, fyp_academicid, fyp_datecreated) VALUES (?, ?, NOW())");
-    $stmt->bind_param("si", $set_name, $academic_id);
+    if (empty($academic_id)) {
+        $message = "Please select an academic year.";
+        $message_type = 'error';
+    } else {
+        if (!empty($set_id)) {
+            // Update existing set
+            $stmt = $conn->prepare("UPDATE `set` SET fyp_projectphase = ?, fyp_academicid = ? WHERE fyp_setid = ?");
+            $stmt->bind_param("iii", $project_phase, $academic_id, $set_id);
+        } else {
+            // Create new set
+            $stmt = $conn->prepare("INSERT INTO `set` (fyp_projectphase, fyp_academicid) VALUES (?, ?)");
+            $stmt->bind_param("ii", $project_phase, $academic_id);
+        }
+        
+        if ($stmt->execute()) {
+            $message = empty($set_id) ? "Assessment set created successfully!" : "Assessment set updated successfully!";
+            $message_type = 'success';
+        } else {
+            $message = "Error: " . $conn->error;
+            $message_type = 'error';
+        }
+        $stmt->close();
+    }
+}
+
+// --- Delete Assessment Set ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_set'])) {
+    $set_id = intval($_POST['set_id']);
+    $stmt = $conn->prepare("DELETE FROM `set` WHERE fyp_setid = ?");
+    $stmt->bind_param("i", $set_id);
     if ($stmt->execute()) {
-        $message = "Assessment set created successfully!";
+        $message = "Assessment set deleted successfully!";
         $message_type = 'success';
+    } else {
+        $message = "Error deleting set: " . $conn->error;
+        $message_type = 'error';
     }
     $stmt->close();
+}
+
+// --- Create/Update Assessment Item ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_item'])) {
+    $item_id = $_POST['item_id'] ?? '';
+    $item_name = trim($_POST['item_name']);
+    $item_mark = floatval($_POST['item_mark'] ?? 0);
+    $item_doc = intval($_POST['item_doc'] ?? 1);
+    $item_moderate = intval($_POST['item_moderate'] ?? 0);
+    $item_start = !empty($_POST['item_start']) ? $_POST['item_start'] : null;
+    $item_deadline = !empty($_POST['item_deadline']) ? $_POST['item_deadline'] : null;
+    
+    if (empty($item_name)) {
+        $message = "Item name is required.";
+        $message_type = 'error';
+    } else {
+        if (!empty($item_id)) {
+            $stmt = $conn->prepare("UPDATE item SET fyp_itemname = ?, fyp_originalmarkallocation = ?, fyp_isdocument = ?, fyp_ismoderation = ?, fyp_startdate = ?, fyp_finaldeadline = ? WHERE fyp_itemid = ?");
+            $stmt->bind_param("sdiissi", $item_name, $item_mark, $item_doc, $item_moderate, $item_start, $item_deadline, $item_id);
+        } else {
+            $stmt = $conn->prepare("INSERT INTO item (fyp_itemname, fyp_originalmarkallocation, fyp_isdocument, fyp_ismoderation, fyp_startdate, fyp_finaldeadline) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt->bind_param("sdiiss", $item_name, $item_mark, $item_doc, $item_moderate, $item_start, $item_deadline);
+        }
+        
+        if ($stmt->execute()) {
+            $message = empty($item_id) ? "Assessment item created successfully!" : "Assessment item updated successfully!";
+            $message_type = 'success';
+        } else {
+            $message = "Error: " . $conn->error;
+            $message_type = 'error';
+        }
+        $stmt->close();
+    }
+}
+
+// --- Delete Assessment Item ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_item'])) {
+    $item_id = intval($_POST['item_id']);
+    $stmt = $conn->prepare("DELETE FROM item WHERE fyp_itemid = ?");
+    $stmt->bind_param("i", $item_id);
+    if ($stmt->execute()) {
+        $message = "Assessment item deleted successfully!";
+        $message_type = 'success';
+    } else {
+        $message = "Error deleting item: " . $conn->error;
+        $message_type = 'error';
+    }
+    $stmt->close();
+}
+
+// --- Create/Update Assessment Criteria ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_criteria'])) {
+    $criteria_id = $_POST['criteria_id'] ?? '';
+    $crit_name = trim($_POST['crit_name']);
+    $crit_min = floatval($_POST['crit_min'] ?? 0);
+    $crit_max = floatval($_POST['crit_max'] ?? 10);
+    $crit_desc = trim($_POST['crit_desc'] ?? '');
+    
+    if (empty($crit_name)) {
+        $message = "Criteria name is required.";
+        $message_type = 'error';
+    } else {
+        if (!empty($criteria_id)) {
+            $stmt = $conn->prepare("UPDATE assessment_criteria SET fyp_assessmentcriterianame = ?, fyp_min = ?, fyp_max = ?, fyp_description = ? WHERE fyp_assessmentcriteriaid = ?");
+            $stmt->bind_param("sddsi", $crit_name, $crit_min, $crit_max, $crit_desc, $criteria_id);
+        } else {
+            $stmt = $conn->prepare("INSERT INTO assessment_criteria (fyp_assessmentcriterianame, fyp_min, fyp_max, fyp_description) VALUES (?, ?, ?, ?)");
+            $stmt->bind_param("sdds", $crit_name, $crit_min, $crit_max, $crit_desc);
+        }
+        
+        if ($stmt->execute()) {
+            $message = empty($criteria_id) ? "Assessment criteria created successfully!" : "Assessment criteria updated successfully!";
+            $message_type = 'success';
+        } else {
+            $message = "Error: " . $conn->error;
+            $message_type = 'error';
+        }
+        $stmt->close();
+    }
+}
+
+// --- Delete Assessment Criteria ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_criteria'])) {
+    $criteria_id = intval($_POST['criteria_id']);
+    $stmt = $conn->prepare("DELETE FROM assessment_criteria WHERE fyp_assessmentcriteriaid = ?");
+    $stmt->bind_param("i", $criteria_id);
+    if ($stmt->execute()) {
+        $message = "Assessment criteria deleted successfully!";
+        $message_type = 'success';
+    } else {
+        $message = "Error deleting criteria: " . $conn->error;
+        $message_type = 'error';
+    }
+    $stmt->close();
+}
+
+// --- Create/Update Marking Criteria ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_marking'])) {
+    $marking_id = $_POST['marking_id'] ?? '';
+    $marking_name = trim($_POST['marking_name']);
+    $marking_percent = floatval($_POST['marking_percent'] ?? 0);
+    
+    if (empty($marking_name)) {
+        $message = "Marking criteria name is required.";
+        $message_type = 'error';
+    } else {
+        if (!empty($marking_id)) {
+            $stmt = $conn->prepare("UPDATE marking_criteria SET fyp_criterianame = ?, fyp_percentallocation = ? WHERE fyp_criteriaid = ?");
+            $stmt->bind_param("sdi", $marking_name, $marking_percent, $marking_id);
+        } else {
+            $stmt = $conn->prepare("INSERT INTO marking_criteria (fyp_criterianame, fyp_percentallocation) VALUES (?, ?)");
+            $stmt->bind_param("sd", $marking_name, $marking_percent);
+        }
+        
+        if ($stmt->execute()) {
+            $message = empty($marking_id) ? "Marking criteria created successfully!" : "Marking criteria updated successfully!";
+            $message_type = 'success';
+        } else {
+            $message = "Error: " . $conn->error;
+            $message_type = 'error';
+        }
+        $stmt->close();
+    }
+}
+
+// --- Delete Marking Criteria ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_marking'])) {
+    $marking_id = intval($_POST['marking_id']);
+    $stmt = $conn->prepare("DELETE FROM marking_criteria WHERE fyp_criteriaid = ?");
+    $stmt->bind_param("i", $marking_id);
+    if ($stmt->execute()) {
+        $message = "Marking criteria deleted successfully!";
+        $message_type = 'success';
+    } else {
+        $message = "Error deleting marking criteria: " . $conn->error;
+        $message_type = 'error';
+    }
+    $stmt->close();
+}
+
+// --- Link Item to Marking Criteria ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['link_item_criteria'])) {
+    $link_itemid = intval($_POST['link_itemid']);
+    $link_criteriaid = intval($_POST['link_criteriaid']);
+    
+    // Check if link already exists
+    $stmt = $conn->prepare("SELECT * FROM item_marking_criteria WHERE fyp_itemid = ? AND fyp_criteriaid = ?");
+    $stmt->bind_param("ii", $link_itemid, $link_criteriaid);
+    $stmt->execute();
+    if ($stmt->get_result()->num_rows > 0) {
+        $message = "This link already exists!";
+        $message_type = 'warning';
+    } else {
+        $stmt->close();
+        $stmt = $conn->prepare("INSERT INTO item_marking_criteria (fyp_itemid, fyp_criteriaid) VALUES (?, ?)");
+        $stmt->bind_param("ii", $link_itemid, $link_criteriaid);
+        if ($stmt->execute()) {
+            $message = "Item linked to marking criteria successfully!";
+            $message_type = 'success';
+        } else {
+            $message = "Error: " . $conn->error;
+            $message_type = 'error';
+        }
+    }
+    $stmt->close();
+}
+
+// --- Unlink Item from Marking Criteria ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['unlink_item_criteria'])) {
+    $unlink_itemid = intval($_POST['unlink_itemid']);
+    $unlink_criteriaid = intval($_POST['unlink_criteriaid']);
+    
+    $stmt = $conn->prepare("DELETE FROM item_marking_criteria WHERE fyp_itemid = ? AND fyp_criteriaid = ?");
+    $stmt->bind_param("ii", $unlink_itemid, $unlink_criteriaid);
+    if ($stmt->execute()) {
+        $message = "Link removed successfully!";
+        $message_type = 'success';
+    } else {
+        $message = "Error: " . $conn->error;
+        $message_type = 'error';
+    }
+    $stmt->close();
+}
+
+// --- Save Student Assessment Marks ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_student_assessment'])) {
+    $assess_student_id = $_POST['assess_student_id'];
+    $initial_work = $_POST['initial_work'] ?? [];
+    $final_work = $_POST['final_work'] ?? [];
+    $moderator_mark = $_POST['moderator_mark'] ?? [];
+    $scaled_mark = $_POST['scaled_mark'] ?? [];
+    
+    $success_count = 0;
+    $error_count = 0;
+    
+    foreach ($initial_work as $criteria_id => $initial) {
+        $initial = floatval($initial);
+        $final = floatval($final_work[$criteria_id] ?? 0);
+        $mod_mark = floatval($moderator_mark[$criteria_id] ?? 0);
+        $scaled = floatval($scaled_mark[$criteria_id] ?? 0);
+        
+        // Calculate average (initial + final + moderator) / 3 or just available values
+        $values = array_filter([$initial, $final, $mod_mark], function($v) { return $v > 0; });
+        $avg_mark = count($values) > 0 ? array_sum($values) / count($values) : 0;
+        
+        // Check if mark exists for this student and criteria
+        $stmt = $conn->prepare("SELECT fyp_criteriamarkid FROM criteria_mark WHERE fyp_studid = ? AND fyp_criteriaid = ?");
+        $stmt->bind_param("si", $assess_student_id, $criteria_id);
+        $stmt->execute();
+        $existing = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        
+        if ($existing) {
+            // Update existing mark
+            $stmt = $conn->prepare("UPDATE criteria_mark SET fyp_initialwork = ?, fyp_finalwork = ?, fyp_markbymoderator = ?, fyp_avgmark = ?, fyp_scaledmark = ? WHERE fyp_criteriamarkid = ?");
+            $stmt->bind_param("dddddi", $initial, $final, $mod_mark, $avg_mark, $scaled, $existing['fyp_criteriamarkid']);
+        } else {
+            // Insert new mark
+            $stmt = $conn->prepare("INSERT INTO criteria_mark (fyp_studid, fyp_criteriaid, fyp_initialwork, fyp_finalwork, fyp_markbymoderator, fyp_avgmark, fyp_scaledmark) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $stmt->bind_param("sidddddd", $assess_student_id, $criteria_id, $initial, $final, $mod_mark, $avg_mark, $scaled);
+        }
+        
+        if ($stmt->execute()) {
+            $success_count++;
+        } else {
+            $error_count++;
+        }
+        $stmt->close();
+    }
+    
+    // Calculate and update total mark
+    $total_scaled = 0;
+    $res = $conn->query("SELECT SUM(fyp_scaledmark) as total FROM criteria_mark WHERE fyp_studid = '$assess_student_id'");
+    if ($res) {
+        $row = $res->fetch_assoc();
+        $total_scaled = floatval($row['total'] ?? 0);
+    }
+    
+    // Update or insert total_mark
+    $stmt = $conn->prepare("SELECT fyp_studid FROM total_mark WHERE fyp_studid = ?");
+    $stmt->bind_param("s", $assess_student_id);
+    $stmt->execute();
+    $existing_total = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    
+    if ($existing_total) {
+        $stmt = $conn->prepare("UPDATE total_mark SET fyp_totalmark = ? WHERE fyp_studid = ?");
+        $stmt->bind_param("ds", $total_scaled, $assess_student_id);
+    } else {
+        // Get project_id from pairing
+        $res = $conn->query("SELECT fyp_projectid FROM pairing WHERE fyp_studid = '$assess_student_id'");
+        $project_id = $res ? ($res->fetch_assoc()['fyp_projectid'] ?? null) : null;
+        
+        $stmt = $conn->prepare("INSERT INTO total_mark (fyp_studid, fyp_projectid, fyp_totalmark) VALUES (?, ?, ?)");
+        $stmt->bind_param("sid", $assess_student_id, $project_id, $total_scaled);
+    }
+    $stmt->execute();
+    $stmt->close();
+    
+    if ($success_count > 0) {
+        $message = "✅ Marks saved successfully! ($success_count criteria updated)";
+        $message_type = 'success';
+    } else {
+        $message = "Error saving marks.";
+        $message_type = 'error';
+    }
 }
 
 // --- Create Announcement ---
@@ -952,7 +1252,7 @@ $menu_items = [
     'projects' => ['name' => 'Manage Projects', 'icon' => 'fa-folder-open'],
     'moderation' => ['name' => 'Student Moderation', 'icon' => 'fa-clipboard-check'],
     'rubrics' => ['name' => 'Rubrics Assessment', 'icon' => 'fa-list-check'],
-    'marks' => ['name' => 'Assessment Marks', 'icon' => 'fa-calculator'],
+    'marks' => ['name' => 'Assessment Marks', 'icon' => 'fa-calculator', 'link' => 'assessment_marks.php'],
     'reports' => ['name' => 'Reports', 'icon' => 'fa-file-alt'],
     'announcements' => ['name' => 'Announcements', 'icon' => 'fa-bullhorn'],
     'settings' => ['name' => 'Settings', 'icon' => 'fa-cog'],
@@ -1091,8 +1391,11 @@ $menu_items = [
         <p>Coordinator</p>
     </div>
     <ul class="sidebar-nav">
-        <?php foreach ($menu_items as $key => $item): ?>
-            <li><a href="?page=<?= $key; ?>" class="<?= ($key === $current_page) ? 'active' : ''; ?>">
+        <?php foreach ($menu_items as $key => $item): 
+            $href = isset($item['link']) ? $item['link'] : "?page=$key";
+            $is_active = isset($item['link']) ? false : ($key === $current_page);
+        ?>
+            <li><a href="<?= $href; ?>" class="<?= $is_active ? 'active' : ''; ?>">
                 <i class="fas <?= $item['icon']; ?>"></i><?= $item['name']; ?>
                 <?php if (isset($item['badge']) && $item['badge'] > 0): ?><span class="nav-badge"><?= $item['badge']; ?></span><?php endif; ?>
             </a></li>
@@ -1487,6 +1790,20 @@ $menu_items = [
                                             <td style="padding:10px;border:1px solid rgba(139,92,246,0.2);">Bob Wilson</td>
                                             <td style="padding:10px;border:1px solid rgba(139,92,246,0.2);">CS</td>
                                             <td style="padding:10px;border:1px solid rgba(139,92,246,0.2);">0167891234</td>
+                                        </tr>
+                                        <tr style="background:rgba(0,0,0,0.1);">
+                                            <td style="padding:10px;border:1px solid rgba(139,92,246,0.2);">alice.tan@student.edu.my</td>
+                                            <td style="padding:10px;border:1px solid rgba(139,92,246,0.2);">TP055014</td>
+                                            <td style="padding:10px;border:1px solid rgba(139,92,246,0.2);">Alice Tan</td>
+                                            <td style="padding:10px;border:1px solid rgba(139,92,246,0.2);">SE</td>
+                                            <td style="padding:10px;border:1px solid rgba(139,92,246,0.2);">0112223344</td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding:10px;border:1px solid rgba(139,92,246,0.2);">charlie.lee@student.edu.my</td>
+                                            <td style="padding:10px;border:1px solid rgba(139,92,246,0.2);">TP055015</td>
+                                            <td style="padding:10px;border:1px solid rgba(139,92,246,0.2);">Charlie Lee</td>
+                                            <td style="padding:10px;border:1px solid rgba(139,92,246,0.2);">AI</td>
+                                            <td style="padding:10px;border:1px solid rgba(139,92,246,0.2);">0156667777</td>
                                         </tr>
                                     </table>
                                 </div>
@@ -2130,44 +2447,1060 @@ $menu_items = [
 
         <!-- ==================== RUBRICS ASSESSMENT ==================== -->
         <?php elseif ($current_page === 'rubrics'): 
+            // Get action for sub-pages
+            $rubrics_action = $_GET['action'] ?? 'sets';
+            
+            // Get all sets with academic year info
             $sets = [];
-            $res = $conn->query("SELECT s.*, a.fyp_acdyear, a.fyp_intake FROM `set` s LEFT JOIN academic_year a ON s.fyp_academicid = a.fyp_academicid ORDER BY s.fyp_datecreated DESC");
+            $res = $conn->query("SELECT s.*, a.fyp_acdyear, a.fyp_intake FROM `set` s LEFT JOIN academic_year a ON s.fyp_academicid = a.fyp_academicid ORDER BY s.fyp_setid DESC");
             if ($res) { while ($row = $res->fetch_assoc()) { $sets[] = $row; } }
             
+            // Get all items
             $items = [];
             $res = $conn->query("SELECT * FROM item ORDER BY fyp_itemid");
             if ($res) { while ($row = $res->fetch_assoc()) { $items[] = $row; } }
             
+            // Get all assessment criteria (Poor, Pass, Credit, etc.)
             $criteria = [];
-            $res = $conn->query("SELECT * FROM assessment_criteria ORDER BY fyp_assessmentcriteriaid");
+            $res = $conn->query("SELECT * FROM assessment_criteria ORDER BY fyp_min ASC");
             if ($res) { while ($row = $res->fetch_assoc()) { $criteria[] = $row; } }
+            
+            // Get all marking criteria (Introduction, Lit Review, etc.)
+            $marking_criteria = [];
+            $res = $conn->query("SELECT * FROM marking_criteria ORDER BY fyp_criteriaid");
+            if ($res) { while ($row = $res->fetch_assoc()) { $marking_criteria[] = $row; } }
+            
+            // Get item-marking criteria links
+            $item_marking_links = [];
+            $res = $conn->query("SELECT imc.*, i.fyp_itemname, mc.fyp_criterianame, mc.fyp_percentallocation 
+                                 FROM item_marking_criteria imc 
+                                 LEFT JOIN item i ON imc.fyp_itemid = i.fyp_itemid 
+                                 LEFT JOIN marking_criteria mc ON imc.fyp_criteriaid = mc.fyp_criteriaid 
+                                 ORDER BY imc.fyp_itemid, imc.fyp_criteriaid");
+            if ($res) { while ($row = $res->fetch_assoc()) { $item_marking_links[] = $row; } }
         ?>
-            <div class="card"><div class="card-header"><h3>Assessment Sets</h3><button class="btn btn-primary" onclick="openModal('createSetModal')"><i class="fas fa-plus"></i> Create Set</button></div><div class="card-body">
-                <?php if (empty($sets)): ?><div class="empty-state"><i class="fas fa-layer-group"></i><p>No assessment sets found</p></div>
-                <?php else: ?>
-                    <table class="data-table"><thead><tr><th>ID</th><th>Set Name</th><th>Academic Year</th><th>Created</th></tr></thead><tbody>
-                        <?php foreach ($sets as $s): ?>
-                        <tr><td><?= $s['fyp_setid']; ?></td><td><?= htmlspecialchars($s['fyp_setname'] ?? '-'); ?></td><td><?= htmlspecialchars(($s['fyp_acdyear'] ?? '') . ' ' . ($s['fyp_intake'] ?? '')); ?></td><td><?= $s['fyp_datecreated'] ? date('M j, Y', strtotime($s['fyp_datecreated'])) : '-'; ?></td></tr>
+            <!-- Rubrics Sub-Navigation -->
+            <div class="card" style="margin-bottom:20px;">
+                <div class="card-body" style="padding:15px;">
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                        <a href="?page=rubrics&action=sets" class="btn <?= $rubrics_action === 'sets' ? 'btn-primary' : 'btn-secondary'; ?>">
+                            <i class="fas fa-layer-group"></i> Assessment Sets
+                        </a>
+                        <a href="?page=rubrics&action=items" class="btn <?= $rubrics_action === 'items' ? 'btn-primary' : 'btn-secondary'; ?>">
+                            <i class="fas fa-list-ol"></i> Assessment Items
+                        </a>
+                        <a href="?page=rubrics&action=criteria" class="btn <?= $rubrics_action === 'criteria' ? 'btn-primary' : 'btn-secondary'; ?>">
+                            <i class="fas fa-star"></i> Assessment Criteria
+                        </a>
+                        <a href="?page=rubrics&action=marking" class="btn <?= $rubrics_action === 'marking' ? 'btn-primary' : 'btn-secondary'; ?>">
+                            <i class="fas fa-percent"></i> Marking Criteria
+                        </a>
+                        <span style="border-left:2px solid rgba(139,92,246,0.3);margin:0 5px;"></span>
+                        <a href="?page=rubrics&action=student_assessment" class="btn <?= $rubrics_action === 'student_assessment' ? 'btn-success' : 'btn-secondary'; ?>">
+                            <i class="fas fa-edit"></i> Mark Student
+                        </a>
+                        <a href="?page=rubrics&action=students_marks" class="btn <?= $rubrics_action === 'students_marks' ? 'btn-info' : 'btn-secondary'; ?>">
+                            <i class="fas fa-list-alt"></i> Students Marks
+                        </a>
+                        <a href="?page=rubrics&action=overall_marks" class="btn <?= $rubrics_action === 'overall_marks' ? 'btn-warning' : 'btn-secondary'; ?>">
+                            <i class="fas fa-chart-bar"></i> Overall Marks
+                        </a>
+                    </div>
+                </div>
+            </div>
+            
+            <?php if ($rubrics_action === 'sets'): ?>
+            <!-- ========== ASSESSMENT SETS ========== -->
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-layer-group" style="color:#a78bfa;"></i> Assessment Sets</h3>
+                    <button class="btn btn-primary" onclick="openModal('createSetModal')">
+                        <i class="fas fa-plus"></i> Create Set
+                    </button>
+                </div>
+                <div class="card-body">
+                    <p style="color:#94a3b8;margin-bottom:20px;"><i class="fas fa-info-circle"></i> Assessment sets define the evaluation structure for each academic year/intake for Diploma IT FYP.</p>
+                    
+                    <?php if (empty($sets)): ?>
+                        <div class="empty-state">
+                            <i class="fas fa-layer-group"></i>
+                            <p>No assessment sets found</p>
+                            <button class="btn btn-primary" onclick="openModal('createSetModal')">Create First Set</button>
+                        </div>
+                    <?php else: ?>
+                        <div style="overflow-x:auto;">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Set Name</th>
+                                        <th>Academic Year</th>
+                                        <th>Intake</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($sets as $s): ?>
+                                    <tr>
+                                        <td><?= $s['fyp_setid']; ?></td>
+                                        <td>
+                                            <strong style="color:#a78bfa;">
+                                                <i class="fas fa-graduation-cap"></i> 
+                                                FYP <?= htmlspecialchars($s['fyp_acdyear'] ?? ''); ?> - <?= htmlspecialchars($s['fyp_intake'] ?? ''); ?>
+                                            </strong>
+                                        </td>
+                                        <td><?= htmlspecialchars($s['fyp_acdyear'] ?? '-'); ?></td>
+                                        <td><span class="badge badge-approved"><?= htmlspecialchars($s['fyp_intake'] ?? '-'); ?></span></td>
+                                        <td>
+                                            <button class="btn btn-info btn-sm" onclick="editSet(<?= $s['fyp_setid']; ?>, <?= $s['fyp_academicid'] ?? 0; ?>)">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button class="btn btn-danger btn-sm" onclick="deleteSet(<?= $s['fyp_setid']; ?>)">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+            
+            <!-- Create/Edit Set Modal -->
+            <div class="modal-overlay" id="createSetModal">
+                <div class="modal" style="max-width:500px;">
+                    <div class="modal-header">
+                        <h3><i class="fas fa-layer-group" style="color:#a78bfa;"></i> <span id="setModalTitle">Create Assessment Set</span></h3>
+                        <button class="modal-close" onclick="closeModal('createSetModal')">&times;</button>
+                    </div>
+                    <form method="POST">
+                        <input type="hidden" name="set_id" id="edit_set_id" value="">
+                        <input type="hidden" name="project_phase" value="1">
+                        <div class="modal-body">
+                            <div class="form-group">
+                                <label>Academic Year <span style="color:#f87171;">*</span></label>
+                                <select name="academic_id" id="set_academic_id" class="form-control" required>
+                                    <option value="">-- Select Academic Year --</option>
+                                    <?php foreach ($academic_years as $ay): ?>
+                                    <option value="<?= $ay['fyp_academicid']; ?>"><?= htmlspecialchars($ay['fyp_acdyear'] . ' - ' . $ay['fyp_intake']); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" onclick="closeModal('createSetModal')">Cancel</button>
+                            <button type="submit" name="save_set" class="btn btn-primary">
+                                <i class="fas fa-save"></i> Create Set
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
+            <?php elseif ($rubrics_action === 'items'): ?>
+            <!-- ========== ASSESSMENT ITEMS ========== -->
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-list-ol" style="color:#fb923c;"></i> Assessment Items</h3>
+                    <button class="btn btn-primary" onclick="openModal('createItemModal')">
+                        <i class="fas fa-plus"></i> Add New Item
+                    </button>
+                </div>
+                <div class="card-body">
+                    <?php if (empty($items)): ?>
+                        <div class="empty-state">
+                            <i class="fas fa-list-ol"></i>
+                            <p>No assessment items found</p>
+                            <button class="btn btn-primary" onclick="openModal('createItemModal')">Add First Item</button>
+                        </div>
+                    <?php else: ?>
+                        <div style="overflow-x:auto;">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Item Name</th>
+                                        <th>Doc?</th>
+                                        <th>Mark %</th>
+                                        <th>Start Date</th>
+                                        <th>Deadline</th>
+                                        <th>Moderation</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($items as $item): ?>
+                                    <tr>
+                                        <td><?= $item['fyp_itemid']; ?></td>
+                                        <td><strong><?= htmlspecialchars($item['fyp_itemname']); ?></strong></td>
+                                        <td>
+                                            <?php if ($item['fyp_isdocument'] ?? 1): ?>
+                                                <span style="color:#34d399;"><i class="fas fa-check-circle"></i> Yes</span>
+                                            <?php else: ?>
+                                                <span style="color:#f87171;"><i class="fas fa-times-circle"></i> No</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td><strong><?= number_format($item['fyp_originalmarkallocation'] ?? 0, 1); ?>%</strong></td>
+                                        <td><?= $item['fyp_startdate'] ? date('d/m/Y', strtotime($item['fyp_startdate'])) : '-'; ?></td>
+                                        <td><?= $item['fyp_finaldeadline'] ? date('d/m/Y', strtotime($item['fyp_finaldeadline'])) : '-'; ?></td>
+                                        <td>
+                                            <?php if ($item['fyp_ismoderation'] ?? 0): ?>
+                                                <span style="color:#34d399;"><i class="fas fa-check-circle"></i> Yes</span>
+                                            <?php else: ?>
+                                                <span style="color:#f87171;"><i class="fas fa-times-circle"></i> No</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <button class="btn btn-info btn-sm" onclick="editItem(<?= htmlspecialchars(json_encode($item)); ?>)">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button class="btn btn-danger btn-sm" onclick="deleteItem(<?= $item['fyp_itemid']; ?>)">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <!-- Total Mark Allocation -->
+                        <?php 
+                        $total_mark = 0;
+                        foreach ($items as $item) {
+                            $total_mark += floatval($item['fyp_originalmarkallocation'] ?? 0);
+                        }
+                        ?>
+                        <div style="margin-top:20px;padding:15px;background:<?= $total_mark == 100 ? 'rgba(16,185,129,0.1)' : 'rgba(249,115,22,0.1)'; ?>;border-radius:10px;border:1px solid <?= $total_mark == 100 ? 'rgba(16,185,129,0.3)' : 'rgba(249,115,22,0.3)'; ?>;">
+                            <strong style="color:<?= $total_mark == 100 ? '#34d399' : '#fb923c'; ?>;">
+                                <i class="fas fa-<?= $total_mark == 100 ? 'check-circle' : 'exclamation-triangle'; ?>"></i>
+                                Total Mark Allocation: <?= number_format($total_mark, 1); ?>%
+                                <?= $total_mark != 100 ? ' (Should be 100%)' : ''; ?>
+                            </strong>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+            
+            <!-- Create/Edit Item Modal -->
+            <div class="modal-overlay" id="createItemModal">
+                <div class="modal" style="max-width:600px;">
+                    <div class="modal-header">
+                        <h3><i class="fas fa-list-ol" style="color:#fb923c;"></i> <span id="itemModalTitle">Add Assessment Item</span></h3>
+                        <button class="modal-close" onclick="closeModal('createItemModal')">&times;</button>
+                    </div>
+                    <form method="POST">
+                        <input type="hidden" name="item_id" id="edit_item_id" value="">
+                        <div class="modal-body">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Item Name <span style="color:#f87171;">*</span></label>
+                                    <input type="text" name="item_name" id="item_name" class="form-control" placeholder="e.g., Proposal, Chapter 1" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Mark Allocation (%)</label>
+                                    <input type="number" name="item_mark" id="item_mark" class="form-control" placeholder="20" min="0" max="100" step="0.001">
+                                </div>
+                            </div>
+                            
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Document Required?</label>
+                                    <div style="display:flex;gap:20px;padding:10px 0;">
+                                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;color:#e2e8f0;">
+                                            <input type="radio" name="item_doc" id="item_doc_yes" value="1" checked style="width:18px;height:18px;"> Yes
+                                        </label>
+                                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;color:#e2e8f0;">
+                                            <input type="radio" name="item_doc" id="item_doc_no" value="0" style="width:18px;height:18px;"> No
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label>Moderation Required?</label>
+                                    <div style="display:flex;gap:20px;padding:10px 0;">
+                                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;color:#e2e8f0;">
+                                            <input type="radio" name="item_moderate" id="item_mod_yes" value="1" style="width:18px;height:18px;"> Yes
+                                        </label>
+                                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;color:#e2e8f0;">
+                                            <input type="radio" name="item_moderate" id="item_mod_no" value="0" checked style="width:18px;height:18px;"> No
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Start Date</label>
+                                    <input type="datetime-local" name="item_start" id="item_start" class="form-control">
+                                </div>
+                                <div class="form-group">
+                                    <label>Deadline</label>
+                                    <input type="datetime-local" name="item_deadline" id="item_deadline" class="form-control">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" onclick="closeModal('createItemModal')">Cancel</button>
+                            <button type="submit" name="save_item" class="btn btn-success">
+                                <i class="fas fa-save"></i> Save Item
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
+            <?php elseif ($rubrics_action === 'criteria'): ?>
+            <!-- ========== ASSESSMENT CRITERIA (Poor, Pass, Credit, etc.) ========== -->
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-star" style="color:#fbbf24;"></i> Assessment Criteria</h3>
+                    <button class="btn btn-primary" onclick="openModal('createCriteriaModal')">
+                        <i class="fas fa-plus"></i> Add Criteria
+                    </button>
+                </div>
+                <div class="card-body">
+                    <p style="color:#94a3b8;margin-bottom:20px;"><i class="fas fa-info-circle"></i> Assessment criteria define performance/grade levels with mark ranges.</p>
+                    
+                    <?php if (empty($criteria)): ?>
+                        <div class="empty-state">
+                            <i class="fas fa-star"></i>
+                            <p>No assessment criteria found</p>
+                            <button class="btn btn-primary" onclick="openModal('createCriteriaModal')">Add First Criteria</button>
+                        </div>
+                    <?php else: ?>
+                        <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));gap:20px;">
+                            <?php foreach ($criteria as $c): ?>
+                            <div style="background:rgba(251,191,36,0.1);padding:20px;border-radius:12px;border:1px solid rgba(251,191,36,0.2);">
+                                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                                    <h4 style="color:#fbbf24;margin:0;"><?= htmlspecialchars($c['fyp_assessmentcriterianame']); ?></h4>
+                                </div>
+                                <div style="background:rgba(0,0,0,0.2);padding:10px;border-radius:8px;margin-bottom:15px;">
+                                    <span style="color:#e2e8f0;font-size:1.2rem;font-weight:600;"><?= $c['fyp_min']; ?> - <?= $c['fyp_max']; ?></span>
+                                    <span style="color:#94a3b8;font-size:0.85rem;"> marks</span>
+                                </div>
+                                <p style="color:#94a3b8;font-size:0.85rem;margin-bottom:15px;"><?= htmlspecialchars($c['fyp_description'] ?? 'No description'); ?></p>
+                                <div style="display:flex;gap:8px;">
+                                    <button class="btn btn-info btn-sm" onclick="editCriteria(<?= $c['fyp_assessmentcriteriaid']; ?>, '<?= htmlspecialchars($c['fyp_assessmentcriterianame'], ENT_QUOTES); ?>', <?= $c['fyp_min']; ?>, <?= $c['fyp_max']; ?>, '<?= htmlspecialchars($c['fyp_description'] ?? '', ENT_QUOTES); ?>')">
+                                        <i class="fas fa-edit"></i> Edit
+                                    </button>
+                                    <button class="btn btn-danger btn-sm" onclick="deleteCriteria(<?= $c['fyp_assessmentcriteriaid']; ?>)">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+            
+            <!-- Create/Edit Criteria Modal -->
+            <div class="modal-overlay" id="createCriteriaModal">
+                <div class="modal" style="max-width:500px;">
+                    <div class="modal-header">
+                        <h3><i class="fas fa-star" style="color:#fbbf24;"></i> <span id="criteriaModalTitle">Add Assessment Criteria</span></h3>
+                        <button class="modal-close" onclick="closeModal('createCriteriaModal')">&times;</button>
+                    </div>
+                    <form method="POST">
+                        <input type="hidden" name="criteria_id" id="edit_criteria_id" value="">
+                        <div class="modal-body">
+                            <div class="form-group">
+                                <label>Criteria Name <span style="color:#f87171;">*</span></label>
+                                <input type="text" name="crit_name" id="crit_name" class="form-control" placeholder="e.g., Poor, Pass, Credit, Distinction" required>
+                            </div>
+                            
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Min Mark</label>
+                                    <input type="number" name="crit_min" id="crit_min" class="form-control" placeholder="0" min="0" max="100" value="0">
+                                </div>
+                                <div class="form-group">
+                                    <label>Max Mark</label>
+                                    <input type="number" name="crit_max" id="crit_max" class="form-control" placeholder="100" min="0" max="100" value="100">
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Description</label>
+                                <textarea name="crit_desc" id="crit_desc" class="form-control" rows="3" placeholder="e.g., Below expectations, Meets expectations"></textarea>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" onclick="closeModal('createCriteriaModal')">Cancel</button>
+                            <button type="submit" name="save_criteria" class="btn btn-success">
+                                <i class="fas fa-save"></i> Save Assessment Criteria
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
+            <?php elseif ($rubrics_action === 'marking'): ?>
+            <!-- ========== MARKING CRITERIA (Introduction, Lit Review, etc.) ========== -->
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-percent" style="color:#60a5fa;"></i> Marking Criteria</h3>
+                    <button class="btn btn-primary" onclick="openModal('createMarkingModal')">
+                        <i class="fas fa-plus"></i> Add Marking Criteria
+                    </button>
+                </div>
+                <div class="card-body">
+                    <p style="color:#94a3b8;margin-bottom:20px;"><i class="fas fa-info-circle"></i> Marking criteria define what aspects are assessed (e.g., Introduction, Methodology) with percentage allocation.</p>
+                    
+                    <?php if (empty($marking_criteria)): ?>
+                        <div class="empty-state">
+                            <i class="fas fa-percent"></i>
+                            <p>No marking criteria found</p>
+                            <button class="btn btn-primary" onclick="openModal('createMarkingModal')">Add First Marking Criteria</button>
+                        </div>
+                    <?php else: ?>
+                        <div style="overflow-x:auto;">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Criteria Name</th>
+                                        <th>% Allocation</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($marking_criteria as $mc): ?>
+                                    <tr>
+                                        <td><?= $mc['fyp_criteriaid']; ?></td>
+                                        <td><strong><?= htmlspecialchars($mc['fyp_criterianame']); ?></strong></td>
+                                        <td><span class="badge badge-approved"><?= number_format($mc['fyp_percentallocation'], 1); ?>%</span></td>
+                                        <td>
+                                            <button class="btn btn-info btn-sm" onclick="editMarking(<?= $mc['fyp_criteriaid']; ?>, '<?= htmlspecialchars($mc['fyp_criterianame'], ENT_QUOTES); ?>', <?= $mc['fyp_percentallocation']; ?>)">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button class="btn btn-danger btn-sm" onclick="deleteMarking(<?= $mc['fyp_criteriaid']; ?>)">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <!-- Total Percentage -->
+                        <?php 
+                        $total_percent = 0;
+                        foreach ($marking_criteria as $mc) {
+                            $total_percent += floatval($mc['fyp_percentallocation'] ?? 0);
+                        }
+                        ?>
+                        <div style="margin-top:20px;padding:15px;background:<?= $total_percent == 100 ? 'rgba(16,185,129,0.1)' : 'rgba(249,115,22,0.1)'; ?>;border-radius:10px;border:1px solid <?= $total_percent == 100 ? 'rgba(16,185,129,0.3)' : 'rgba(249,115,22,0.3)'; ?>;">
+                            <strong style="color:<?= $total_percent == 100 ? '#34d399' : '#fb923c'; ?>;">
+                                <i class="fas fa-<?= $total_percent == 100 ? 'check-circle' : 'exclamation-triangle'; ?>"></i>
+                                Total Percentage: <?= number_format($total_percent, 1); ?>%
+                                <?= $total_percent != 100 ? ' (Should be 100%)' : ''; ?>
+                            </strong>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+            
+            <!-- Link Items to Marking Criteria -->
+            <div class="card" style="margin-top:25px;">
+                <div class="card-header">
+                    <h3><i class="fas fa-link" style="color:#a78bfa;"></i> Item-Marking Criteria Links</h3>
+                    <button class="btn btn-primary" onclick="openModal('linkItemCriteriaModal')">
+                        <i class="fas fa-plus"></i> Link Item to Criteria
+                    </button>
+                </div>
+                <div class="card-body">
+                    <?php if (empty($item_marking_links)): ?>
+                        <div class="empty-state">
+                            <i class="fas fa-link"></i>
+                            <p>No links found. Link items to marking criteria.</p>
+                        </div>
+                    <?php else: ?>
+                        <?php 
+                        // Group by item
+                        $grouped_links = [];
+                        foreach ($item_marking_links as $link) {
+                            $item_name = $link['fyp_itemname'] ?? 'Unknown Item';
+                            $grouped_links[$item_name][] = $link;
+                        }
+                        ?>
+                        <?php foreach ($grouped_links as $item_name => $links): ?>
+                        <div style="background:rgba(139,92,246,0.1);padding:15px;border-radius:12px;margin-bottom:15px;border:1px solid rgba(139,92,246,0.2);">
+                            <h4 style="color:#a78bfa;margin-bottom:10px;"><i class="fas fa-file-alt"></i> <?= htmlspecialchars($item_name); ?></h4>
+                            <div style="display:flex;flex-wrap:wrap;gap:10px;">
+                                <?php foreach ($links as $link): ?>
+                                <span style="background:rgba(59,130,246,0.2);padding:8px 15px;border-radius:20px;color:#60a5fa;font-size:0.85rem;">
+                                    <?= htmlspecialchars($link['fyp_criterianame']); ?> (<?= number_format($link['fyp_percentallocation'], 1); ?>%)
+                                    <button onclick="unlinkItemCriteria(<?= $link['fyp_itemid']; ?>, <?= $link['fyp_criteriaid']; ?>)" style="background:none;border:none;color:#f87171;cursor:pointer;margin-left:5px;"><i class="fas fa-times"></i></button>
+                                </span>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
                         <?php endforeach; ?>
-                    </tbody></table>
-                <?php endif; ?>
-            </div></div>
+                    <?php endif; ?>
+                </div>
+            </div>
             
-            <div class="card"><div class="card-header"><h3>Assessment Items</h3></div><div class="card-body">
-                <table class="data-table"><thead><tr><th>ID</th><th>Item Name</th><th>Mark Allocation</th><th>Start Date</th><th>Deadline</th><th>Moderation</th></tr></thead><tbody>
-                    <?php foreach ($items as $i): ?>
-                    <tr><td><?= $i['fyp_itemid']; ?></td><td><?= htmlspecialchars($i['fyp_itemname']); ?></td><td><?= $i['fyp_originalmarkallocation']; ?>%</td><td><?= $i['fyp_startdate'] ? date('M j, Y', strtotime($i['fyp_startdate'])) : '-'; ?></td><td><?= $i['fyp_finaldeadline'] ? date('M j, Y', strtotime($i['fyp_finaldeadline'])) : '-'; ?></td><td><?= $i['fyp_ismoderation'] ? '<span class="badge badge-approved">Yes</span>' : '<span class="badge badge-pending">No</span>'; ?></td></tr>
-                    <?php endforeach; ?>
-                </tbody></table>
-            </div></div>
+            <!-- Create Marking Criteria Modal -->
+            <div class="modal-overlay" id="createMarkingModal">
+                <div class="modal" style="max-width:500px;">
+                    <div class="modal-header">
+                        <h3><i class="fas fa-percent" style="color:#60a5fa;"></i> <span id="markingModalTitle">Add Marking Criteria</span></h3>
+                        <button class="modal-close" onclick="closeModal('createMarkingModal')">&times;</button>
+                    </div>
+                    <form method="POST">
+                        <input type="hidden" name="marking_id" id="edit_marking_id" value="">
+                        <div class="modal-body">
+                            <div class="form-group">
+                                <label>Criteria Name <span style="color:#f87171;">*</span></label>
+                                <input type="text" name="marking_name" id="marking_name" class="form-control" placeholder="e.g., Introduction, Methodology, Results" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Percentage Allocation</label>
+                                <input type="number" name="marking_percent" id="marking_percent" class="form-control" placeholder="20" min="0" max="100" step="0.001">
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" onclick="closeModal('createMarkingModal')">Cancel</button>
+                            <button type="submit" name="save_marking" class="btn btn-success">
+                                <i class="fas fa-save"></i> Save Marking Criteria
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
             
-            <div class="card"><div class="card-header"><h3>Assessment Criteria</h3></div><div class="card-body">
-                <table class="data-table"><thead><tr><th>ID</th><th>Criteria Name</th><th>Description</th><th>Min Mark</th><th>Max Mark</th></tr></thead><tbody>
-                    <?php foreach ($criteria as $c): ?>
-                    <tr><td><?= $c['fyp_assessmentcriteriaid']; ?></td><td><?= htmlspecialchars($c['fyp_assessmentcriterianame']); ?></td><td><?= htmlspecialchars($c['fyp_description'] ?? '-'); ?></td><td><?= $c['fyp_min']; ?></td><td><?= $c['fyp_max']; ?></td></tr>
-                    <?php endforeach; ?>
-                </tbody></table>
-            </div></div>
+            <!-- Link Item to Criteria Modal -->
+            <div class="modal-overlay" id="linkItemCriteriaModal">
+                <div class="modal" style="max-width:500px;">
+                    <div class="modal-header">
+                        <h3><i class="fas fa-link" style="color:#a78bfa;"></i> Link Item to Marking Criteria</h3>
+                        <button class="modal-close" onclick="closeModal('linkItemCriteriaModal')">&times;</button>
+                    </div>
+                    <form method="POST">
+                        <div class="modal-body">
+                            <div class="form-group">
+                                <label>Assessment Item <span style="color:#f87171;">*</span></label>
+                                <select name="link_itemid" class="form-control" required>
+                                    <option value="">-- Select Item --</option>
+                                    <?php foreach ($items as $item): ?>
+                                    <option value="<?= $item['fyp_itemid']; ?>"><?= htmlspecialchars($item['fyp_itemname']); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Marking Criteria <span style="color:#f87171;">*</span></label>
+                                <select name="link_criteriaid" class="form-control" required>
+                                    <option value="">-- Select Criteria --</option>
+                                    <?php foreach ($marking_criteria as $mc): ?>
+                                    <option value="<?= $mc['fyp_criteriaid']; ?>"><?= htmlspecialchars($mc['fyp_criterianame']); ?> (<?= number_format($mc['fyp_percentallocation'], 1); ?>%)</option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" onclick="closeModal('linkItemCriteriaModal')">Cancel</button>
+                            <button type="submit" name="link_item_criteria" class="btn btn-success">
+                                <i class="fas fa-link"></i> Link
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
+            <?php elseif ($rubrics_action === 'student_assessment'): 
+                // Get students with pairings for marking
+                $students_for_marking = [];
+                $res = $conn->query("SELECT s.fyp_studid, s.fyp_studname, s.fyp_studfullid, 
+                                            p.fyp_projectid, p.fyp_projecttitle,
+                                            pa.fyp_pairingid, pa.fyp_supervisorid, pa.fyp_moderatorid,
+                                            sup.fyp_supervisorname as supervisor_name,
+                                            mod_sup.fyp_supervisorname as moderator_name
+                                     FROM student s
+                                     LEFT JOIN pairing pa ON s.fyp_studid = pa.fyp_studid
+                                     LEFT JOIN project p ON pa.fyp_projectid = p.fyp_projectid
+                                     LEFT JOIN supervisor sup ON pa.fyp_supervisorid = sup.fyp_supervisorid
+                                     LEFT JOIN supervisor mod_sup ON pa.fyp_moderatorid = mod_sup.fyp_supervisorid
+                                     WHERE pa.fyp_pairingid IS NOT NULL
+                                     ORDER BY s.fyp_studname");
+                if ($res) { while ($row = $res->fetch_assoc()) { $students_for_marking[] = $row; } }
+                
+                // Get selected student if any
+                $selected_student_id = $_GET['student_id'] ?? '';
+                $selected_student = null;
+                $student_criteria_marks = [];
+                
+                if (!empty($selected_student_id)) {
+                    // Get student details
+                    $stmt = $conn->prepare("SELECT s.*, p.fyp_projecttitle, pa.fyp_pairingid
+                                           FROM student s
+                                           LEFT JOIN pairing pa ON s.fyp_studid = pa.fyp_studid
+                                           LEFT JOIN project p ON pa.fyp_projectid = p.fyp_projectid
+                                           WHERE s.fyp_studid = ?");
+                    $stmt->bind_param("s", $selected_student_id);
+                    $stmt->execute();
+                    $selected_student = $stmt->get_result()->fetch_assoc();
+                    $stmt->close();
+                    
+                    // Get existing marks for this student
+                    $res = $conn->query("SELECT cm.*, mc.fyp_criterianame, mc.fyp_percentallocation, i.fyp_itemname, i.fyp_itemid
+                                        FROM criteria_mark cm
+                                        LEFT JOIN marking_criteria mc ON cm.fyp_criteriaid = mc.fyp_criteriaid
+                                        LEFT JOIN item_marking_criteria imc ON cm.fyp_criteriaid = imc.fyp_criteriaid
+                                        LEFT JOIN item i ON imc.fyp_itemid = i.fyp_itemid
+                                        WHERE cm.fyp_studid = '$selected_student_id'");
+                    if ($res) { while ($row = $res->fetch_assoc()) { $student_criteria_marks[$row['fyp_criteriaid']] = $row; } }
+                }
+            ?>
+            <!-- ========== STUDENT ASSESSMENT (Mark Student) ========== -->
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-edit" style="color:#34d399;"></i> Mark Student Assessment</h3>
+                </div>
+                <div class="card-body">
+                    <p style="color:#94a3b8;margin-bottom:20px;"><i class="fas fa-info-circle"></i> Select a student to enter assessment marks based on the defined rubrics criteria.</p>
+                    
+                    <!-- Student Selection -->
+                    <div class="form-group" style="max-width:500px;margin-bottom:25px;">
+                        <label>Select Student to Mark</label>
+                        <select class="form-control" id="selectStudentForMarking" onchange="loadStudentForMarking(this.value)">
+                            <option value="">-- Select Student --</option>
+                            <?php foreach ($students_for_marking as $stud): ?>
+                            <option value="<?= htmlspecialchars($stud['fyp_studid']); ?>" <?= $selected_student_id === $stud['fyp_studid'] ? 'selected' : ''; ?>>
+                                <?= htmlspecialchars($stud['fyp_studid'] . ' - ' . $stud['fyp_studname']); ?>
+                                <?= $stud['fyp_projecttitle'] ? ' (' . htmlspecialchars($stud['fyp_projecttitle']) . ')' : ''; ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    
+                    <?php if ($selected_student): ?>
+                    <!-- Student Info Card -->
+                    <div style="background:rgba(52,211,153,0.1);padding:20px;border-radius:12px;margin-bottom:25px;border:1px solid rgba(52,211,153,0.2);">
+                        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:15px;">
+                            <div>
+                                <small style="color:#64748b;">Student ID</small>
+                                <p style="color:#e2e8f0;margin:5px 0 0;font-weight:600;"><?= htmlspecialchars($selected_student['fyp_studid']); ?></p>
+                            </div>
+                            <div>
+                                <small style="color:#64748b;">Student Name</small>
+                                <p style="color:#e2e8f0;margin:5px 0 0;font-weight:600;"><?= htmlspecialchars($selected_student['fyp_studname']); ?></p>
+                            </div>
+                            <div>
+                                <small style="color:#64748b;">Project Title</small>
+                                <p style="color:#a78bfa;margin:5px 0 0;font-weight:600;"><?= htmlspecialchars($selected_student['fyp_projecttitle'] ?? 'Not assigned'); ?></p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Assessment Form -->
+                    <form method="POST" id="assessmentForm">
+                        <input type="hidden" name="save_student_assessment" value="1">
+                        <input type="hidden" name="assess_student_id" value="<?= htmlspecialchars($selected_student['fyp_studid']); ?>">
+                        
+                        <?php 
+                        // Group items with their marking criteria
+                        $items_with_criteria = [];
+                        foreach ($items as $item) {
+                            $item_id = $item['fyp_itemid'];
+                            $items_with_criteria[$item_id] = [
+                                'item' => $item,
+                                'criteria' => []
+                            ];
+                            foreach ($item_marking_links as $link) {
+                                if ($link['fyp_itemid'] == $item_id) {
+                                    $items_with_criteria[$item_id]['criteria'][] = $link;
+                                }
+                            }
+                        }
+                        ?>
+                        
+                        <?php foreach ($items_with_criteria as $item_id => $item_data): 
+                            if (empty($item_data['criteria'])) continue;
+                        ?>
+                        <div class="card" style="margin-bottom:20px;background:rgba(30,30,50,0.5);">
+                            <div class="card-header" style="background:rgba(139,92,246,0.1);">
+                                <h4 style="margin:0;color:#a78bfa;">
+                                    <i class="fas fa-file-alt"></i> <?= htmlspecialchars($item_data['item']['fyp_itemname']); ?>
+                                    <span style="font-size:0.85rem;color:#94a3b8;margin-left:10px;">
+                                        (Total: <?= number_format($item_data['item']['fyp_originalmarkallocation'], 1); ?>%)
+                                    </span>
+                                </h4>
+                            </div>
+                            <div class="card-body" style="padding:0;">
+                                <table class="data-table" style="margin:0;">
+                                    <thead>
+                                        <tr>
+                                            <th>Criteria</th>
+                                            <th>% Allocation</th>
+                                            <?php foreach ($criteria as $c): ?>
+                                            <th style="text-align:center;font-size:0.8rem;">
+                                                <?= htmlspecialchars($c['fyp_assessmentcriterianame']); ?><br>
+                                                <small>(<?= $c['fyp_min']; ?>-<?= $c['fyp_max']; ?>)</small>
+                                            </th>
+                                            <?php endforeach; ?>
+                                            <th>Initial Work</th>
+                                            <th>Final Work</th>
+                                            <th>Moderator Mark</th>
+                                            <th>Average</th>
+                                            <th>Scaled Mark</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($item_data['criteria'] as $mc): 
+                                            $existing_mark = $student_criteria_marks[$mc['fyp_criteriaid']] ?? null;
+                                        ?>
+                                        <tr>
+                                            <td><strong><?= htmlspecialchars($mc['fyp_criterianame']); ?></strong></td>
+                                            <td><span class="badge badge-approved"><?= number_format($mc['fyp_percentallocation'], 1); ?>%</span></td>
+                                            <?php foreach ($criteria as $c): ?>
+                                            <td style="text-align:center;">
+                                                <input type="radio" name="criteria_level[<?= $mc['fyp_criteriaid']; ?>]" value="<?= $c['fyp_assessmentcriteriaid']; ?>" style="width:18px;height:18px;">
+                                            </td>
+                                            <?php endforeach; ?>
+                                            <td>
+                                                <input type="number" name="initial_work[<?= $mc['fyp_criteriaid']; ?>]" 
+                                                       class="form-control" style="width:70px;" min="0" max="100" step="0.01"
+                                                       value="<?= $existing_mark['fyp_initialwork'] ?? ''; ?>"
+                                                       onchange="calculateAverage(<?= $mc['fyp_criteriaid']; ?>, <?= $mc['fyp_percentallocation']; ?>)">
+                                            </td>
+                                            <td>
+                                                <input type="number" name="final_work[<?= $mc['fyp_criteriaid']; ?>]" 
+                                                       class="form-control" style="width:70px;" min="0" max="100" step="0.01"
+                                                       value="<?= $existing_mark['fyp_finalwork'] ?? ''; ?>"
+                                                       onchange="calculateAverage(<?= $mc['fyp_criteriaid']; ?>, <?= $mc['fyp_percentallocation']; ?>)">
+                                            </td>
+                                            <td>
+                                                <input type="number" name="moderator_mark[<?= $mc['fyp_criteriaid']; ?>]" 
+                                                       class="form-control" style="width:70px;" min="0" max="100" step="0.01"
+                                                       value="<?= $existing_mark['fyp_markbymoderator'] ?? ''; ?>"
+                                                       onchange="calculateAverage(<?= $mc['fyp_criteriaid']; ?>, <?= $mc['fyp_percentallocation']; ?>)">
+                                            </td>
+                                            <td>
+                                                <input type="text" id="avg_<?= $mc['fyp_criteriaid']; ?>" 
+                                                       class="form-control" style="width:70px;background:#1e1e32;" readonly
+                                                       value="<?= $existing_mark['fyp_avgmark'] ?? ''; ?>">
+                                            </td>
+                                            <td>
+                                                <input type="text" id="scaled_<?= $mc['fyp_criteriaid']; ?>" name="scaled_mark[<?= $mc['fyp_criteriaid']; ?>]"
+                                                       class="form-control" style="width:70px;background:#1e1e32;color:#34d399;font-weight:600;" readonly
+                                                       value="<?= $existing_mark['fyp_scaledmark'] ?? ''; ?>">
+                                            </td>
+                                        </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                        
+                        <!-- Final Subtotal -->
+                        <div style="background:rgba(139,92,246,0.1);padding:20px;border-radius:12px;margin-top:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:15px;">
+                            <div>
+                                <label style="color:#a78bfa;font-weight:600;margin-right:15px;">Final Subtotal:</label>
+                                <input type="text" id="finalSubtotal" class="form-control" style="width:100px;display:inline-block;background:#1e1e32;color:#34d399;font-weight:700;font-size:1.1rem;" readonly value="0.00">
+                            </div>
+                            <button type="submit" class="btn btn-success" style="min-width:150px;">
+                                <i class="fas fa-save"></i> Save Marks
+                            </button>
+                        </div>
+                    </form>
+                    <?php else: ?>
+                    <div class="empty-state">
+                        <i class="fas fa-user-graduate"></i>
+                        <p>Select a student from the dropdown above to start marking</p>
+                    </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+            
+            <?php elseif ($rubrics_action === 'students_marks'): 
+                // Get all students with their total marks
+                $students_marks = [];
+                $res = $conn->query("SELECT s.fyp_studid, s.fyp_studname, s.fyp_studfullid,
+                                            p.fyp_projecttitle,
+                                            tm.fyp_totalmark, tm.fyp_totalfinalsupervisor, tm.fyp_totalfinalmoderator,
+                                            a.fyp_acdyear, a.fyp_intake
+                                     FROM student s
+                                     LEFT JOIN pairing pa ON s.fyp_studid = pa.fyp_studid
+                                     LEFT JOIN project p ON pa.fyp_projectid = p.fyp_projectid
+                                     LEFT JOIN total_mark tm ON s.fyp_studid = tm.fyp_studid
+                                     LEFT JOIN academic_year a ON pa.fyp_academicid = a.fyp_academicid
+                                     WHERE pa.fyp_pairingid IS NOT NULL
+                                     ORDER BY s.fyp_studname");
+                if ($res) { while ($row = $res->fetch_assoc()) { $students_marks[] = $row; } }
+            ?>
+            <!-- ========== STUDENTS MARKS LIST ========== -->
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-list-alt" style="color:#60a5fa;"></i> Students Marks</h3>
+                </div>
+                <div class="card-body">
+                    <!-- Filter Section -->
+                    <div style="background:rgba(59,130,246,0.1);padding:20px;border-radius:12px;margin-bottom:25px;border:1px solid rgba(59,130,246,0.2);">
+                        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:15px;">
+                            <div class="form-group" style="margin:0;">
+                                <label>Academic Year</label>
+                                <select class="form-control" id="filterAcademicYear">
+                                    <option value="">-- All --</option>
+                                    <?php foreach ($academic_years as $ay): ?>
+                                    <option value="<?= htmlspecialchars($ay['fyp_acdyear']); ?>"><?= htmlspecialchars($ay['fyp_acdyear']); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="form-group" style="margin:0;">
+                                <label>Intake</label>
+                                <select class="form-control" id="filterIntake">
+                                    <option value="">-- All --</option>
+                                    <option value="MAR">MAR</option>
+                                    <option value="JUN">JUN</option>
+                                    <option value="SEP">SEP</option>
+                                    <option value="DEC">DEC</option>
+                                </select>
+                            </div>
+                            <div class="form-group" style="margin:0;">
+                                <label>Student ID</label>
+                                <input type="text" class="form-control" id="filterStudentId" placeholder="e.g. TP055011">
+                            </div>
+                            <div class="form-group" style="margin:0;">
+                                <label>Student Name</label>
+                                <input type="text" class="form-control" id="filterStudentName" placeholder="e.g. John">
+                            </div>
+                        </div>
+                        <div style="margin-top:15px;">
+                            <button class="btn btn-info" onclick="filterStudentsMarks()"><i class="fas fa-filter"></i> Filter</button>
+                            <button class="btn btn-secondary" onclick="clearFilters()"><i class="fas fa-times"></i> Clear</button>
+                        </div>
+                    </div>
+                    
+                    <?php if (empty($students_marks)): ?>
+                    <div class="empty-state">
+                        <i class="fas fa-list-alt"></i>
+                        <p>No student marks found</p>
+                    </div>
+                    <?php else: ?>
+                    <div style="overflow-x:auto;">
+                        <table class="data-table" id="studentsMarksTable">
+                            <thead>
+                                <tr>
+                                    <th>Student ID</th>
+                                    <th>Student Name</th>
+                                    <th>Project Title</th>
+                                    <th>Total Mark</th>
+                                    <th>Supervisor Mark</th>
+                                    <th>Moderator Mark</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($students_marks as $sm): ?>
+                                <tr data-year="<?= htmlspecialchars($sm['fyp_acdyear'] ?? ''); ?>" data-intake="<?= htmlspecialchars($sm['fyp_intake'] ?? ''); ?>">
+                                    <td><?= htmlspecialchars($sm['fyp_studid']); ?></td>
+                                    <td><strong><?= htmlspecialchars($sm['fyp_studname']); ?></strong></td>
+                                    <td><?= htmlspecialchars($sm['fyp_projecttitle'] ?? '-'); ?></td>
+                                    <td>
+                                        <span style="color:<?= ($sm['fyp_totalmark'] ?? 0) >= 50 ? '#34d399' : '#f87171'; ?>;font-weight:700;font-size:1.1rem;">
+                                            <?= $sm['fyp_totalmark'] ? number_format($sm['fyp_totalmark'], 2) : '-'; ?>
+                                        </span>
+                                    </td>
+                                    <td><?= $sm['fyp_totalfinalsupervisor'] ? number_format($sm['fyp_totalfinalsupervisor'], 2) : '-'; ?></td>
+                                    <td><?= $sm['fyp_totalfinalmoderator'] ? number_format($sm['fyp_totalfinalmoderator'], 2) : '-'; ?></td>
+                                    <td>
+                                        <a href="?page=rubrics&action=overall_marks&student_id=<?= urlencode($sm['fyp_studid']); ?>" class="btn btn-info btn-sm">
+                                            <i class="fas fa-eye"></i> View Details
+                                        </a>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+            
+            <?php elseif ($rubrics_action === 'overall_marks'): 
+                $view_student_id = $_GET['student_id'] ?? '';
+                $overall_student = null;
+                $overall_marks_data = [];
+                
+                if (!empty($view_student_id)) {
+                    // Get student info
+                    $stmt = $conn->prepare("SELECT s.*, p.fyp_projecttitle, pa.fyp_pairingid,
+                                                   sup.fyp_supervisorname as supervisor_name,
+                                                   mod_sup.fyp_supervisorname as moderator_name
+                                           FROM student s
+                                           LEFT JOIN pairing pa ON s.fyp_studid = pa.fyp_studid
+                                           LEFT JOIN project p ON pa.fyp_projectid = p.fyp_projectid
+                                           LEFT JOIN supervisor sup ON pa.fyp_supervisorid = sup.fyp_supervisorid
+                                           LEFT JOIN supervisor mod_sup ON pa.fyp_moderatorid = mod_sup.fyp_supervisorid
+                                           WHERE s.fyp_studid = ?");
+                    $stmt->bind_param("s", $view_student_id);
+                    $stmt->execute();
+                    $overall_student = $stmt->get_result()->fetch_assoc();
+                    $stmt->close();
+                    
+                    // Get all criteria marks for this student grouped by item
+                    $res = $conn->query("SELECT cm.*, mc.fyp_criterianame, mc.fyp_percentallocation, 
+                                                i.fyp_itemname, i.fyp_itemid, i.fyp_originalmarkallocation
+                                        FROM criteria_mark cm
+                                        LEFT JOIN marking_criteria mc ON cm.fyp_criteriaid = mc.fyp_criteriaid
+                                        LEFT JOIN item_marking_criteria imc ON cm.fyp_criteriaid = imc.fyp_criteriaid
+                                        LEFT JOIN item i ON imc.fyp_itemid = i.fyp_itemid
+                                        WHERE cm.fyp_studid = '$view_student_id'
+                                        ORDER BY i.fyp_itemid, mc.fyp_criteriaid");
+                    if ($res) { 
+                        while ($row = $res->fetch_assoc()) { 
+                            $item_name = $row['fyp_itemname'] ?? 'Unknown';
+                            if (!isset($overall_marks_data[$item_name])) {
+                                $overall_marks_data[$item_name] = [
+                                    'allocation' => $row['fyp_originalmarkallocation'],
+                                    'criteria' => []
+                                ];
+                            }
+                            $overall_marks_data[$item_name]['criteria'][] = $row;
+                        } 
+                    }
+                }
+            ?>
+            <!-- ========== OVERALL MARKS VIEW ========== -->
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-chart-bar" style="color:#fbbf24;"></i> Overall Marks View</h3>
+                </div>
+                <div class="card-body">
+                    <?php if (!$view_student_id): ?>
+                    <!-- Student Selection for Overall View -->
+                    <div class="form-group" style="max-width:500px;margin-bottom:25px;">
+                        <label>Select Student to View Overall Marks</label>
+                        <select class="form-control" onchange="if(this.value) window.location='?page=rubrics&action=overall_marks&student_id='+this.value">
+                            <option value="">-- Select Student --</option>
+                            <?php foreach ($students_for_marking as $stud): ?>
+                            <option value="<?= htmlspecialchars($stud['fyp_studid']); ?>">
+                                <?= htmlspecialchars($stud['fyp_studid'] . ' - ' . $stud['fyp_studname']); ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="empty-state">
+                        <i class="fas fa-chart-bar"></i>
+                        <p>Select a student to view their overall marks breakdown</p>
+                    </div>
+                    
+                    <?php elseif ($overall_student): ?>
+                    <!-- Student Info Header -->
+                    <div style="background:rgba(251,191,36,0.1);padding:20px;border-radius:12px;margin-bottom:25px;border:1px solid rgba(251,191,36,0.2);">
+                        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:15px;">
+                            <div>
+                                <small style="color:#64748b;">Student ID</small>
+                                <p style="color:#fbbf24;margin:5px 0 0;font-weight:700;font-size:1.1rem;"><?= htmlspecialchars($overall_student['fyp_studid']); ?></p>
+                            </div>
+                            <div>
+                                <small style="color:#64748b;">Student Name</small>
+                                <p style="color:#e2e8f0;margin:5px 0 0;font-weight:600;"><?= htmlspecialchars($overall_student['fyp_studname']); ?></p>
+                            </div>
+                            <div>
+                                <small style="color:#64748b;">Project Title</small>
+                                <p style="color:#a78bfa;margin:5px 0 0;font-weight:600;"><?= htmlspecialchars($overall_student['fyp_projecttitle'] ?? 'Not assigned'); ?></p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Overall Marks Table -->
+                    <div style="overflow-x:auto;">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th>Criteria</th>
+                                    <th>Mark Allocation (%)</th>
+                                    <?php foreach ($criteria as $c): ?>
+                                    <th style="text-align:center;font-size:0.75rem;"><?= htmlspecialchars($c['fyp_assessmentcriterianame']); ?><br>(<?= $c['fyp_min']; ?>-<?= $c['fyp_max']; ?>)</th>
+                                    <?php endforeach; ?>
+                                    <th>Initial Work</th>
+                                    <th>Final Work</th>
+                                    <th>Moderator</th>
+                                    <th>Average</th>
+                                    <th>Scaled Mark</th>
+                                    <th>Final Supervisor</th>
+                                    <th>Final Moderator</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php 
+                                $grand_total = 0;
+                                $total_supervisor = 0;
+                                $total_moderator = 0;
+                                foreach ($overall_marks_data as $item_name => $item_data): 
+                                    $first_row = true;
+                                    $criteria_count = count($item_data['criteria']);
+                                    foreach ($item_data['criteria'] as $mark):
+                                        $grand_total += floatval($mark['fyp_scaledmark'] ?? 0);
+                                ?>
+                                <tr>
+                                    <?php if ($first_row): ?>
+                                    <td rowspan="<?= $criteria_count; ?>" style="background:rgba(139,92,246,0.1);font-weight:600;color:#a78bfa;">
+                                        <?= htmlspecialchars($item_name); ?><br>
+                                        <small style="color:#94a3b8;">(<?= number_format($item_data['allocation'], 0); ?>%)</small>
+                                    </td>
+                                    <?php $first_row = false; endif; ?>
+                                    <td><?= htmlspecialchars($mark['fyp_criterianame']); ?></td>
+                                    <td><span class="badge badge-approved"><?= number_format($mark['fyp_percentallocation'], 1); ?>%</span></td>
+                                    <?php foreach ($criteria as $c): ?>
+                                    <td style="text-align:center;">-</td>
+                                    <?php endforeach; ?>
+                                    <td><?= $mark['fyp_initialwork'] ? number_format($mark['fyp_initialwork'], 2) : '-'; ?></td>
+                                    <td><?= $mark['fyp_finalwork'] ? number_format($mark['fyp_finalwork'], 2) : '-'; ?></td>
+                                    <td><?= $mark['fyp_markbymoderator'] ? number_format($mark['fyp_markbymoderator'], 2) : '-'; ?></td>
+                                    <td style="color:#60a5fa;font-weight:600;"><?= $mark['fyp_avgmark'] ? number_format($mark['fyp_avgmark'], 2) : '-'; ?></td>
+                                    <td style="color:#34d399;font-weight:700;"><?= $mark['fyp_scaledmark'] ? number_format($mark['fyp_scaledmark'], 2) : '-'; ?></td>
+                                    <td>-</td>
+                                    <td>-</td>
+                                </tr>
+                                <?php endforeach; endforeach; ?>
+                            </tbody>
+                            <tfoot>
+                                <tr style="background:rgba(139,92,246,0.2);">
+                                    <td colspan="<?= 4 + count($criteria); ?>" style="text-align:right;font-weight:700;color:#a78bfa;">
+                                        Total (%)
+                                    </td>
+                                    <td colspan="3" style="font-weight:700;color:#34d399;font-size:1.2rem;">
+                                        100
+                                    </td>
+                                    <td style="font-weight:700;color:#34d399;font-size:1.1rem;">Final Total (%)</td>
+                                    <td style="font-weight:700;color:#fbbf24;font-size:1.2rem;"><?= number_format($grand_total, 2); ?></td>
+                                    <td style="font-weight:700;color:#60a5fa;"><?= number_format($total_supervisor, 2); ?></td>
+                                    <td style="font-weight:700;color:#fb923c;"><?= number_format($total_moderator, 2); ?></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                    
+                    <!-- Back Button -->
+                    <div style="margin-top:20px;">
+                        <a href="?page=rubrics&action=students_marks" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left"></i> Back to Students Marks
+                        </a>
+                        <button class="btn btn-primary" onclick="window.print()">
+                            <i class="fas fa-print"></i> Print
+                        </button>
+                    </div>
+                    <?php else: ?>
+                    <div class="empty-state">
+                        <i class="fas fa-exclamation-triangle" style="color:#f87171;"></i>
+                        <p>Student not found</p>
+                        <a href="?page=rubrics&action=students_marks" class="btn btn-secondary">Back to Students Marks</a>
+                    </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+            
+            <?php endif; ?>
 
         <!-- ==================== ASSESSMENT MARKS ==================== -->
         <?php elseif ($current_page === 'marks'): 
@@ -2663,6 +3996,20 @@ $menu_items = [
 
 <!-- MODALS -->
 
+<!-- Success Modal -->
+<div class="modal-overlay" id="successModal">
+    <div class="modal" style="max-width:400px;text-align:center;">
+        <div class="modal-body" style="padding:40px;">
+            <div style="width:80px;height:80px;border-radius:50%;background:rgba(52,211,153,0.2);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;">
+                <i class="fas fa-check" style="font-size:40px;color:#34d399;"></i>
+            </div>
+            <h2 style="color:#34d399;margin-bottom:15px;">Success</h2>
+            <p id="successMessage" style="color:#94a3b8;margin-bottom:25px;">Marks updated successfully.</p>
+            <button class="btn btn-success" onclick="closeModal('successModal')" style="min-width:100px;">OK</button>
+        </div>
+    </div>
+</div>
+
 <!-- Add Student Manually Modal -->
 <div class="modal-overlay" id="addStudentModal">
     <div class="modal" style="max-width:500px;">
@@ -3101,12 +4448,17 @@ function quickAddMark(studid, studentDisplay, projectId = null) {
 // Download CSV Template
 function downloadTemplate(event) {
     event.preventDefault();
+    // Use tab-separated or wrap numbers in quotes to prevent Excel conversion
     const csvContent = `EMAIL,STUDENT_ID,NAME,PROGRAMME,CONTACT
-john.doe@student.edu.my,TP055011,John Doe,SE,0123456789
-jane.smith@student.edu.my,TP055012,Jane Smith,AI,0198765432
-bob.wilson@student.edu.my,TP055013,Bob Wilson,CS,0167891234`;
+john.doe@student.edu.my,TP055011,John Doe,SE,"0123456789"
+jane.smith@student.edu.my,TP055012,Jane Smith,AI,"0198765432"
+bob.wilson@student.edu.my,TP055013,Bob Wilson,CS,"0167891234"
+alice.tan@student.edu.my,TP055014,Alice Tan,SE,"0112223344"
+charlie.lee@student.edu.my,TP055015,Charlie Lee,AI,"0156667777"`;
     
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    // Add BOM for Excel to recognize UTF-8
+    const BOM = '\uFEFF';
+    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = 'student_import_template.csv';
@@ -3160,6 +4512,222 @@ function copyAllCredentials() {
         alert('All credentials copied to clipboard!');
     });
 }
+
+// ===================== RUBRICS ASSESSMENT FUNCTIONS =====================
+
+// Add criteria row in Set creation
+function addCriteriaRow() {
+    const container = document.getElementById('criteriaContainer');
+    const count = container.querySelectorAll('.criteria-row').length + 1;
+    const html = `
+        <div class="criteria-row" style="display:grid;grid-template-columns:1fr 80px 40px;gap:10px;margin-bottom:10px;">
+            <input type="text" name="criteria_name[]" class="form-control" placeholder="Criteria Name">
+            <input type="number" name="criteria_order[]" class="form-control" placeholder="Order" value="${count}" min="1">
+            <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.criteria-row').remove()"><i class="fas fa-times"></i></button>
+        </div>
+    `;
+    container.insertAdjacentHTML('beforeend', html);
+}
+
+// Edit Set
+function editSet(id, academicId) {
+    document.getElementById('setModalTitle').textContent = 'Edit Assessment Set';
+    document.getElementById('edit_set_id').value = id;
+    document.getElementById('set_academic_id').value = academicId || '';
+    openModal('createSetModal');
+}
+
+// Delete Set
+function deleteSet(id) {
+    if (confirm('Are you sure you want to delete this assessment set?')) {
+        var form = document.createElement('form');
+        form.method = 'POST';
+        form.innerHTML = '<input type="hidden" name="delete_set" value="1"><input type="hidden" name="set_id" value="' + id + '">';
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+// Edit Item
+function editItem(item) {
+    document.getElementById('itemModalTitle').textContent = 'Edit Assessment Item';
+    document.getElementById('edit_item_id').value = item.fyp_itemid;
+    document.getElementById('item_name').value = item.fyp_itemname || '';
+    document.getElementById('item_mark').value = item.fyp_originalmarkallocation || 0;
+    document.querySelector(`input[name="item_doc"][value="${item.fyp_isdocumentrequired || 1}"]`).checked = true;
+    document.querySelector(`input[name="item_moderate"][value="${item.fyp_ismoderation || 0}"]`).checked = true;
+    document.getElementById('item_start').value = item.fyp_startdate || '';
+    document.getElementById('item_deadline').value = item.fyp_finaldeadline || '';
+    document.getElementById('item_setid').value = item.fyp_setid || '';
+    openModal('createItemModal');
+}
+
+// Delete Item
+function deleteItem(id) {
+    if (confirm('Are you sure you want to delete this assessment item?')) {
+        var form = document.createElement('form');
+        form.method = 'POST';
+        form.innerHTML = '<input type="hidden" name="delete_item" value="1"><input type="hidden" name="item_id" value="' + id + '">';
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+// Edit Criteria
+function editCriteria(id, name, min, max, desc) {
+    document.getElementById('criteriaModalTitle').textContent = 'Edit Assessment Criteria';
+    document.getElementById('edit_criteria_id').value = id;
+    document.getElementById('crit_name').value = name;
+    document.getElementById('crit_min').value = min;
+    document.getElementById('crit_max').value = max;
+    document.getElementById('crit_desc').value = desc;
+    openModal('createCriteriaModal');
+}
+
+// Delete Criteria
+function deleteCriteria(id) {
+    if (confirm('Are you sure you want to delete this assessment criteria?')) {
+        var form = document.createElement('form');
+        form.method = 'POST';
+        form.innerHTML = '<input type="hidden" name="delete_criteria" value="1"><input type="hidden" name="criteria_id" value="' + id + '">';
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+// Edit Marking Criteria
+function editMarking(id, name, percent) {
+    document.getElementById('markingModalTitle').textContent = 'Edit Marking Criteria';
+    document.getElementById('edit_marking_id').value = id;
+    document.getElementById('marking_name').value = name;
+    document.getElementById('marking_percent').value = percent;
+    openModal('createMarkingModal');
+}
+
+// Delete Marking Criteria
+function deleteMarking(id) {
+    if (confirm('Are you sure you want to delete this marking criteria?')) {
+        var form = document.createElement('form');
+        form.method = 'POST';
+        form.innerHTML = '<input type="hidden" name="delete_marking" value="1"><input type="hidden" name="marking_id" value="' + id + '">';
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+// Unlink Item from Marking Criteria
+function unlinkItemCriteria(itemId, criteriaId) {
+    if (confirm('Are you sure you want to remove this link?')) {
+        var form = document.createElement('form');
+        form.method = 'POST';
+        form.innerHTML = '<input type="hidden" name="unlink_item_criteria" value="1"><input type="hidden" name="unlink_itemid" value="' + itemId + '"><input type="hidden" name="unlink_criteriaid" value="' + criteriaId + '">';
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+// ==================== STUDENT ASSESSMENT FUNCTIONS ====================
+
+// Load student for marking
+function loadStudentForMarking(studentId) {
+    if (studentId) {
+        window.location.href = '?page=rubrics&action=student_assessment&student_id=' + encodeURIComponent(studentId);
+    }
+}
+
+// Calculate average and scaled mark
+function calculateAverage(criteriaId, percentAllocation) {
+    var initial = parseFloat(document.querySelector('input[name="initial_work[' + criteriaId + ']"]').value) || 0;
+    var final = parseFloat(document.querySelector('input[name="final_work[' + criteriaId + ']"]').value) || 0;
+    var moderator = parseFloat(document.querySelector('input[name="moderator_mark[' + criteriaId + ']"]').value) || 0;
+    
+    // Calculate average of non-zero values
+    var values = [initial, final, moderator].filter(function(v) { return v > 0; });
+    var avg = values.length > 0 ? values.reduce(function(a, b) { return a + b; }, 0) / values.length : 0;
+    
+    // Calculate scaled mark (average * percent allocation / 100)
+    var scaled = (avg * percentAllocation) / 100;
+    
+    // Update display
+    document.getElementById('avg_' + criteriaId).value = avg.toFixed(2);
+    document.getElementById('scaled_' + criteriaId).value = scaled.toFixed(2);
+    
+    // Recalculate total
+    calculateFinalSubtotal();
+}
+
+// Calculate final subtotal
+function calculateFinalSubtotal() {
+    var scaledInputs = document.querySelectorAll('input[id^="scaled_"]');
+    var total = 0;
+    
+    scaledInputs.forEach(function(input) {
+        total += parseFloat(input.value) || 0;
+    });
+    
+    var finalSubtotalEl = document.getElementById('finalSubtotal');
+    if (finalSubtotalEl) {
+        finalSubtotalEl.value = total.toFixed(2);
+    }
+}
+
+// Filter students marks table
+function filterStudentsMarks() {
+    var yearFilter = document.getElementById('filterAcademicYear').value.toLowerCase();
+    var intakeFilter = document.getElementById('filterIntake').value.toLowerCase();
+    var idFilter = document.getElementById('filterStudentId').value.toLowerCase();
+    var nameFilter = document.getElementById('filterStudentName').value.toLowerCase();
+    
+    var rows = document.querySelectorAll('#studentsMarksTable tbody tr');
+    
+    rows.forEach(function(row) {
+        var year = (row.getAttribute('data-year') || '').toLowerCase();
+        var intake = (row.getAttribute('data-intake') || '').toLowerCase();
+        var cells = row.querySelectorAll('td');
+        var id = cells[0] ? cells[0].textContent.toLowerCase() : '';
+        var name = cells[1] ? cells[1].textContent.toLowerCase() : '';
+        
+        var matchYear = !yearFilter || year.indexOf(yearFilter) > -1;
+        var matchIntake = !intakeFilter || intake === intakeFilter;
+        var matchId = !idFilter || id.indexOf(idFilter) > -1;
+        var matchName = !nameFilter || name.indexOf(nameFilter) > -1;
+        
+        row.style.display = (matchYear && matchIntake && matchId && matchName) ? '' : 'none';
+    });
+}
+
+// Clear filters
+function clearFilters() {
+    document.getElementById('filterAcademicYear').value = '';
+    document.getElementById('filterIntake').value = '';
+    document.getElementById('filterStudentId').value = '';
+    document.getElementById('filterStudentName').value = '';
+    
+    var rows = document.querySelectorAll('#studentsMarksTable tbody tr');
+    rows.forEach(function(row) {
+        row.style.display = '';
+    });
+}
+
+// Show success modal
+function showSuccessModal(message) {
+    var modal = document.getElementById('successModal');
+    if (modal) {
+        document.getElementById('successMessage').textContent = message;
+        openModal('successModal');
+    } else {
+        alert(message);
+    }
+}
+
+// Reset modals when closed
+document.querySelectorAll('.modal-overlay').forEach(function(modal) {
+    modal.addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeModal(this.id);
+        }
+    });
+});
 
 // ==================== PROJECT FUNCTIONS ====================
 
@@ -3242,44 +4810,38 @@ function resetProjectForm() {
 
 // View Project Details
 function viewProjectDetails(project) {
-    let html = `
-        <div style="padding:10px;">
-            <h4 style="color:#a78bfa;margin-bottom:15px;">${escapeHtml(project.fyp_projecttitle)}</h4>
-            
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:20px;">
-                <div style="background:rgba(139,92,246,0.1);padding:12px;border-radius:8px;">
-                    <small style="color:#64748b;">Type</small>
-                    <p style="color:#e2e8f0;margin:5px 0 0;font-weight:600;">${project.fyp_projecttype || '-'}</p>
-                </div>
-                <div style="background:rgba(139,92,246,0.1);padding:12px;border-radius:8px;">
-                    <small style="color:#64748b;">Status</small>
-                    <p style="color:${(project.fyp_projectstatus === 'Available' || project.fyp_projectstatus === 'Open') ? '#34d399' : '#fb923c'};margin:5px 0 0;font-weight:600;">${project.fyp_projectstatus || '-'}</p>
-                </div>
-            </div>
-            
-            <div style="margin-bottom:15px;">
-                <small style="color:#64748b;">Description</small>
-                <p style="color:#e2e8f0;margin:5px 0 0;line-height:1.6;">${escapeHtml(project.fyp_projectdesc) || 'No description provided.'}</p>
-            </div>
-            
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:15px;">
-                <div>
-                    <small style="color:#64748b;">Category</small>
-                    <p style="color:#e2e8f0;margin:5px 0 0;">${escapeHtml(project.fyp_projectcat) || '-'}</p>
-                </div>
-                <div>
-                    <small style="color:#64748b;">Max Students</small>
-                    <p style="color:#e2e8f0;margin:5px 0 0;">${project.fyp_maxstudent || 2}</p>
-                </div>
-            </div>
-            
-            <div style="border-top:1px solid rgba(139,92,246,0.2);padding-top:15px;margin-top:15px;">
-                <small style="color:#64748b;">Supervisor</small>
-                <p style="color:#e2e8f0;margin:5px 0 0;font-weight:600;">${escapeHtml(project.supervisor_name) || 'Not assigned'}</p>
-                ${project.supervisor_email ? `<p style="color:#94a3b8;margin:5px 0 0;font-size:0.85rem;">${escapeHtml(project.supervisor_email)}</p>` : ''}
-            </div>
-        </div>
-    `;
+    var html = '<div style="padding:10px;">' +
+        '<h4 style="color:#a78bfa;margin-bottom:15px;">' + escapeHtml(project.fyp_projecttitle) + '</h4>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:20px;">' +
+            '<div style="background:rgba(139,92,246,0.1);padding:12px;border-radius:8px;">' +
+                '<small style="color:#64748b;">Type</small>' +
+                '<p style="color:#e2e8f0;margin:5px 0 0;font-weight:600;">' + (project.fyp_projecttype || '-') + '</p>' +
+            '</div>' +
+            '<div style="background:rgba(139,92,246,0.1);padding:12px;border-radius:8px;">' +
+                '<small style="color:#64748b;">Status</small>' +
+                '<p style="color:' + ((project.fyp_projectstatus === 'Available' || project.fyp_projectstatus === 'Open') ? '#34d399' : '#fb923c') + ';margin:5px 0 0;font-weight:600;">' + (project.fyp_projectstatus || '-') + '</p>' +
+            '</div>' +
+        '</div>' +
+        '<div style="margin-bottom:15px;">' +
+            '<small style="color:#64748b;">Description</small>' +
+            '<p style="color:#e2e8f0;margin:5px 0 0;line-height:1.6;">' + (escapeHtml(project.fyp_projectdesc) || 'No description provided.') + '</p>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:15px;">' +
+            '<div>' +
+                '<small style="color:#64748b;">Category</small>' +
+                '<p style="color:#e2e8f0;margin:5px 0 0;">' + (escapeHtml(project.fyp_projectcat) || '-') + '</p>' +
+            '</div>' +
+            '<div>' +
+                '<small style="color:#64748b;">Max Students</small>' +
+                '<p style="color:#e2e8f0;margin:5px 0 0;">' + (project.fyp_maxstudent || 2) + '</p>' +
+            '</div>' +
+        '</div>' +
+        '<div style="border-top:1px solid rgba(139,92,246,0.2);padding-top:15px;margin-top:15px;">' +
+            '<small style="color:#64748b;">Supervisor</small>' +
+            '<p style="color:#e2e8f0;margin:5px 0 0;font-weight:600;">' + (escapeHtml(project.supervisor_name) || 'Not assigned') + '</p>' +
+            (project.supervisor_email ? '<p style="color:#94a3b8;margin:5px 0 0;font-size:0.85rem;">' + escapeHtml(project.supervisor_email) + '</p>' : '') +
+        '</div>' +
+    '</div>';
     
     document.getElementById('viewProjectContent').innerHTML = html;
     openModal('viewProjectModal');
@@ -3300,7 +4862,14 @@ function confirmDeleteProject(projectId, projectTitle) {
     openModal('deleteProjectModal');
 }
 
-document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('click', function(e) { if (e.target === this) this.classList.remove('active'); }));
+// Close modal when clicking outside
+document.querySelectorAll('.modal-overlay').forEach(function(m) {
+    m.addEventListener('click', function(e) {
+        if (e.target === this) {
+            this.classList.remove('active');
+        }
+    });
+});
 </script>
 
 </body>
