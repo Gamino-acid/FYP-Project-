@@ -1380,6 +1380,26 @@ $menu_items = [
         .tab-nav { display: flex; gap: 5px; margin-bottom: 20px; border-bottom: 1px solid rgba(139, 92, 246, 0.1); padding-bottom: 10px; }
         .tab-btn { padding: 10px 20px; background: transparent; border: none; color: #94a3b8; cursor: pointer; border-radius: 8px 8px 0 0; transition: all 0.3s; }
         .tab-btn.active { background: rgba(139, 92, 246, 0.2); color: #fff; }
+        
+        /* Search Preview Dropdown */
+        #searchPreviewDropdown::-webkit-scrollbar { width: 6px; }
+        #searchPreviewDropdown::-webkit-scrollbar-track { background: rgba(30,41,59,0.5); border-radius: 3px; }
+        #searchPreviewDropdown::-webkit-scrollbar-thumb { background: rgba(139,92,246,0.5); border-radius: 3px; }
+        #searchPreviewDropdown::-webkit-scrollbar-thumb:hover { background: rgba(139,92,246,0.7); }
+        
+        /* Filter Tags */
+        .filter-tag { transition: all 0.2s; }
+        .filter-tag:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+        
+        /* Search Input Focus */
+        #marksSearchInput:focus { border-color: #8b5cf6; box-shadow: 0 0 0 3px rgba(139,92,246,0.2); outline: none; }
+        
+        /* Intake/Status Radio Buttons */
+        .intake-option span:hover, .status-option span:hover { background: rgba(139,92,246,0.15) !important; }
+        
+        @media (max-width: 768px) {
+            #marksSearchInput { font-size: 0.9rem; height: 45px; }
+        }
     </style>
 </head>
 <body>
@@ -2495,9 +2515,15 @@ $menu_items = [
                         <a href="?page=rubrics&action=marking" class="btn <?= $rubrics_action === 'marking' ? 'btn-primary' : 'btn-secondary'; ?>">
                             <i class="fas fa-percent"></i> Marking Criteria
                         </a>
+                        <a href="?page=rubrics&action=link" class="btn <?= $rubrics_action === 'link' ? 'btn-warning' : 'btn-secondary'; ?>">
+                            <i class="fas fa-link"></i> Link Items & Criteria
+                        </a>
                         <span style="border-left:2px solid rgba(139,92,246,0.3);margin:0 10px;height:30px;"></span>
                         <a href="?page=marks" class="btn btn-success">
-                            <i class="fas fa-calculator"></i> Go to Assessment Marks
+                            <i class="fas fa-calculator"></i> Go to Marks
+                        </a>
+                        <a href="Coordinator_rubrics.php" class="btn btn-info" title="Open Standalone Rubrics Manager">
+                            <i class="fas fa-external-link-alt"></i> Advanced
                         </a>
                     </div>
                 </div>
@@ -3007,36 +3033,168 @@ $menu_items = [
                 </div>
             </div>
             
+            <?php elseif ($rubrics_action === 'link'): ?>
+            <!-- ========== LINK ITEMS & CRITERIA ========== -->
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-link" style="color:#fbbf24;"></i> Link Items & Marking Criteria</h3>
+                    <button class="btn btn-primary" onclick="openModal('linkItemCriteriaModal2')">
+                        <i class="fas fa-plus"></i> Create Link
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info" style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);color:#60a5fa;">
+                        <i class="fas fa-info-circle"></i>
+                        <strong>Important:</strong> You must link marking criteria to assessment items before you can mark students. Each item can have multiple criteria linked to it.
+                    </div>
+                    
+                    <?php if (empty($items)): ?>
+                        <div class="alert alert-warning">
+                            <i class="fas fa-exclamation-triangle"></i> No assessment items found. Please <a href="?page=rubrics&action=items" style="color:#fbbf24;">create items first</a>.
+                        </div>
+                    <?php elseif (empty($marking_criteria)): ?>
+                        <div class="alert alert-warning">
+                            <i class="fas fa-exclamation-triangle"></i> No marking criteria found. Please <a href="?page=rubrics&action=marking" style="color:#fbbf24;">create marking criteria first</a>.
+                        </div>
+                    <?php else: ?>
+                    
+                    <!-- Group Links by Item -->
+                    <?php 
+                    $links_by_item = [];
+                    foreach ($items as $item) {
+                        $links_by_item[$item['fyp_itemid']] = [
+                            'item' => $item,
+                            'criteria' => []
+                        ];
+                    }
+                    foreach ($item_marking_links as $link) {
+                        if (isset($links_by_item[$link['fyp_itemid']])) {
+                            $links_by_item[$link['fyp_itemid']]['criteria'][] = $link;
+                        }
+                    }
+                    ?>
+                    
+                    <div style="display:grid;gap:20px;">
+                        <?php foreach ($links_by_item as $item_id => $data): ?>
+                        <div style="background:rgba(139,92,246,0.05);border:1px solid rgba(139,92,246,0.1);border-radius:12px;overflow:hidden;">
+                            <div style="background:rgba(139,92,246,0.1);padding:15px 20px;display:flex;justify-content:space-between;align-items:center;">
+                                <h4 style="color:#a78bfa;margin:0;font-size:1rem;">
+                                    <i class="fas fa-file-alt"></i> <?= htmlspecialchars($data['item']['fyp_itemname']); ?>
+                                    <span style="font-weight:normal;color:#94a3b8;font-size:0.85rem;margin-left:10px;">(<?= number_format($data['item']['fyp_originalmarkallocation'] ?? 0, 1); ?>%)</span>
+                                </h4>
+                                <span class="badge" style="background:rgba(59,130,246,0.2);color:#60a5fa;padding:5px 12px;border-radius:15px;">
+                                    <?= count($data['criteria']); ?> criteria linked
+                                </span>
+                            </div>
+                            <div style="padding:15px 20px;">
+                                <?php if (empty($data['criteria'])): ?>
+                                <p style="color:#fb923c;margin:0;"><i class="fas fa-exclamation-circle"></i> No criteria linked yet</p>
+                                <?php else: ?>
+                                <table class="data-table" style="margin:0;">
+                                    <thead>
+                                        <tr>
+                                            <th>Criteria Name</th>
+                                            <th>Percent Allocation</th>
+                                            <th style="width:80px;">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($data['criteria'] as $c): ?>
+                                        <tr>
+                                            <td><strong><?= htmlspecialchars($c['fyp_criterianame']); ?></strong></td>
+                                            <td><span style="color:#a78bfa;"><?= number_format($c['fyp_percentallocation'], 1); ?>%</span></td>
+                                            <td>
+                                                <form method="POST" style="display:inline;" onsubmit="return confirm('Remove this link?');">
+                                                    <input type="hidden" name="unlink_itemid" value="<?= $c['fyp_itemid']; ?>">
+                                                    <input type="hidden" name="unlink_criteriaid" value="<?= $c['fyp_criteriaid']; ?>">
+                                                    <button type="submit" name="unlink_item_criteria" class="btn btn-danger btn-sm" title="Unlink">
+                                                        <i class="fas fa-unlink"></i>
+                                                    </button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+            
+            <!-- Link Item Criteria Modal (for Link action) -->
+            <div class="modal-overlay" id="linkItemCriteriaModal2">
+                <div class="modal" style="max-width:500px;">
+                    <div class="modal-header">
+                        <h3><i class="fas fa-link" style="color:#fbbf24;"></i> Link Item to Criteria</h3>
+                        <button class="modal-close" onclick="closeModal('linkItemCriteriaModal2')">&times;</button>
+                    </div>
+                    <form method="POST">
+                        <div class="modal-body">
+                            <div class="form-group">
+                                <label>Select Assessment Item <span style="color:#f87171;">*</span></label>
+                                <select name="link_itemid" class="form-control" required>
+                                    <option value="">-- Select Item --</option>
+                                    <?php foreach ($items as $item): ?>
+                                    <option value="<?= $item['fyp_itemid']; ?>"><?= htmlspecialchars($item['fyp_itemname']); ?> (<?= number_format($item['fyp_originalmarkallocation'] ?? 0, 1); ?>%)</option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Select Marking Criteria <span style="color:#f87171;">*</span></label>
+                                <select name="link_criteriaid" class="form-control" required>
+                                    <option value="">-- Select Criteria --</option>
+                                    <?php foreach ($marking_criteria as $mc): ?>
+                                    <option value="<?= $mc['fyp_criteriaid']; ?>"><?= htmlspecialchars($mc['fyp_criterianame']); ?> (<?= number_format($mc['fyp_percentallocation'], 1); ?>%)</option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" onclick="closeModal('linkItemCriteriaModal2')">Cancel</button>
+                            <button type="submit" name="link_item_criteria" class="btn btn-success">
+                                <i class="fas fa-link"></i> Create Link
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
             <?php endif; ?>
 
         <!-- ==================== ASSESSMENT MARKS ==================== -->
         <?php elseif ($current_page === 'marks'): 
             // Get marks sub-action
             $marks_action = $_GET['action'] ?? 'list';
+            $view_student_id = $_GET['view'] ?? '';
             
             // Get filter values
             $filter_year = $_GET['year'] ?? '';
             $filter_intake = $_GET['intake'] ?? '';
-            $filter_student_id = $_GET['student_id'] ?? '';
-            $filter_student_name = $_GET['student_name'] ?? '';
-            $filter_project = $_GET['project'] ?? '';
+            $filter_status = $_GET['status'] ?? '';
+            $filter_search = $_GET['search'] ?? '';
             
             // Build query for students with marks
-            $where_conditions = ["pa.fyp_pairingid IS NOT NULL"];
+            $where_conditions = ["1=1"];
             if (!empty($filter_year)) {
-                $where_conditions[] = "a.fyp_acdyear = '" . $conn->real_escape_string($filter_year) . "'";
+                $where_conditions[] = "(a.fyp_acdyear = '" . $conn->real_escape_string($filter_year) . "')";
             }
             if (!empty($filter_intake)) {
                 $where_conditions[] = "a.fyp_intake = '" . $conn->real_escape_string($filter_intake) . "'";
             }
-            if (!empty($filter_student_id)) {
-                $where_conditions[] = "s.fyp_studid LIKE '%" . $conn->real_escape_string($filter_student_id) . "%'";
+            if (!empty($filter_status)) {
+                if ($filter_status === 'marked') {
+                    $where_conditions[] = "tm.fyp_totalmark IS NOT NULL AND tm.fyp_totalmark > 0";
+                } elseif ($filter_status === 'pending') {
+                    $where_conditions[] = "(tm.fyp_totalmark IS NULL OR tm.fyp_totalmark = 0)";
+                }
             }
-            if (!empty($filter_student_name)) {
-                $where_conditions[] = "s.fyp_studname LIKE '%" . $conn->real_escape_string($filter_student_name) . "%'";
-            }
-            if (!empty($filter_project)) {
-                $where_conditions[] = "p.fyp_projecttitle LIKE '%" . $conn->real_escape_string($filter_project) . "%'";
+            if (!empty($filter_search)) {
+                $search_escaped = $conn->real_escape_string($filter_search);
+                $where_conditions[] = "(s.fyp_studid LIKE '%$search_escaped%' OR s.fyp_studname LIKE '%$search_escaped%' OR p.fyp_projecttitle LIKE '%$search_escaped%')";
             }
             $where_sql = implode(" AND ", $where_conditions);
             
@@ -3045,8 +3203,8 @@ $menu_items = [
             $res = $conn->query("SELECT s.fyp_studid, s.fyp_studname, s.fyp_studfullid, s.fyp_email,
                                         p.fyp_projectid, p.fyp_projecttitle,
                                         pa.fyp_pairingid, pa.fyp_supervisorid, pa.fyp_moderatorid,
-                                        sup.fyp_supervisorname as supervisor_name,
-                                        mod_sup.fyp_supervisorname as moderator_name,
+                                        sup.fyp_name as supervisor_name,
+                                        mod_sup.fyp_name as moderator_name,
                                         tm.fyp_totalmark, tm.fyp_totalfinalsupervisor, tm.fyp_totalfinalmoderator,
                                         a.fyp_acdyear, a.fyp_intake, a.fyp_academicid
                                  FROM student s
@@ -3055,10 +3213,41 @@ $menu_items = [
                                  LEFT JOIN supervisor sup ON pa.fyp_supervisorid = sup.fyp_supervisorid
                                  LEFT JOIN supervisor mod_sup ON pa.fyp_moderatorid = mod_sup.fyp_supervisorid
                                  LEFT JOIN total_mark tm ON s.fyp_studid = tm.fyp_studid
-                                 LEFT JOIN academic_year a ON pa.fyp_academicid = a.fyp_academicid
-                                 WHERE $where_sql
+                                 LEFT JOIN academic_year a ON a.fyp_academicid = (SELECT MAX(fyp_academicid) FROM academic_year)
                                  ORDER BY s.fyp_studname");
             if ($res) { while ($row = $res->fetch_assoc()) { $students_marks[] = $row; } }
+            
+            // Get view student data
+            $view_student = null;
+            $view_student_marks = [];
+            if (!empty($view_student_id)) {
+                $stmt = $conn->prepare("SELECT s.*, p.fyp_projecttitle, p.fyp_projectid, pa.fyp_pairingid,
+                                               sup.fyp_name as supervisor_name,
+                                               mod_sup.fyp_name as moderator_name,
+                                               tm.fyp_totalmark, tm.fyp_totalfinalsupervisor, tm.fyp_totalfinalmoderator
+                                       FROM student s
+                                       LEFT JOIN pairing pa ON s.fyp_studid = pa.fyp_studid
+                                       LEFT JOIN project p ON pa.fyp_projectid = p.fyp_projectid
+                                       LEFT JOIN supervisor sup ON pa.fyp_supervisorid = sup.fyp_supervisorid
+                                       LEFT JOIN supervisor mod_sup ON pa.fyp_moderatorid = mod_sup.fyp_supervisorid
+                                       LEFT JOIN total_mark tm ON s.fyp_studid = tm.fyp_studid
+                                       WHERE s.fyp_studid = ?");
+                $stmt->bind_param("s", $view_student_id);
+                $stmt->execute();
+                $view_student = $stmt->get_result()->fetch_assoc();
+                $stmt->close();
+                
+                // Get detailed marks with item and criteria info
+                $res = $conn->query("SELECT cm.*, mc.fyp_criterianame, mc.fyp_percentallocation,
+                                           imc.fyp_itemid, i.fyp_itemname, i.fyp_originalmarkallocation
+                                    FROM criteria_mark cm
+                                    LEFT JOIN marking_criteria mc ON cm.fyp_criteriaid = mc.fyp_criteriaid
+                                    LEFT JOIN item_marking_criteria imc ON cm.fyp_criteriaid = imc.fyp_criteriaid
+                                    LEFT JOIN item i ON imc.fyp_itemid = i.fyp_itemid
+                                    WHERE cm.fyp_studid = '" . $conn->real_escape_string($view_student_id) . "'
+                                    ORDER BY i.fyp_itemid, mc.fyp_criteriaid");
+                if ($res) { while ($row = $res->fetch_assoc()) { $view_student_marks[] = $row; } }
+            }
             
             // Get selected student for marking
             $selected_student_id = $_GET['mark_student'] ?? '';
@@ -3067,8 +3256,8 @@ $menu_items = [
             
             if (!empty($selected_student_id)) {
                 $stmt = $conn->prepare("SELECT s.*, p.fyp_projecttitle, p.fyp_projectid, pa.fyp_pairingid,
-                                               sup.fyp_supervisorname as supervisor_name,
-                                               mod_sup.fyp_supervisorname as moderator_name
+                                               sup.fyp_name as supervisor_name,
+                                               mod_sup.fyp_name as moderator_name
                                        FROM student s
                                        LEFT JOIN pairing pa ON s.fyp_studid = pa.fyp_studid
                                        LEFT JOIN project p ON pa.fyp_projectid = p.fyp_projectid
@@ -3087,6 +3276,19 @@ $menu_items = [
                 if ($res) { while ($row = $res->fetch_assoc()) { $student_criteria_marks[$row['fyp_criteriaid']] = $row; } }
             }
             
+            // Get items and their linked marking criteria for marking form
+            $items = [];
+            $item_marking_links = [];
+            $res = $conn->query("SELECT * FROM item ORDER BY fyp_itemid");
+            if ($res) { while ($row = $res->fetch_assoc()) { $items[] = $row; } }
+            
+            $res = $conn->query("SELECT imc.*, mc.fyp_criterianame, mc.fyp_percentallocation, i.fyp_itemname, i.fyp_originalmarkallocation
+                                FROM item_marking_criteria imc
+                                LEFT JOIN marking_criteria mc ON imc.fyp_criteriaid = mc.fyp_criteriaid
+                                LEFT JOIN item i ON imc.fyp_itemid = i.fyp_itemid
+                                ORDER BY imc.fyp_itemid, mc.fyp_criteriaid");
+            if ($res) { while ($row = $res->fetch_assoc()) { $item_marking_links[] = $row; } }
+            
             // Get student for overall view
             $view_student_id = $_GET['view_student'] ?? '';
             $view_student = null;
@@ -3094,8 +3296,8 @@ $menu_items = [
             
             if (!empty($view_student_id)) {
                 $stmt = $conn->prepare("SELECT s.*, p.fyp_projecttitle, pa.fyp_pairingid,
-                                               sup.fyp_supervisorname as supervisor_name,
-                                               mod_sup.fyp_supervisorname as moderator_name,
+                                               sup.fyp_name as supervisor_name,
+                                               mod_sup.fyp_name as moderator_name,
                                                tm.fyp_totalmark, tm.fyp_totalfinalsupervisor, tm.fyp_totalfinalmoderator
                                        FROM student s
                                        LEFT JOIN pairing pa ON s.fyp_studid = pa.fyp_studid
@@ -3142,101 +3344,319 @@ $menu_items = [
                 }
             }
             $avg_mark = $students_with_marks > 0 ? $total_marks_sum / $students_with_marks : 0;
+            
+            // Get view student for detailed marks
+            $view_student_id = $_GET['view'] ?? '';
+            $view_student = null;
+            $student_detailed_marks = [];
+            
+            if (!empty($view_student_id)) {
+                // Get student info
+                $stmt = $conn->prepare("SELECT s.*, p.fyp_projecttitle, p.fyp_projectid, pa.fyp_pairingid,
+                                               sup.fyp_name as supervisor_name,
+                                               mod_sup.fyp_name as moderator_name,
+                                               tm.fyp_totalmark, tm.fyp_totalfinalsupervisor, tm.fyp_totalfinalmoderator
+                                       FROM student s
+                                       LEFT JOIN pairing pa ON s.fyp_studid = pa.fyp_studid
+                                       LEFT JOIN project p ON pa.fyp_projectid = p.fyp_projectid
+                                       LEFT JOIN supervisor sup ON pa.fyp_supervisorid = sup.fyp_supervisorid
+                                       LEFT JOIN supervisor mod_sup ON pa.fyp_moderatorid = mod_sup.fyp_supervisorid
+                                       LEFT JOIN total_mark tm ON s.fyp_studid = tm.fyp_studid
+                                       WHERE s.fyp_studid = ?");
+                $stmt->bind_param("s", $view_student_id);
+                $stmt->execute();
+                $view_student = $stmt->get_result()->fetch_assoc();
+                $stmt->close();
+                
+                // Get detailed marks with items and criteria
+                $res = $conn->query("SELECT i.fyp_itemid, i.fyp_itemname, i.fyp_originalmarkallocation,
+                                           mc.fyp_criteriaid, mc.fyp_criterianame, mc.fyp_percentallocation,
+                                           cm.fyp_initialwork, cm.fyp_finalwork, cm.fyp_markbymoderator,
+                                           cm.fyp_avgmark, cm.fyp_scaledmark
+                                    FROM item i
+                                    LEFT JOIN item_marking_criteria imc ON i.fyp_itemid = imc.fyp_itemid
+                                    LEFT JOIN marking_criteria mc ON imc.fyp_criteriaid = mc.fyp_criteriaid
+                                    LEFT JOIN criteria_mark cm ON mc.fyp_criteriaid = cm.fyp_criteriaid AND cm.fyp_studid = '" . $conn->real_escape_string($view_student_id) . "'
+                                    WHERE mc.fyp_criteriaid IS NOT NULL
+                                    ORDER BY i.fyp_itemid, mc.fyp_criteriaid");
+                if ($res) {
+                    while ($row = $res->fetch_assoc()) {
+                        $item_id = $row['fyp_itemid'];
+                        if (!isset($student_detailed_marks[$item_id])) {
+                            $student_detailed_marks[$item_id] = [
+                                'name' => $row['fyp_itemname'],
+                                'allocation' => $row['fyp_originalmarkallocation'],
+                                'criteria' => []
+                            ];
+                        }
+                        $student_detailed_marks[$item_id]['criteria'][] = $row;
+                    }
+                }
+            }
+            
+            // Store students data for JavaScript
+            $students_json = json_encode(array_map(function($s) {
+                return [
+                    'id' => $s['fyp_studid'],
+                    'name' => $s['fyp_studname'],
+                    'project' => $s['fyp_projecttitle'] ?? '',
+                    'total_mark' => $s['fyp_totalmark'] ?? null,
+                    'sup_mark' => $s['fyp_totalfinalsupervisor'] ?? null,
+                    'mod_mark' => $s['fyp_totalfinalmoderator'] ?? null
+                ];
+            }, $students_marks));
+            
+            // Count active filters
+            $active_filters = 0;
+            if (!empty($filter_year)) $active_filters++;
+            if (!empty($filter_intake)) $active_filters++;
+            if (!empty($filter_status)) $active_filters++;
         ?>
-            <!-- Assessment Marks Sub-Navigation -->
-            <div class="card" style="margin-bottom:20px;">
-                <div class="card-body" style="padding:15px;">
-                    <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                        <a href="?page=marks&action=list" class="btn <?= $marks_action === 'list' ? 'btn-primary' : 'btn-secondary'; ?>">
-                            <i class="fas fa-list-alt"></i> All Students
+            <!-- Success/Error Messages -->
+            <?php if (!empty($message)): ?>
+            <div class="alert alert-<?= $message_type === 'success' ? 'success' : 'danger'; ?>" style="margin-bottom:20px;">
+                <i class="fas fa-<?= $message_type === 'success' ? 'check-circle' : 'exclamation-circle'; ?>"></i>
+                <?= htmlspecialchars($message); ?>
+            </div>
+            <?php endif; ?>
+            
+            <!-- Page Title with Quick Navigation -->
+            <div class="card" style="margin-bottom:20px;background:linear-gradient(135deg, rgba(139,92,246,0.15), rgba(59,130,246,0.1));">
+                <div class="card-body" style="padding:25px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:15px;">
+                        <h2 style="margin:0;color:#e2e8f0;"><i class="fas fa-clipboard-check" style="color:#8b5cf6;margin-right:10px;"></i>Students Marks</h2>
+                        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                            <a href="?page=rubrics" class="btn btn-secondary btn-sm">
+                                <i class="fas fa-list-check"></i> Rubrics
+                            </a>
+                            <a href="?page=rubrics&action=link" class="btn btn-warning btn-sm">
+                                <i class="fas fa-link"></i> Link Items
+                            </a>
+                            <a href="Coordinator_marks.php" class="btn btn-info btn-sm" title="Open Standalone Marks Manager">
+                                <i class="fas fa-external-link-alt"></i> Advanced
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <?php if (!empty($view_student)): ?>
+            <!-- VIEW STUDENT MARKS DETAIL -->
+            <div class="card">
+                <div class="card-header" style="background:linear-gradient(135deg, rgba(59,130,246,0.2), rgba(139,92,246,0.1));">
+                    <h3><i class="fas fa-user-graduate" style="color:#60a5fa;"></i> Student Marks Detail</h3>
+                    <a href="?page=marks" class="btn btn-secondary btn-sm"><i class="fas fa-arrow-left"></i> Back to List</a>
+                </div>
+                <div class="card-body">
+                    <!-- Student Info Header -->
+                    <div style="background:rgba(30,41,59,0.5);padding:20px;border-radius:12px;margin-bottom:25px;">
+                        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:20px;">
+                            <div>
+                                <label style="color:#94a3b8;font-size:0.85rem;display:block;margin-bottom:5px;">Student ID</label>
+                                <span style="color:#60a5fa;font-weight:700;font-size:1.1rem;"><?= htmlspecialchars($view_student['fyp_studid']); ?></span>
+                            </div>
+                            <div>
+                                <label style="color:#94a3b8;font-size:0.85rem;display:block;margin-bottom:5px;">Student Name</label>
+                                <span style="color:#e2e8f0;font-weight:600;"><?= htmlspecialchars($view_student['fyp_studname']); ?></span>
+                            </div>
+                            <div>
+                                <label style="color:#94a3b8;font-size:0.85rem;display:block;margin-bottom:5px;">Project Title</label>
+                                <span style="color:#a78bfa;font-weight:600;"><?= htmlspecialchars($view_student['fyp_projecttitle'] ?? 'Not assigned'); ?></span>
+                            </div>
+                            <div>
+                                <label style="color:#94a3b8;font-size:0.85rem;display:block;margin-bottom:5px;">Supervisor</label>
+                                <span style="color:#e2e8f0;"><?= htmlspecialchars($view_student['supervisor_name'] ?? 'Not assigned'); ?></span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Summary Cards -->
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:20px;margin-bottom:25px;">
+                        <div style="background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.2);border-radius:12px;padding:20px;text-align:center;">
+                            <i class="fas fa-calculator" style="font-size:1.5rem;color:#a78bfa;margin-bottom:10px;"></i>
+                            <h4 style="font-size:1.8rem;color:#e2e8f0;margin:0;"><?= $view_student['fyp_totalmark'] ? number_format($view_student['fyp_totalmark'], 2) : '-'; ?></h4>
+                            <p style="color:#94a3b8;font-size:0.85rem;margin:5px 0 0;">Total Mark</p>
+                        </div>
+                        <div style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.2);border-radius:12px;padding:20px;text-align:center;">
+                            <i class="fas fa-user-tie" style="font-size:1.5rem;color:#60a5fa;margin-bottom:10px;"></i>
+                            <h4 style="font-size:1.8rem;color:#e2e8f0;margin:0;"><?= $view_student['fyp_totalfinalsupervisor'] ? number_format($view_student['fyp_totalfinalsupervisor'], 2) : '-'; ?></h4>
+                            <p style="color:#94a3b8;font-size:0.85rem;margin:5px 0 0;">Supervisor Mark</p>
+                        </div>
+                        <div style="background:rgba(249,115,22,0.1);border:1px solid rgba(249,115,22,0.2);border-radius:12px;padding:20px;text-align:center;">
+                            <i class="fas fa-user-check" style="font-size:1.5rem;color:#fb923c;margin-bottom:10px;"></i>
+                            <h4 style="font-size:1.8rem;color:#e2e8f0;margin:0;"><?= $view_student['fyp_totalfinalmoderator'] ? number_format($view_student['fyp_totalfinalmoderator'], 2) : '-'; ?></h4>
+                            <p style="color:#94a3b8;font-size:0.85rem;margin:5px 0 0;">Moderator Mark</p>
+                        </div>
+                        <?php
+                        $grade = '-';
+                        $grade_color = '#94a3b8';
+                        if ($view_student['fyp_totalmark']) {
+                            $tm = $view_student['fyp_totalmark'];
+                            if ($tm >= 80) { $grade = 'A'; $grade_color = '#34d399'; }
+                            elseif ($tm >= 70) { $grade = 'B'; $grade_color = '#60a5fa'; }
+                            elseif ($tm >= 60) { $grade = 'C'; $grade_color = '#fbbf24'; }
+                            elseif ($tm >= 50) { $grade = 'D'; $grade_color = '#fb923c'; }
+                            else { $grade = 'F'; $grade_color = '#f87171'; }
+                        }
+                        ?>
+                        <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);border-radius:12px;padding:20px;text-align:center;">
+                            <i class="fas fa-award" style="font-size:1.5rem;color:<?= $grade_color; ?>;margin-bottom:10px;"></i>
+                            <h4 style="font-size:1.8rem;color:<?= $grade_color; ?>;margin:0;"><?= $grade; ?></h4>
+                            <p style="color:#94a3b8;font-size:0.85rem;margin:5px 0 0;">Grade</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Detailed Marks Table -->
+                    <?php if (empty($view_student_marks)): ?>
+                    <div class="empty-state" style="padding:40px;">
+                        <i class="fas fa-file-alt" style="font-size:3rem;color:#64748b;"></i>
+                        <p style="color:#94a3b8;margin-top:15px;">No detailed marks available for this student.</p>
+                        <a href="?page=marks&action=mark&student=<?= urlencode($view_student['fyp_studid']); ?>" class="btn btn-success" style="margin-top:15px;">
+                            <i class="fas fa-edit"></i> Enter Marks
                         </a>
-                        <a href="?page=marks&action=mark" class="btn <?= $marks_action === 'mark' ? 'btn-success' : 'btn-secondary'; ?>">
-                            <i class="fas fa-edit"></i> Mark Student
+                    </div>
+                    <?php else: ?>
+                    <h4 style="color:#a78bfa;margin-bottom:15px;"><i class="fas fa-list-alt"></i> Detailed Marks Breakdown</h4>
+                    <div style="overflow-x:auto;">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th>Criteria</th>
+                                    <th>Initial</th>
+                                    <th>Final</th>
+                                    <th>Moderator</th>
+                                    <th>Average</th>
+                                    <th>Scaled</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php 
+                                $current_item = '';
+                                foreach ($view_student_marks as $mark): 
+                                    $show_item = $mark['fyp_itemname'] !== $current_item;
+                                    $current_item = $mark['fyp_itemname'];
+                                ?>
+                                <tr>
+                                    <td><?= $show_item ? '<strong style="color:#a78bfa;">' . htmlspecialchars($mark['fyp_itemname'] ?? '-') . '</strong>' : ''; ?></td>
+                                    <td><?= htmlspecialchars($mark['fyp_criterianame']); ?></td>
+                                    <td><?= $mark['fyp_initialwork'] ? number_format($mark['fyp_initialwork'], 2) : '-'; ?></td>
+                                    <td><?= $mark['fyp_finalwork'] ? number_format($mark['fyp_finalwork'], 2) : '-'; ?></td>
+                                    <td><?= $mark['fyp_markbymoderator'] ? number_format($mark['fyp_markbymoderator'], 2) : '-'; ?></td>
+                                    <td><span style="color:#60a5fa;"><?= $mark['fyp_avgmark'] ? number_format($mark['fyp_avgmark'], 2) : '-'; ?></span></td>
+                                    <td><strong style="color:#34d399;"><?= $mark['fyp_scaledmark'] ? number_format($mark['fyp_scaledmark'], 2) : '-'; ?></strong></td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    <?php endif; ?>
+                    
+                    <!-- Action Buttons -->
+                    <div style="margin-top:25px;display:flex;gap:15px;flex-wrap:wrap;">
+                        <a href="?page=marks&action=mark&student=<?= urlencode($view_student['fyp_studid']); ?>" class="btn btn-success">
+                            <i class="fas fa-edit"></i> Edit Marks
                         </a>
-                        <a href="?page=marks&action=overall" class="btn <?= $marks_action === 'overall' ? 'btn-warning' : 'btn-secondary'; ?>">
-                            <i class="fas fa-chart-bar"></i> Overall View
+                        <a href="?page=marks" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left"></i> Back to List
                         </a>
                     </div>
                 </div>
             </div>
             
-            <?php if ($marks_action === 'list'): ?>
-            <!-- Statistics Cards -->
-            <div class="stats-grid" style="margin-bottom:25px;">
-                <div class="stat-card">
-                    <div class="stat-icon purple"><i class="fas fa-users"></i></div>
-                    <div class="stat-info"><h4><?= $total_students; ?></h4><p>Total Students</p></div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon green"><i class="fas fa-check-circle"></i></div>
-                    <div class="stat-info"><h4><?= $students_with_marks; ?></h4><p>Marked (<?= $total_students > 0 ? round(($students_with_marks / $total_students) * 100) : 0; ?>%)</p></div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon blue"><i class="fas fa-chart-line"></i></div>
-                    <div class="stat-info"><h4><?= number_format($avg_mark, 1); ?>%</h4><p>Class Average</p></div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon orange"><i class="fas fa-clock"></i></div>
-                    <div class="stat-info"><h4><?= $total_students - $students_with_marks; ?></h4><p>Pending</p></div>
-                </div>
-            </div>
-            
+            <?php elseif ($marks_action === 'list' || $marks_action === ''): ?>
             <div class="card">
                 <div class="card-header">
-                    <h3><i class="fas fa-list-alt" style="color:#60a5fa;"></i> Students Marks List</h3>
+                    <h3><i class="fas fa-list-alt" style="color:#60a5fa;"></i> Students Marks</h3>
                     <div style="display:flex;gap:10px;">
                         <button class="btn btn-info btn-sm" onclick="exportMarksToCSV()"><i class="fas fa-download"></i> Export</button>
                     </div>
                 </div>
                 <div class="card-body">
-                    <!-- Filter Section -->
-                    <div style="background:rgba(59,130,246,0.1);padding:20px;border-radius:12px;margin-bottom:25px;border:1px solid rgba(59,130,246,0.2);">
-                        <form method="GET" action="">
+                    <!-- Unified Search Bar with Filter Button -->
+                    <div style="margin-bottom:25px;">
+                        <form method="GET" action="" id="searchForm">
                             <input type="hidden" name="page" value="marks">
-                            <input type="hidden" name="action" value="list">
-                            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));gap:15px;">
-                                <div class="form-group" style="margin:0;">
-                                    <label>Academic Year</label>
-                                    <select name="year" class="form-control">
-                                        <option value="">-- All --</option>
-                                        <?php 
-                                        $years_shown = [];
-                                        foreach ($academic_years as $ay): 
-                                            if (!in_array($ay['fyp_acdyear'], $years_shown)):
-                                                $years_shown[] = $ay['fyp_acdyear'];
-                                        ?>
-                                        <option value="<?= htmlspecialchars($ay['fyp_acdyear']); ?>" <?= $filter_year === $ay['fyp_acdyear'] ? 'selected' : ''; ?>><?= htmlspecialchars($ay['fyp_acdyear']); ?></option>
-                                        <?php endif; endforeach; ?>
-                                    </select>
+                            <input type="hidden" name="year" value="<?= htmlspecialchars($filter_year); ?>" id="hiddenYear">
+                            <input type="hidden" name="intake" value="<?= htmlspecialchars($filter_intake); ?>" id="hiddenIntake">
+                            <input type="hidden" name="status" value="<?= htmlspecialchars($filter_status); ?>" id="hiddenStatus">
+                            
+                            <div style="display:flex;gap:15px;align-items:center;flex-wrap:wrap;">
+                                <!-- Search Input with Live Preview -->
+                                <div style="flex:1;min-width:300px;position:relative;">
+                                    <div style="position:relative;">
+                                        <i class="fas fa-search" style="position:absolute;left:15px;top:50%;transform:translateY(-50%);color:#64748b;"></i>
+                                        <input type="text" name="search" id="marksSearchInput" class="form-control" 
+                                               style="padding-left:45px;padding-right:100px;height:50px;font-size:1rem;border-radius:25px;background:rgba(30,41,59,0.8);border:2px solid rgba(139,92,246,0.3);"
+                                               placeholder="Search by Student ID or Name..." 
+                                               autocomplete="off"
+                                               value="<?= htmlspecialchars($filter_search); ?>"
+                                               onkeyup="liveSearchStudents(this.value)">
+                                        <button type="submit" style="position:absolute;right:60px;top:50%;transform:translateY(-50%);background:#8b5cf6;border:none;color:white;cursor:pointer;padding:8px 12px;border-radius:15px;font-size:0.85rem;">
+                                            <i class="fas fa-search"></i>
+                                        </button>
+                                        <button type="button" id="clearSearchBtn" onclick="clearSearch()" 
+                                                style="position:absolute;right:15px;top:50%;transform:translateY(-50%);background:none;border:none;color:#64748b;cursor:pointer;<?= empty($filter_search) ? 'display:none;' : ''; ?>">
+                                            <i class="fas fa-times-circle" style="font-size:1.2rem;"></i>
+                                        </button>
+                                    </div>
+                                    
+                                    <!-- Live Search Preview Dropdown -->
+                                    <div id="searchPreviewDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:rgba(30,41,59,0.98);border:1px solid rgba(139,92,246,0.3);border-radius:12px;margin-top:5px;max-height:400px;overflow-y:auto;z-index:1000;box-shadow:0 10px 40px rgba(0,0,0,0.5);">
+                                        <div id="searchPreviewContent" style="padding:5px;"></div>
+                                    </div>
                                 </div>
-                                <div class="form-group" style="margin:0;">
-                                    <label>Intake</label>
-                                    <select name="intake" class="form-control">
-                                        <option value="">-- All --</option>
-                                        <option value="MAR" <?= $filter_intake === 'MAR' ? 'selected' : ''; ?>>MAR</option>
-                                        <option value="JUN" <?= $filter_intake === 'JUN' ? 'selected' : ''; ?>>JUN</option>
-                                        <option value="SEP" <?= $filter_intake === 'SEP' ? 'selected' : ''; ?>>SEP</option>
-                                        <option value="DEC" <?= $filter_intake === 'DEC' ? 'selected' : ''; ?>>DEC</option>
-                                    </select>
-                                </div>
-                                <div class="form-group" style="margin:0;">
-                                    <label>Student ID</label>
-                                    <input type="text" name="student_id" class="form-control" placeholder="e.g. TP055011" value="<?= htmlspecialchars($filter_student_id); ?>">
-                                </div>
-                                <div class="form-group" style="margin:0;">
-                                    <label>Student Name</label>
-                                    <input type="text" name="student_name" class="form-control" placeholder="e.g. John" value="<?= htmlspecialchars($filter_student_name); ?>">
-                                </div>
-                                <div class="form-group" style="margin:0;">
-                                    <label>Project</label>
-                                    <input type="text" name="project" class="form-control" placeholder="e.g. FYP" value="<?= htmlspecialchars($filter_project); ?>">
-                                </div>
-                            </div>
-                            <div style="margin-top:15px;display:flex;gap:10px;">
-                                <button type="submit" class="btn btn-info"><i class="fas fa-filter"></i> Filter</button>
-                                <a href="?page=marks&action=list" class="btn btn-secondary"><i class="fas fa-times"></i> Clear</a>
+                                
+                                <!-- Filter Button -->
+                                <button type="button" class="btn btn-secondary" onclick="openModal('marksFilterModal')" style="height:50px;padding:0 25px;border-radius:25px;">
+                                    <i class="fas fa-sliders-h"></i> Filters
+                                    <?php if ($active_filters > 0): ?>
+                                    <span style="background:#8b5cf6;color:white;padding:2px 8px;border-radius:10px;font-size:0.75rem;margin-left:5px;"><?= $active_filters; ?></span>
+                                    <?php endif; ?>
+                                </button>
+                                
+                                <?php if ($active_filters > 0 || !empty($filter_search)): ?>
+                                <a href="?page=marks" class="btn btn-outline" style="height:50px;padding:0 20px;border-radius:25px;border:2px solid rgba(239,68,68,0.5);color:#f87171;">
+                                    <i class="fas fa-times"></i> Clear
+                                </a>
+                                <?php endif; ?>
                             </div>
                         </form>
+                        
+                        <!-- Active Filters Tags -->
+                        <?php if ($active_filters > 0 || !empty($filter_search)): ?>
+                        <div style="margin-top:15px;display:flex;gap:10px;flex-wrap:wrap;">
+                            <?php if (!empty($filter_year)): ?>
+                            <span style="background:rgba(139,92,246,0.2);color:#a78bfa;padding:8px 15px;border-radius:20px;font-size:0.85rem;display:inline-flex;align-items:center;gap:8px;">
+                                <i class="fas fa-calendar"></i> Year: <?= htmlspecialchars($filter_year); ?>
+                                <a href="?page=marks&intake=<?= urlencode($filter_intake); ?>&status=<?= urlencode($filter_status); ?>&search=<?= urlencode($filter_search); ?>" style="color:#f87171;"><i class="fas fa-times"></i></a>
+                            </span>
+                            <?php endif; ?>
+                            <?php if (!empty($filter_intake)): ?>
+                            <span style="background:rgba(59,130,246,0.2);color:#60a5fa;padding:8px 15px;border-radius:20px;font-size:0.85rem;display:inline-flex;align-items:center;gap:8px;">
+                                <i class="fas fa-graduation-cap"></i> Intake: <?= htmlspecialchars($filter_intake); ?>
+                                <a href="?page=marks&year=<?= urlencode($filter_year); ?>&status=<?= urlencode($filter_status); ?>&search=<?= urlencode($filter_search); ?>" style="color:#f87171;"><i class="fas fa-times"></i></a>
+                            </span>
+                            <?php endif; ?>
+                            <?php if (!empty($filter_status)): ?>
+                            <span style="background:rgba(16,185,129,0.2);color:#34d399;padding:8px 15px;border-radius:20px;font-size:0.85rem;display:inline-flex;align-items:center;gap:8px;">
+                                <i class="fas fa-check-circle"></i> Status: <?= ucfirst(htmlspecialchars($filter_status)); ?>
+                                <a href="?page=marks&year=<?= urlencode($filter_year); ?>&intake=<?= urlencode($filter_intake); ?>&search=<?= urlencode($filter_search); ?>" style="color:#f87171;"><i class="fas fa-times"></i></a>
+                            </span>
+                            <?php endif; ?>
+                            <?php if (!empty($filter_search)): ?>
+                            <span style="background:rgba(251,191,36,0.2);color:#fbbf24;padding:8px 15px;border-radius:20px;font-size:0.85rem;display:inline-flex;align-items:center;gap:8px;">
+                                <i class="fas fa-search"></i> Search: "<?= htmlspecialchars($filter_search); ?>"
+                                <a href="?page=marks&year=<?= urlencode($filter_year); ?>&intake=<?= urlencode($filter_intake); ?>&status=<?= urlencode($filter_status); ?>" style="color:#f87171;"><i class="fas fa-times"></i></a>
+                            </span>
+                            <?php endif; ?>
+                        </div>
+                        <?php endif; ?>
+                        
+                        <!-- Results Count -->
+                        <div id="resultsCount" style="margin-top:15px;color:#64748b;font-size:0.9rem;">
+                            Showing <span id="visibleCount"><?= count($students_marks); ?></span> of <?= count($students_marks); ?> student(s)
+                        </div>
                     </div>
                     
                     <?php if (empty($students_marks)): ?>
@@ -3245,6 +3665,8 @@ $menu_items = [
                         <p>No students found matching the criteria</p>
                     </div>
                     <?php else: ?>
+                    
+                    <!-- Students Table -->
                     <div style="overflow-x:auto;">
                         <table class="data-table" id="marksTable">
                             <thead>
@@ -3252,38 +3674,41 @@ $menu_items = [
                                     <th>Student ID</th>
                                     <th>Student Name</th>
                                     <th>Project Title</th>
-                                    <th>Supervisor</th>
                                     <th>Total Mark</th>
-                                    <th>Supervisor Mark</th>
-                                    <th>Moderator Mark</th>
+                                    <th>Total Final Supervisor</th>
+                                    <th>Total Final Moderator</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody id="marksTableBody">
                                 <?php foreach ($students_marks as $sm): ?>
-                                <tr>
-                                    <td><strong><?= htmlspecialchars($sm['fyp_studid']); ?></strong></td>
+                                <tr class="student-row" 
+                                    data-id="<?= htmlspecialchars(strtolower($sm['fyp_studid'])); ?>"
+                                    data-name="<?= htmlspecialchars(strtolower($sm['fyp_studname'])); ?>"
+                                    data-project="<?= htmlspecialchars(strtolower($sm['fyp_projecttitle'] ?? '')); ?>">
+                                    <td><strong style="color:#60a5fa;"><?= htmlspecialchars($sm['fyp_studid']); ?></strong></td>
                                     <td><?= htmlspecialchars($sm['fyp_studname']); ?></td>
-                                    <td style="max-width:200px;"><?= htmlspecialchars($sm['fyp_projecttitle'] ?? '-'); ?></td>
-                                    <td><?= htmlspecialchars($sm['supervisor_name'] ?? '-'); ?></td>
+                                    <td style="max-width:250px;"><?= htmlspecialchars($sm['fyp_projecttitle'] ?? '-'); ?></td>
                                     <td>
                                         <?php if ($sm['fyp_totalmark']): ?>
-                                        <span class="badge" style="background:<?= $sm['fyp_totalmark'] >= 50 ? 'rgba(16,185,129,0.2);color:#34d399' : 'rgba(239,68,68,0.2);color:#f87171'; ?>;font-size:1rem;padding:8px 15px;">
+                                        <span style="color:<?= $sm['fyp_totalmark'] >= 50 ? '#34d399' : '#f87171'; ?>;font-weight:600;">
                                             <?= number_format($sm['fyp_totalmark'], 2); ?>
                                         </span>
                                         <?php else: ?>
-                                        <span class="badge" style="background:rgba(245,158,11,0.2);color:#fbbf24;">Not Marked</span>
+                                        <span style="color:#94a3b8;">-</span>
                                         <?php endif; ?>
                                     </td>
                                     <td><?= $sm['fyp_totalfinalsupervisor'] ? number_format($sm['fyp_totalfinalsupervisor'], 2) : '-'; ?></td>
                                     <td><?= $sm['fyp_totalfinalmoderator'] ? number_format($sm['fyp_totalfinalmoderator'], 2) : '-'; ?></td>
                                     <td>
-                                        <a href="?page=marks&action=mark&mark_student=<?= urlencode($sm['fyp_studid']); ?>" class="btn btn-success btn-sm" title="Mark">
-                                            <i class="fas fa-edit"></i>
-                                        </a>
-                                        <a href="?page=marks&action=overall&view_student=<?= urlencode($sm['fyp_studid']); ?>" class="btn btn-info btn-sm" title="View">
-                                            <i class="fas fa-eye"></i>
-                                        </a>
+                                        <div style="display:flex;gap:5px;">
+                                            <a href="?page=marks&action=mark&student=<?= urlencode($sm['fyp_studid']); ?>" class="btn btn-success btn-sm" title="Mark Student">
+                                                <i class="fas fa-edit"></i>
+                                            </a>
+                                            <a href="?page=marks&view=<?= urlencode($sm['fyp_studid']); ?>" class="btn btn-info btn-sm" title="View Details">
+                                                <i class="fas fa-eye"></i>
+                                            </a>
+                                        </div>
                                     </td>
                                 </tr>
                                 <?php endforeach; ?>
@@ -3293,68 +3718,106 @@ $menu_items = [
                     <?php endif; ?>
                 </div>
             </div>
+            <?php endif; ?>
             
-            <?php elseif ($marks_action === 'mark'): ?>
+            <?php if ($marks_action === 'mark'): 
+                // Get student to mark
+                $mark_student_id = $_GET['student'] ?? '';
+                $mark_student = null;
+                $mark_student_criteria = [];
+                
+                if (!empty($mark_student_id)) {
+                    $stmt = $conn->prepare("SELECT s.*, p.fyp_projecttitle, p.fyp_projectid, pa.fyp_pairingid,
+                                                   sup.fyp_name as supervisor_name,
+                                                   mod_sup.fyp_name as moderator_name,
+                                                   tm.fyp_totalmark, tm.fyp_totalfinalsupervisor, tm.fyp_totalfinalmoderator
+                                           FROM student s
+                                           LEFT JOIN pairing pa ON s.fyp_studid = pa.fyp_studid
+                                           LEFT JOIN project p ON pa.fyp_projectid = p.fyp_projectid
+                                           LEFT JOIN supervisor sup ON pa.fyp_supervisorid = sup.fyp_supervisorid
+                                           LEFT JOIN supervisor mod_sup ON pa.fyp_moderatorid = mod_sup.fyp_supervisorid
+                                           LEFT JOIN total_mark tm ON s.fyp_studid = tm.fyp_studid
+                                           WHERE s.fyp_studid = ?");
+                    $stmt->bind_param("s", $mark_student_id);
+                    $stmt->execute();
+                    $mark_student = $stmt->get_result()->fetch_assoc();
+                    $stmt->close();
+                    
+                    // Get existing marks for this student
+                    $res = $conn->query("SELECT cm.*, mc.fyp_criterianame, mc.fyp_percentallocation
+                                        FROM criteria_mark cm
+                                        LEFT JOIN marking_criteria mc ON cm.fyp_criteriaid = mc.fyp_criteriaid
+                                        WHERE cm.fyp_studid = '" . $conn->real_escape_string($mark_student_id) . "'");
+                    if ($res) { 
+                        while ($row = $res->fetch_assoc()) { 
+                            $mark_student_criteria[$row['fyp_criteriaid']] = $row; 
+                        } 
+                    }
+                }
+                
+                // Get items and marking criteria
+                $mark_items = [];
+                $res = $conn->query("SELECT * FROM item ORDER BY fyp_itemid");
+                if ($res) { while ($row = $res->fetch_assoc()) { $mark_items[] = $row; } }
+                
+                $mark_item_links = [];
+                $res = $conn->query("SELECT imc.*, mc.fyp_criterianame, mc.fyp_percentallocation, i.fyp_itemname, i.fyp_originalmarkallocation
+                                    FROM item_marking_criteria imc
+                                    LEFT JOIN marking_criteria mc ON imc.fyp_criteriaid = mc.fyp_criteriaid
+                                    LEFT JOIN item i ON imc.fyp_itemid = i.fyp_itemid
+                                    ORDER BY imc.fyp_itemid, mc.fyp_criteriaid");
+                if ($res) { while ($row = $res->fetch_assoc()) { $mark_item_links[] = $row; } }
+            ?>
             <!-- Mark Student Section -->
             <div class="card">
-                <div class="card-header">
+                <div class="card-header" style="background:linear-gradient(135deg, rgba(52,211,153,0.2), rgba(139,92,246,0.1));">
                     <h3><i class="fas fa-edit" style="color:#34d399;"></i> Mark Student Assessment</h3>
-                    <a href="?page=marks&action=list" class="btn btn-secondary btn-sm"><i class="fas fa-arrow-left"></i> Back</a>
+                    <a href="?page=marks" class="btn btn-secondary btn-sm"><i class="fas fa-arrow-left"></i> Back to List</a>
                 </div>
                 <div class="card-body">
-                    <!-- Student Selection -->
-                    <div class="form-group" style="max-width:600px;margin-bottom:25px;">
-                        <label>Select Student to Mark</label>
-                        <select class="form-control" onchange="if(this.value) window.location='?page=marks&action=mark&mark_student='+this.value">
-                            <option value="">-- Select Student --</option>
-                            <?php foreach ($students_marks as $stud): ?>
-                            <option value="<?= htmlspecialchars($stud['fyp_studid']); ?>" <?= $selected_student_id === $stud['fyp_studid'] ? 'selected' : ''; ?>>
-                                <?= htmlspecialchars($stud['fyp_studid'] . ' - ' . $stud['fyp_studname']); ?>
-                                <?= $stud['fyp_projecttitle'] ? ' (' . htmlspecialchars(substr($stud['fyp_projecttitle'], 0, 30)) . '...)' : ''; ?>
-                                <?= $stud['fyp_totalmark'] ? ' [' . number_format($stud['fyp_totalmark'], 1) . '%]' : ' [Not Marked]'; ?>
-                            </option>
-                            <?php endforeach; ?>
-                        </select>
+                    <?php if (!$mark_student): ?>
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i> Student not found.
                     </div>
+                    <?php else: ?>
                     
-                    <?php if ($selected_student): ?>
-                    <!-- Student Info Card -->
+                    <!-- Student Info Header -->
                     <div style="background:rgba(52,211,153,0.1);padding:20px;border-radius:12px;margin-bottom:25px;border:1px solid rgba(52,211,153,0.2);">
-                        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:15px;">
+                        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:20px;">
                             <div>
-                                <small style="color:#64748b;">Student ID</small>
-                                <p style="color:#34d399;margin:5px 0 0;font-weight:700;"><?= htmlspecialchars($selected_student['fyp_studid']); ?></p>
+                                <label style="color:#94a3b8;font-size:0.85rem;display:block;margin-bottom:5px;">Student ID</label>
+                                <span style="color:#34d399;font-weight:700;font-size:1.1rem;"><?= htmlspecialchars($mark_student['fyp_studid']); ?></span>
                             </div>
                             <div>
-                                <small style="color:#64748b;">Student Name</small>
-                                <p style="color:#e2e8f0;margin:5px 0 0;font-weight:600;"><?= htmlspecialchars($selected_student['fyp_studname']); ?></p>
+                                <label style="color:#94a3b8;font-size:0.85rem;display:block;margin-bottom:5px;">Student Name</label>
+                                <span style="color:#e2e8f0;font-weight:600;"><?= htmlspecialchars($mark_student['fyp_studname']); ?></span>
                             </div>
                             <div>
-                                <small style="color:#64748b;">Project Title</small>
-                                <p style="color:#a78bfa;margin:5px 0 0;font-weight:600;"><?= htmlspecialchars($selected_student['fyp_projecttitle'] ?? 'Not assigned'); ?></p>
+                                <label style="color:#94a3b8;font-size:0.85rem;display:block;margin-bottom:5px;">Project Title</label>
+                                <span style="color:#a78bfa;font-weight:600;"><?= htmlspecialchars($mark_student['fyp_projecttitle'] ?? 'Not assigned'); ?></span>
                             </div>
                             <div>
-                                <small style="color:#64748b;">Supervisor</small>
-                                <p style="color:#e2e8f0;margin:5px 0 0;"><?= htmlspecialchars($selected_student['supervisor_name'] ?? 'Not assigned'); ?></p>
+                                <label style="color:#94a3b8;font-size:0.85rem;display:block;margin-bottom:5px;">Supervisor</label>
+                                <span style="color:#e2e8f0;"><?= htmlspecialchars($mark_student['supervisor_name'] ?? 'Not assigned'); ?></span>
                             </div>
                         </div>
                     </div>
                     
                     <!-- Assessment Form -->
-                    <form method="POST" id="assessmentForm">
+                    <form method="POST" id="markStudentForm">
                         <input type="hidden" name="save_student_assessment" value="1">
-                        <input type="hidden" name="assess_student_id" value="<?= htmlspecialchars($selected_student['fyp_studid']); ?>">
+                        <input type="hidden" name="assess_student_id" value="<?= htmlspecialchars($mark_student['fyp_studid']); ?>">
                         
                         <?php 
                         // Group items with their marking criteria
                         $items_with_criteria = [];
-                        foreach ($items as $item) {
+                        foreach ($mark_items as $item) {
                             $item_id = $item['fyp_itemid'];
                             $items_with_criteria[$item_id] = [
                                 'item' => $item,
                                 'criteria' => []
                             ];
-                            foreach ($item_marking_links as $link) {
+                            foreach ($mark_item_links as $link) {
                                 if ($link['fyp_itemid'] == $item_id) {
                                     $items_with_criteria[$item_id]['criteria'][] = $link;
                                 }
@@ -3374,7 +3837,7 @@ $menu_items = [
                         <div class="alert alert-warning">
                             <i class="fas fa-exclamation-triangle"></i>
                             No marking criteria linked to assessment items. Please configure rubrics first.
-                            <a href="?page=rubrics&action=marking" class="btn btn-warning btn-sm" style="margin-left:15px;">Configure Rubrics</a>
+                            <a href="?page=rubrics&action=link" class="btn btn-warning btn-sm" style="margin-left:15px;">Configure Rubrics</a>
                         </div>
                         <?php else: ?>
                         
@@ -3402,28 +3865,31 @@ $menu_items = [
                                 </thead>
                                 <tbody>
                                     <?php foreach ($item_data['criteria'] as $mc): 
-                                        $existing_mark = $student_criteria_marks[$mc['fyp_criteriaid']] ?? null;
+                                        $existing_mark = $mark_student_criteria[$mc['fyp_criteriaid']] ?? null;
                                     ?>
                                     <tr>
                                         <td><strong><?= htmlspecialchars($mc['fyp_criterianame']); ?></strong></td>
                                         <td><span class="badge" style="background:rgba(139,92,246,0.2);color:#a78bfa;"><?= number_format($mc['fyp_percentallocation'], 1); ?>%</span></td>
                                         <td>
                                             <input type="number" name="initial_work[<?= $mc['fyp_criteriaid']; ?>]" 
-                                                   class="form-control" style="width:80px;" min="0" max="100" step="0.01"
+                                                   class="form-control mark-input" style="width:80px;" min="0" max="100" step="0.01"
+                                                   data-criteria="<?= $mc['fyp_criteriaid']; ?>" data-percent="<?= $mc['fyp_percentallocation']; ?>"
                                                    value="<?= $existing_mark['fyp_initialwork'] ?? ''; ?>"
-                                                   onchange="calculateAvgMark(<?= $mc['fyp_criteriaid']; ?>, <?= $mc['fyp_percentallocation']; ?>)">
+                                                   onchange="calculateMarks(<?= $mc['fyp_criteriaid']; ?>, <?= $mc['fyp_percentallocation']; ?>)">
                                         </td>
                                         <td>
                                             <input type="number" name="final_work[<?= $mc['fyp_criteriaid']; ?>]" 
-                                                   class="form-control" style="width:80px;" min="0" max="100" step="0.01"
+                                                   class="form-control mark-input" style="width:80px;" min="0" max="100" step="0.01"
+                                                   data-criteria="<?= $mc['fyp_criteriaid']; ?>" data-percent="<?= $mc['fyp_percentallocation']; ?>"
                                                    value="<?= $existing_mark['fyp_finalwork'] ?? ''; ?>"
-                                                   onchange="calculateAvgMark(<?= $mc['fyp_criteriaid']; ?>, <?= $mc['fyp_percentallocation']; ?>)">
+                                                   onchange="calculateMarks(<?= $mc['fyp_criteriaid']; ?>, <?= $mc['fyp_percentallocation']; ?>)">
                                         </td>
                                         <td>
                                             <input type="number" name="moderator_mark[<?= $mc['fyp_criteriaid']; ?>]" 
-                                                   class="form-control" style="width:80px;" min="0" max="100" step="0.01"
+                                                   class="form-control mark-input" style="width:80px;" min="0" max="100" step="0.01"
+                                                   data-criteria="<?= $mc['fyp_criteriaid']; ?>" data-percent="<?= $mc['fyp_percentallocation']; ?>"
                                                    value="<?= $existing_mark['fyp_markbymoderator'] ?? ''; ?>"
-                                                   onchange="calculateAvgMark(<?= $mc['fyp_criteriaid']; ?>, <?= $mc['fyp_percentallocation']; ?>)">
+                                                   onchange="calculateMarks(<?= $mc['fyp_criteriaid']; ?>, <?= $mc['fyp_percentallocation']; ?>)">
                                         </td>
                                         <td>
                                             <input type="text" id="avg_<?= $mc['fyp_criteriaid']; ?>" 
@@ -3432,7 +3898,7 @@ $menu_items = [
                                         </td>
                                         <td>
                                             <input type="text" id="scaled_<?= $mc['fyp_criteriaid']; ?>" name="scaled_mark[<?= $mc['fyp_criteriaid']; ?>]"
-                                                   class="form-control" style="width:80px;background:rgba(15,15,26,0.6);color:#34d399;font-weight:600;" readonly
+                                                   class="form-control scaled-mark" style="width:80px;background:rgba(15,15,26,0.6);color:#34d399;font-weight:600;" readonly
                                                    value="<?= isset($existing_mark['fyp_scaledmark']) ? number_format($existing_mark['fyp_scaledmark'], 2) : ''; ?>">
                                         </td>
                                     </tr>
@@ -3442,201 +3908,342 @@ $menu_items = [
                         </div>
                         <?php endforeach; ?>
                         
-                        <!-- Final Subtotal -->
+                        <!-- Final Subtotal & Buttons -->
                         <div style="background:rgba(139,92,246,0.1);padding:20px;border-radius:12px;margin-top:25px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:15px;">
-                            <div>
-                                <label style="color:#a78bfa;font-weight:600;margin-right:15px;">Final Subtotal:</label>
-                                <input type="text" id="finalSubtotal" class="form-control" style="width:120px;display:inline-block;background:rgba(15,15,26,0.6);color:#34d399;font-weight:700;font-size:1.2rem;" readonly value="0.00">
+                            <div style="display:flex;align-items:center;gap:20px;">
+                                <div>
+                                    <label style="color:#a78bfa;font-weight:600;display:block;margin-bottom:5px;">Final Total:</label>
+                                    <input type="text" id="finalTotal" class="form-control" style="width:120px;background:rgba(15,15,26,0.6);color:#fbbf24;font-weight:700;font-size:1.3rem;text-align:center;" readonly value="0.00">
+                                </div>
                             </div>
-                            <button type="submit" class="btn btn-success" style="min-width:150px;">
-                                <i class="fas fa-save"></i> Save Marks
-                            </button>
+                            <div style="display:flex;gap:10px;">
+                                <a href="?page=marks" class="btn btn-secondary">
+                                    <i class="fas fa-times"></i> Cancel
+                                </a>
+                                <button type="submit" class="btn btn-success" style="min-width:150px;">
+                                    <i class="fas fa-save"></i> Save Marks
+                                </button>
+                            </div>
                         </div>
                         <?php endif; ?>
                     </form>
-                    
-                    <?php else: ?>
-                    <div class="empty-state">
-                        <i class="fas fa-user-graduate"></i>
-                        <p>Select a student from the dropdown above to start marking</p>
-                    </div>
                     <?php endif; ?>
                 </div>
             </div>
             
-            <?php elseif ($marks_action === 'overall'): ?>
-            <!-- Overall View Section -->
-            <div class="card">
-                <div class="card-header">
-                    <h3><i class="fas fa-chart-bar" style="color:#fbbf24;"></i> Overall Marks View</h3>
-                    <a href="?page=marks&action=list" class="btn btn-secondary btn-sm"><i class="fas fa-arrow-left"></i> Back</a>
-                </div>
-                <div class="card-body">
-                    <?php if (!$view_student_id): ?>
-                    <!-- Student Selection -->
-                    <div class="form-group" style="max-width:600px;margin-bottom:25px;">
-                        <label>Select Student to View</label>
-                        <select class="form-control" onchange="if(this.value) window.location='?page=marks&action=overall&view_student='+this.value">
-                            <option value="">-- Select Student --</option>
-                            <?php foreach ($students_marks as $stud): ?>
-                            <option value="<?= htmlspecialchars($stud['fyp_studid']); ?>">
-                                <?= htmlspecialchars($stud['fyp_studid'] . ' - ' . $stud['fyp_studname']); ?>
-                                <?= $stud['fyp_totalmark'] ? ' [' . number_format($stud['fyp_totalmark'], 1) . '%]' : ''; ?>
-                            </option>
-                            <?php endforeach; ?>
-                        </select>
+            <script>
+            // Calculate average and scaled marks
+            function calculateMarks(criteriaId, percentAllocation) {
+                var initial = parseFloat(document.querySelector('input[name="initial_work[' + criteriaId + ']"]').value) || 0;
+                var finalW = parseFloat(document.querySelector('input[name="final_work[' + criteriaId + ']"]').value) || 0;
+                var moderator = parseFloat(document.querySelector('input[name="moderator_mark[' + criteriaId + ']"]').value) || 0;
+                
+                // Calculate average of non-zero values
+                var values = [initial, finalW, moderator].filter(function(v) { return v > 0; });
+                var avg = values.length > 0 ? values.reduce(function(a, b) { return a + b; }, 0) / values.length : 0;
+                
+                // Calculate scaled mark
+                var scaled = (avg * percentAllocation) / 100;
+                
+                document.getElementById('avg_' + criteriaId).value = avg.toFixed(2);
+                document.getElementById('scaled_' + criteriaId).value = scaled.toFixed(2);
+                
+                // Update final total
+                updateFinalTotal();
+            }
+            
+            function updateFinalTotal() {
+                var total = 0;
+                document.querySelectorAll('.scaled-mark').forEach(function(input) {
+                    total += parseFloat(input.value) || 0;
+                });
+                document.getElementById('finalTotal').value = total.toFixed(2);
+            }
+            
+            // Initialize calculations on page load
+            document.addEventListener('DOMContentLoaded', function() {
+                updateFinalTotal();
+            });
+            </script>
+            <?php endif; ?>
+            
+            <!-- Filter Modal -->
+            <div class="modal-overlay" id="marksFilterModal">
+                <div class="modal" style="max-width:500px;">
+                    <div class="modal-header">
+                        <h3><i class="fas fa-sliders-h" style="color:#8b5cf6;"></i> Filter Options</h3>
+                        <button class="modal-close" onclick="closeModal('marksFilterModal')">&times;</button>
                     </div>
-                    <div class="empty-state">
-                        <i class="fas fa-chart-bar"></i>
-                        <p>Select a student to view their overall marks breakdown</p>
-                    </div>
-                    
-                    <?php elseif ($view_student): ?>
-                    <!-- Student Info Header -->
-                    <div style="background:rgba(251,191,36,0.1);padding:20px;border-radius:12px;margin-bottom:25px;border:1px solid rgba(251,191,36,0.2);">
-                        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:15px;">
-                            <div>
-                                <small style="color:#64748b;">Student ID</small>
-                                <p style="color:#fbbf24;margin:5px 0 0;font-weight:700;font-size:1.1rem;"><?= htmlspecialchars($view_student['fyp_studid']); ?></p>
-                            </div>
-                            <div>
-                                <small style="color:#64748b;">Student Name</small>
-                                <p style="color:#e2e8f0;margin:5px 0 0;font-weight:600;"><?= htmlspecialchars($view_student['fyp_studname']); ?></p>
-                            </div>
-                            <div>
-                                <small style="color:#64748b;">Project Title</small>
-                                <p style="color:#a78bfa;margin:5px 0 0;font-weight:600;"><?= htmlspecialchars($view_student['fyp_projecttitle'] ?? 'Not assigned'); ?></p>
-                            </div>
-                            <div>
-                                <small style="color:#64748b;">Total Mark</small>
-                                <p style="color:<?= ($view_student['fyp_totalmark'] ?? 0) >= 50 ? '#34d399' : '#f87171'; ?>;margin:5px 0 0;font-weight:700;font-size:1.3rem;">
-                                    <?= $view_student['fyp_totalmark'] ? number_format($view_student['fyp_totalmark'], 2) . '%' : 'Not Marked'; ?>
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <?php if (empty($overall_marks_data)): ?>
-                    <div class="empty-state">
-                        <i class="fas fa-clipboard-list"></i>
-                        <p>No marks recorded for this student yet</p>
-                        <a href="?page=marks&action=mark&mark_student=<?= urlencode($view_student_id); ?>" class="btn btn-success">
-                            <i class="fas fa-edit"></i> Mark This Student
-                        </a>
-                    </div>
-                    <?php else: ?>
-                    
-                    <!-- Overall Marks Table -->
-                    <div style="overflow-x:auto;">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>Item</th>
-                                    <th>Criteria</th>
-                                    <th>% Allocation</th>
-                                    <th>Initial</th>
-                                    <th>Final</th>
-                                    <th>Moderator</th>
-                                    <th>Average</th>
-                                    <th>Scaled Mark</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php 
-                                $grand_total = 0;
-                                foreach ($overall_marks_data as $item_name => $item_data): 
-                                    $first_row = true;
-                                    $criteria_count = count($item_data['criteria']);
-                                    foreach ($item_data['criteria'] as $mark):
-                                        $grand_total += floatval($mark['fyp_scaledmark'] ?? 0);
-                                ?>
-                                <tr>
-                                    <?php if ($first_row): ?>
-                                    <td rowspan="<?= $criteria_count; ?>" style="background:rgba(139,92,246,0.1);font-weight:600;color:#a78bfa;vertical-align:top;padding-top:15px;">
-                                        <?= htmlspecialchars($item_name); ?><br>
-                                        <small style="color:#94a3b8;">(<?= number_format($item_data['allocation'] ?? 0, 0); ?>%)</small>
-                                    </td>
-                                    <?php $first_row = false; endif; ?>
-                                    <td><?= htmlspecialchars($mark['fyp_criterianame']); ?></td>
-                                    <td><span class="badge" style="background:rgba(139,92,246,0.2);color:#a78bfa;"><?= number_format($mark['fyp_percentallocation'], 1); ?>%</span></td>
-                                    <td><?= $mark['fyp_initialwork'] ? number_format($mark['fyp_initialwork'], 2) : '-'; ?></td>
-                                    <td><?= $mark['fyp_finalwork'] ? number_format($mark['fyp_finalwork'], 2) : '-'; ?></td>
-                                    <td><?= $mark['fyp_markbymoderator'] ? number_format($mark['fyp_markbymoderator'], 2) : '-'; ?></td>
-                                    <td style="color:#60a5fa;font-weight:600;"><?= $mark['fyp_avgmark'] ? number_format($mark['fyp_avgmark'], 2) : '-'; ?></td>
-                                    <td style="color:#34d399;font-weight:700;"><?= $mark['fyp_scaledmark'] ? number_format($mark['fyp_scaledmark'], 2) : '-'; ?></td>
-                                </tr>
-                                <?php endforeach; endforeach; ?>
-                            </tbody>
-                            <tfoot>
-                                <tr style="background:rgba(139,92,246,0.2);">
-                                    <td colspan="7" style="text-align:right;font-weight:700;color:#a78bfa;">Grand Total:</td>
-                                    <td style="font-weight:700;color:#fbbf24;font-size:1.2rem;"><?= number_format($grand_total, 2); ?>%</td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
-                    
-                    <!-- Summary Cards -->
-                    <div class="stats-grid" style="margin-top:25px;">
-                        <div class="stat-card">
-                            <div class="stat-icon blue"><i class="fas fa-user-tie"></i></div>
-                            <div class="stat-info">
-                                <h4><?= $view_student['fyp_totalfinalsupervisor'] ? number_format($view_student['fyp_totalfinalsupervisor'], 2) : '-'; ?></h4>
-                                <p>Supervisor Mark</p>
-                            </div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon orange"><i class="fas fa-user-check"></i></div>
-                            <div class="stat-info">
-                                <h4><?= $view_student['fyp_totalfinalmoderator'] ? number_format($view_student['fyp_totalfinalmoderator'], 2) : '-'; ?></h4>
-                                <p>Moderator Mark</p>
+                    <form method="GET" action="">
+                        <input type="hidden" name="page" value="marks">
+                        <div class="modal-body" style="padding:25px;">
+                            <div style="display:grid;gap:25px;">
+                                <!-- Academic Year -->
+                                <div class="form-group" style="margin:0;">
+                                    <label style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+                                        <span style="width:40px;height:40px;border-radius:10px;background:rgba(139,92,246,0.2);display:flex;align-items:center;justify-content:center;">
+                                            <i class="fas fa-calendar" style="color:#a78bfa;"></i>
+                                        </span>
+                                        <span style="font-weight:600;">Academic Year</span>
+                                    </label>
+                                    <select name="year" class="form-control" style="height:50px;font-size:1rem;">
+                                        <option value="">-- All Years --</option>
+                                        <?php 
+                                        $years_shown = [];
+                                        foreach ($academic_years as $ay): 
+                                            if (!in_array($ay['fyp_acdyear'], $years_shown)):
+                                                $years_shown[] = $ay['fyp_acdyear'];
+                                        ?>
+                                        <option value="<?= htmlspecialchars($ay['fyp_acdyear']); ?>" <?= $filter_year === $ay['fyp_acdyear'] ? 'selected' : ''; ?>><?= htmlspecialchars($ay['fyp_acdyear']); ?></option>
+                                        <?php endif; endforeach; ?>
+                                    </select>
+                                </div>
+                                
+                                <!-- Intake -->
+                                <div class="form-group" style="margin:0;">
+                                    <label style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+                                        <span style="width:40px;height:40px;border-radius:10px;background:rgba(59,130,246,0.2);display:flex;align-items:center;justify-content:center;">
+                                            <i class="fas fa-graduation-cap" style="color:#60a5fa;"></i>
+                                        </span>
+                                        <span style="font-weight:600;">Intake</span>
+                                    </label>
+                                    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+                                        <label style="cursor:pointer;">
+                                            <input type="radio" name="intake" value="" <?= empty($filter_intake) ? 'checked' : ''; ?> style="display:none;">
+                                            <span class="intake-radio-btn" style="display:block;padding:12px;text-align:center;border-radius:10px;background:<?= empty($filter_intake) ? 'rgba(139,92,246,0.3)' : 'rgba(30,41,59,0.6)'; ?>;border:2px solid <?= empty($filter_intake) ? '#8b5cf6' : 'transparent'; ?>;transition:all 0.2s;font-weight:500;">All</span>
+                                        </label>
+                                        <label style="cursor:pointer;">
+                                            <input type="radio" name="intake" value="MAR" <?= $filter_intake === 'MAR' ? 'checked' : ''; ?> style="display:none;">
+                                            <span class="intake-radio-btn" style="display:block;padding:12px;text-align:center;border-radius:10px;background:<?= $filter_intake === 'MAR' ? 'rgba(139,92,246,0.3)' : 'rgba(30,41,59,0.6)'; ?>;border:2px solid <?= $filter_intake === 'MAR' ? '#8b5cf6' : 'transparent'; ?>;transition:all 0.2s;font-weight:500;">MAR</span>
+                                        </label>
+                                        <label style="cursor:pointer;">
+                                            <input type="radio" name="intake" value="JUN" <?= $filter_intake === 'JUN' ? 'checked' : ''; ?> style="display:none;">
+                                            <span class="intake-radio-btn" style="display:block;padding:12px;text-align:center;border-radius:10px;background:<?= $filter_intake === 'JUN' ? 'rgba(139,92,246,0.3)' : 'rgba(30,41,59,0.6)'; ?>;border:2px solid <?= $filter_intake === 'JUN' ? '#8b5cf6' : 'transparent'; ?>;transition:all 0.2s;font-weight:500;">JUN</span>
+                                        </label>
+                                        <label style="cursor:pointer;">
+                                            <input type="radio" name="intake" value="SEP" <?= $filter_intake === 'SEP' ? 'checked' : ''; ?> style="display:none;">
+                                            <span class="intake-radio-btn" style="display:block;padding:12px;text-align:center;border-radius:10px;background:<?= $filter_intake === 'SEP' ? 'rgba(139,92,246,0.3)' : 'rgba(30,41,59,0.6)'; ?>;border:2px solid <?= $filter_intake === 'SEP' ? '#8b5cf6' : 'transparent'; ?>;transition:all 0.2s;font-weight:500;">SEP</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <!-- Mark Status -->
+                                <div class="form-group" style="margin:0;">
+                                    <label style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+                                        <span style="width:40px;height:40px;border-radius:10px;background:rgba(16,185,129,0.2);display:flex;align-items:center;justify-content:center;">
+                                            <i class="fas fa-check-circle" style="color:#34d399;"></i>
+                                        </span>
+                                        <span style="font-weight:600;">Mark Status</span>
+                                    </label>
+                                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+                                        <label style="cursor:pointer;">
+                                            <input type="radio" name="status" value="" <?= empty($filter_status) ? 'checked' : ''; ?> style="display:none;">
+                                            <span class="status-radio-btn" style="display:block;padding:12px;text-align:center;border-radius:10px;background:<?= empty($filter_status) ? 'rgba(139,92,246,0.3)' : 'rgba(30,41,59,0.6)'; ?>;border:2px solid <?= empty($filter_status) ? '#8b5cf6' : 'transparent'; ?>;transition:all 0.2s;font-weight:500;">All</span>
+                                        </label>
+                                        <label style="cursor:pointer;">
+                                            <input type="radio" name="status" value="marked" <?= $filter_status === 'marked' ? 'checked' : ''; ?> style="display:none;">
+                                            <span class="status-radio-btn" style="display:block;padding:12px;text-align:center;border-radius:10px;background:<?= $filter_status === 'marked' ? 'rgba(139,92,246,0.3)' : 'rgba(30,41,59,0.6)'; ?>;border:2px solid <?= $filter_status === 'marked' ? '#8b5cf6' : 'transparent'; ?>;transition:all 0.2s;font-weight:500;">Marked</span>
+                                        </label>
+                                        <label style="cursor:pointer;">
+                                            <input type="radio" name="status" value="pending" <?= $filter_status === 'pending' ? 'checked' : ''; ?> style="display:none;">
+                                            <span class="status-radio-btn" style="display:block;padding:12px;text-align:center;border-radius:10px;background:<?= $filter_status === 'pending' ? 'rgba(139,92,246,0.3)' : 'rgba(30,41,59,0.6)'; ?>;border:2px solid <?= $filter_status === 'pending' ? '#8b5cf6' : 'transparent'; ?>;transition:all 0.2s;font-weight:500;">Pending</span>
+                                        </label>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                        <div class="stat-card">
-                            <div class="stat-icon <?= ($view_student['fyp_totalmark'] ?? 0) >= 50 ? 'green' : 'red'; ?>"><i class="fas fa-percentage"></i></div>
-                            <div class="stat-info">
-                                <h4><?= $view_student['fyp_totalmark'] ? number_format($view_student['fyp_totalmark'], 2) . '%' : '-'; ?></h4>
-                                <p>Final Total</p>
+                        <div class="modal-footer" style="display:flex;gap:10px;justify-content:space-between;">
+                            <button type="button" class="btn btn-secondary" onclick="window.location='?page=marks'">
+                                <i class="fas fa-undo"></i> Reset All
+                            </button>
+                            <div style="display:flex;gap:10px;">
+                                <button type="button" class="btn btn-secondary" onclick="closeModal('marksFilterModal')">Cancel</button>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-check"></i> Apply Filters
+                                </button>
                             </div>
                         </div>
-                        <?php
-                        $total = $view_student['fyp_totalmark'] ?? 0;
-                        $grade = '-'; $grade_color = 'purple';
-                        if ($total >= 80) { $grade = 'A'; $grade_color = 'green'; }
-                        elseif ($total >= 70) { $grade = 'B'; $grade_color = 'blue'; }
-                        elseif ($total >= 60) { $grade = 'C'; $grade_color = 'orange'; }
-                        elseif ($total >= 50) { $grade = 'D'; $grade_color = 'orange'; }
-                        elseif ($total > 0) { $grade = 'F'; $grade_color = 'red'; }
-                        ?>
-                        <div class="stat-card">
-                            <div class="stat-icon <?= $grade_color; ?>"><i class="fas fa-award"></i></div>
-                            <div class="stat-info">
-                                <h4><?= $grade; ?></h4>
-                                <p>Grade</p>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <?php endif; ?>
-                    
-                    <!-- Action Buttons -->
-                    <div style="margin-top:25px;display:flex;gap:10px;flex-wrap:wrap;">
-                        <a href="?page=marks&action=list" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back to List</a>
-                        <?php if ($view_student): ?>
-                        <a href="?page=marks&action=mark&mark_student=<?= urlencode($view_student_id); ?>" class="btn btn-success"><i class="fas fa-edit"></i> Edit Marks</a>
-                        <?php endif; ?>
-                    </div>
-                    
-                    <?php else: ?>
-                    <div class="empty-state">
-                        <i class="fas fa-exclamation-triangle" style="color:#f87171;"></i>
-                        <p>Student not found</p>
-                        <a href="?page=marks&action=list" class="btn btn-secondary">Back to List</a>
-                    </div>
-                    <?php endif; ?>
+                    </form>
                 </div>
             </div>
-            <?php endif; ?>
+            
+            <!-- Student Marks Detail Modal -->
+            <div class="modal-overlay" id="studentMarksModal">
+                <div class="modal" style="max-width:95%;width:1200px;">
+                    <div class="modal-header" style="background:linear-gradient(135deg, rgba(59,130,246,0.2), rgba(139,92,246,0.1));">
+                        <h3><i class="fas fa-user-graduate" style="color:#60a5fa;"></i> Student Marks Details</h3>
+                        <button class="modal-close" onclick="closeModal('studentMarksModal')">&times;</button>
+                    </div>
+                    <div class="modal-body" style="padding:25px;max-height:70vh;overflow-y:auto;">
+                        <div id="studentMarksContent">
+                            <!-- Content will be loaded dynamically -->
+                            <div style="text-align:center;padding:50px;">
+                                <i class="fas fa-spinner fa-spin" style="font-size:2rem;color:#8b5cf6;"></i>
+                                <p style="margin-top:15px;color:#94a3b8;">Loading student marks...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Store students data for live search -->
+            <script>
+            var allStudentsMarks = <?= $students_json; ?>;
+            
+            // Live search function
+            function liveSearchStudents(query) {
+                var searchInput = document.getElementById('marksSearchInput');
+                var clearBtn = document.getElementById('clearSearchBtn');
+                var dropdown = document.getElementById('searchPreviewDropdown');
+                var content = document.getElementById('searchPreviewContent');
+                
+                query = query.trim().toLowerCase();
+                
+                // Show/hide clear button
+                clearBtn.style.display = query ? 'block' : 'none';
+                
+                if (query.length < 1) {
+                    dropdown.style.display = 'none';
+                    filterTable('');
+                    return;
+                }
+                
+                // Filter students
+                var matches = allStudentsMarks.filter(function(s) {
+                    return s.id.toLowerCase().indexOf(query) !== -1 || 
+                           s.name.toLowerCase().indexOf(query) !== -1 ||
+                           (s.project && s.project.toLowerCase().indexOf(query) !== -1);
+                });
+                
+                // Build preview HTML
+                var html = '';
+                if (matches.length === 0) {
+                    html = '<div style="padding:20px;text-align:center;color:#94a3b8;"><i class="fas fa-search" style="font-size:1.5rem;margin-bottom:10px;display:block;"></i>No students found</div>';
+                } else {
+                    html = '<div style="padding:8px 15px;color:#64748b;font-size:0.8rem;border-bottom:1px solid rgba(255,255,255,0.1);">Found ' + matches.length + ' student(s)</div>';
+                    matches.slice(0, 10).forEach(function(s) {
+                        var markBadge = s.total_mark ? 
+                            '<span style="background:' + (s.total_mark >= 50 ? 'rgba(16,185,129,0.2);color:#34d399' : 'rgba(239,68,68,0.2);color:#f87171') + ';padding:3px 10px;border-radius:12px;font-size:0.8rem;">' + parseFloat(s.total_mark).toFixed(2) + '</span>' :
+                            '<span style="background:rgba(148,163,184,0.2);color:#94a3b8;padding:3px 10px;border-radius:12px;font-size:0.8rem;">Not Marked</span>';
+                        
+                        html += '<div class="search-preview-item" onclick="selectStudent(\'' + s.id + '\')" style="padding:12px 15px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.05);transition:background 0.2s;">' +
+                                '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+                                '<div>' +
+                                '<div style="font-weight:600;color:#60a5fa;">' + highlightMatch(s.id, query) + '</div>' +
+                                '<div style="color:#e2e8f0;font-size:0.95rem;">' + highlightMatch(s.name, query) + '</div>' +
+                                '<div style="color:#94a3b8;font-size:0.85rem;margin-top:3px;">' + (s.project ? highlightMatch(s.project.substring(0, 50), query) + (s.project.length > 50 ? '...' : '') : 'No project assigned') + '</div>' +
+                                '</div>' +
+                                '<div style="text-align:right;">' +
+                                markBadge +
+                                '</div>' +
+                                '</div>' +
+                                '</div>';
+                    });
+                    if (matches.length > 10) {
+                        html += '<div style="padding:10px 15px;text-align:center;color:#64748b;font-size:0.85rem;">+ ' + (matches.length - 10) + ' more results</div>';
+                    }
+                }
+                
+                content.innerHTML = html;
+                dropdown.style.display = 'block';
+                
+                // Also filter the table
+                filterTable(query);
+            }
+            
+            // Highlight matching text
+            function highlightMatch(text, query) {
+                if (!query || !text) return text || '';
+                var regex = new RegExp('(' + query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+                return text.replace(regex, '<span style="background:rgba(139,92,246,0.4);padding:1px 2px;border-radius:3px;">$1</span>');
+            }
+            
+            // Filter table rows
+            function filterTable(query) {
+                var rows = document.querySelectorAll('.student-row');
+                var visibleCount = 0;
+                
+                rows.forEach(function(row) {
+                    var id = row.getAttribute('data-id');
+                    var name = row.getAttribute('data-name');
+                    var project = row.getAttribute('data-project');
+                    
+                    if (!query || id.indexOf(query) !== -1 || name.indexOf(query) !== -1 || project.indexOf(query) !== -1) {
+                        row.style.display = '';
+                        visibleCount++;
+                    } else {
+                        row.style.display = 'none';
+                    }
+                });
+                
+                document.getElementById('visibleCount').textContent = visibleCount;
+            }
+            
+            // Select student from preview
+            function selectStudent(studentId) {
+                document.getElementById('searchPreviewDropdown').style.display = 'none';
+                viewStudentMarks(studentId);
+            }
+            
+            // Clear search
+            function clearSearch() {
+                document.getElementById('marksSearchInput').value = '';
+                document.getElementById('clearSearchBtn').style.display = 'none';
+                document.getElementById('searchPreviewDropdown').style.display = 'none';
+                filterTable('');
+            }
+            
+            // View student marks in modal
+            function viewStudentMarks(studentId) {
+                openModal('studentMarksModal');
+                
+                // Load content via AJAX or redirect
+                var url = '?page=marks&view=' + encodeURIComponent(studentId) + '&ajax=1';
+                
+                fetch(url)
+                    .then(function(response) { return response.text(); })
+                    .then(function(html) {
+                        // For now, redirect to view
+                        window.location.href = '?page=marks&view=' + encodeURIComponent(studentId);
+                    })
+                    .catch(function() {
+                        window.location.href = '?page=marks&view=' + encodeURIComponent(studentId);
+                    });
+            }
+            
+            // Close dropdown when clicking outside
+            document.addEventListener('click', function(e) {
+                var dropdown = document.getElementById('searchPreviewDropdown');
+                var searchInput = document.getElementById('marksSearchInput');
+                if (dropdown && !dropdown.contains(e.target) && e.target !== searchInput) {
+                    dropdown.style.display = 'none';
+                }
+            });
+            
+            // Style for hover on preview items
+            document.addEventListener('DOMContentLoaded', function() {
+                var style = document.createElement('style');
+                style.textContent = '.search-preview-item:hover { background: rgba(139,92,246,0.15) !important; }';
+                document.head.appendChild(style);
+                
+                // Radio button styling
+                document.querySelectorAll('input[type="radio"]').forEach(function(radio) {
+                    radio.addEventListener('change', function() {
+                        var name = this.name;
+                        document.querySelectorAll('input[name="' + name + '"]').forEach(function(r) {
+                            var span = r.nextElementSibling;
+                            if (r.checked) {
+                                span.style.background = 'rgba(139,92,246,0.3)';
+                                span.style.borderColor = '#8b5cf6';
+                            } else {
+                                span.style.background = 'rgba(30,41,59,0.6)';
+                                span.style.borderColor = 'transparent';
+                            }
+                        });
+                    });
+                });
+            });
+            </script>
 
         <!-- ==================== REPORTS ==================== -->
         <?php elseif ($current_page === 'reports'): ?>
@@ -4615,7 +5222,237 @@ document.addEventListener("DOMContentLoaded", function() {
     if (document.getElementById("finalSubtotal")) {
         calculateTotalMark();
     }
+    
+    // Initialize filter modal radio buttons styling
+    initFilterRadioButtons();
+    
+    // Initialize search input
+    var searchInput = document.getElementById("marksSearchInput");
+    if (searchInput && searchInput.value) {
+        document.getElementById("clearSearchBtn").style.display = "block";
+    }
 });
+
+// ==================== LIVE SEARCH FUNCTIONS ====================
+
+var searchTimeout = null;
+
+// Live search with debounce
+function liveSearchMarks(query) {
+    var clearBtn = document.getElementById("clearSearchBtn");
+    if (clearBtn) {
+        clearBtn.style.display = query.length > 0 ? "block" : "none";
+    }
+    
+    // Clear previous timeout
+    if (searchTimeout) {
+        clearTimeout(searchTimeout);
+    }
+    
+    // Debounce search
+    searchTimeout = setTimeout(function() {
+        performLiveSearch(query);
+    }, 150);
+}
+
+// Perform the actual search
+function performLiveSearch(query) {
+    var dropdown = document.getElementById("searchPreviewDropdown");
+    var content = document.getElementById("searchPreviewContent");
+    var tableBody = document.getElementById("marksTableBody");
+    
+    if (!query || query.length < 1) {
+        dropdown.style.display = "none";
+        // Show all rows
+        if (tableBody) {
+            var rows = tableBody.querySelectorAll("tr");
+            rows.forEach(function(row) {
+                row.style.display = "";
+            });
+            updateResultsCount(rows.length);
+        }
+        return;
+    }
+    
+    query = query.toLowerCase();
+    var matches = [];
+    
+    // Search through allStudentsData
+    if (typeof allStudentsData !== "undefined") {
+        allStudentsData.forEach(function(student) {
+            var searchStr = (student.id + " " + student.name + " " + student.project + " " + student.supervisor).toLowerCase();
+            if (searchStr.indexOf(query) !== -1) {
+                matches.push(student);
+            }
+        });
+    }
+    
+    // Update preview dropdown
+    if (matches.length > 0) {
+        var html = '<div style="padding:5px 10px;color:#64748b;font-size:0.8rem;border-bottom:1px solid rgba(139,92,246,0.2);margin-bottom:10px;">' + 
+                   '<i class="fas fa-search"></i> Found ' + matches.length + ' result(s)</div>';
+        
+        matches.slice(0, 8).forEach(function(student) {
+            var markBadge = student.total_mark ? 
+                '<span style="background:' + (student.total_mark >= 50 ? 'rgba(16,185,129,0.2);color:#34d399' : 'rgba(239,68,68,0.2);color:#f87171') + ';padding:3px 10px;border-radius:10px;font-size:0.8rem;">' + parseFloat(student.total_mark).toFixed(1) + '%</span>' :
+                '<span style="background:rgba(245,158,11,0.2);color:#fbbf24;padding:3px 10px;border-radius:10px;font-size:0.8rem;">Pending</span>';
+            
+            html += '<div class="search-preview-item" onclick="selectSearchResult(\'' + student.id + '\')" ' +
+                    'style="padding:12px 15px;cursor:pointer;border-radius:8px;margin-bottom:5px;transition:all 0.2s;display:flex;justify-content:space-between;align-items:center;" ' +
+                    'onmouseover="this.style.background=\'rgba(139,92,246,0.2)\'" onmouseout="this.style.background=\'transparent\'">' +
+                    '<div>' +
+                    '<div style="font-weight:600;color:#e2e8f0;">' + escapeHtml(student.name) + '</div>' +
+                    '<div style="font-size:0.85rem;color:#64748b;margin-top:3px;">' +
+                    '<span style="color:#a78bfa;">' + escapeHtml(student.id) + '</span>';
+            
+            if (student.project) {
+                html += ' &bull; ' + escapeHtml(student.project.substring(0, 30)) + (student.project.length > 30 ? '...' : '');
+            }
+            
+            html += '</div></div>' + markBadge + '</div>';
+        });
+        
+        if (matches.length > 8) {
+            html += '<div style="padding:10px;text-align:center;color:#64748b;font-size:0.85rem;border-top:1px solid rgba(139,92,246,0.2);">' +
+                    'Showing 8 of ' + matches.length + ' results. Type more to narrow down.</div>';
+        }
+        
+        content.innerHTML = html;
+        dropdown.style.display = "block";
+    } else {
+        content.innerHTML = '<div style="padding:20px;text-align:center;color:#64748b;">' +
+                           '<i class="fas fa-search" style="font-size:2rem;margin-bottom:10px;opacity:0.5;"></i>' +
+                           '<p>No students found matching "' + escapeHtml(query) + '"</p></div>';
+        dropdown.style.display = "block";
+    }
+    
+    // Also filter the table
+    if (tableBody) {
+        var visibleCount = 0;
+        var rows = tableBody.querySelectorAll("tr");
+        rows.forEach(function(row) {
+            var studid = (row.getAttribute("data-studid") || "").toLowerCase();
+            var name = (row.getAttribute("data-name") || "").toLowerCase();
+            var project = (row.getAttribute("data-project") || "").toLowerCase();
+            var supervisor = (row.getAttribute("data-supervisor") || "").toLowerCase();
+            
+            var searchStr = studid + " " + name + " " + project + " " + supervisor;
+            if (searchStr.indexOf(query) !== -1) {
+                row.style.display = "";
+                visibleCount++;
+            } else {
+                row.style.display = "none";
+            }
+        });
+        updateResultsCount(visibleCount);
+    }
+}
+
+// Select search result
+function selectSearchResult(studentId) {
+    window.location.href = "?page=marks&action=mark&mark_student=" + encodeURIComponent(studentId);
+}
+
+// Show search preview on focus
+function showSearchPreview() {
+    var input = document.getElementById("marksSearchInput");
+    if (input && input.value.length > 0) {
+        performLiveSearch(input.value);
+    }
+}
+
+// Clear search
+function clearMarksSearch() {
+    var input = document.getElementById("marksSearchInput");
+    if (input) {
+        input.value = "";
+        input.focus();
+    }
+    document.getElementById("clearSearchBtn").style.display = "none";
+    document.getElementById("searchPreviewDropdown").style.display = "none";
+    
+    // Show all rows
+    var tableBody = document.getElementById("marksTableBody");
+    if (tableBody) {
+        var rows = tableBody.querySelectorAll("tr");
+        rows.forEach(function(row) {
+            row.style.display = "";
+        });
+        updateResultsCount(rows.length);
+    }
+}
+
+// Update results count
+function updateResultsCount(count) {
+    var countEl = document.getElementById("resultsCount");
+    if (countEl) {
+        countEl.textContent = "Showing " + count + " student(s)";
+    }
+}
+
+// Close search dropdown when clicking outside
+document.addEventListener("click", function(e) {
+    var dropdown = document.getElementById("searchPreviewDropdown");
+    var searchInput = document.getElementById("marksSearchInput");
+    if (dropdown && searchInput) {
+        if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) {
+            dropdown.style.display = "none";
+        }
+    }
+});
+
+// ==================== FILTER MODAL FUNCTIONS ====================
+
+// Initialize radio button styling
+function initFilterRadioButtons() {
+    var intakeOptions = document.querySelectorAll(".intake-option input");
+    intakeOptions.forEach(function(input) {
+        updateRadioStyle(input);
+        input.addEventListener("change", function() {
+            document.querySelectorAll(".intake-option input").forEach(function(i) {
+                updateRadioStyle(i);
+            });
+        });
+    });
+    
+    var statusOptions = document.querySelectorAll(".status-option input");
+    statusOptions.forEach(function(input) {
+        updateRadioStyle(input);
+        input.addEventListener("change", function() {
+            document.querySelectorAll(".status-option input").forEach(function(i) {
+                updateRadioStyle(i);
+            });
+        });
+    });
+}
+
+// Update radio button visual style
+function updateRadioStyle(input) {
+    var span = input.nextElementSibling;
+    if (span) {
+        if (input.checked) {
+            span.style.background = "rgba(139,92,246,0.3)";
+            span.style.borderColor = "#8b5cf6";
+            span.style.color = "#a78bfa";
+        } else {
+            span.style.background = "rgba(30,41,59,0.6)";
+            span.style.borderColor = "transparent";
+            span.style.color = "#94a3b8";
+        }
+    }
+}
+
+// Reset filter form
+function resetFilterForm() {
+    var form = document.querySelector("#marksFilterModal form");
+    if (form) {
+        form.querySelectorAll("select").forEach(function(s) { s.value = ""; });
+        form.querySelectorAll('input[type="radio"][value=""]').forEach(function(r) { 
+            r.checked = true; 
+        });
+        initFilterRadioButtons();
+    }
+}
 
 // Close modal when clicking outside
 document.querySelectorAll(".modal-overlay").forEach(function(m) {
