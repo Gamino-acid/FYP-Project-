@@ -54,20 +54,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     // Create Set
     if (isset($_POST['create_set'])) {
-        $set_name = $_POST['set_name'];
+        $set_name = trim($_POST['set_name'] ?? '');
         $academic_id = intval($_POST['academic_year']);
         $project_phase = 1; // Single project for Diploma IT
         
-        $stmt = $conn->prepare("INSERT INTO `set` (fyp_setname, fyp_academicid, fyp_projectphase) VALUES (?, ?, ?)");
-        $stmt->bind_param("sii", $set_name, $academic_id, $project_phase);
-        if ($stmt->execute()) {
-            $message = "Assessment set '$set_name' created successfully!";
-            $message_type = 'success';
-        } else {
-            $message = "Error creating set: " . $conn->error;
-            $message_type = 'error';
+        // If set_name is empty, generate one
+        if (empty($set_name)) {
+            $res = $conn->query("SELECT fyp_acdyear, fyp_intake FROM academic_year WHERE fyp_academicid = $academic_id");
+            if ($res && $ay = $res->fetch_assoc()) {
+                $set_name = 'FYP ' . $ay['fyp_acdyear'] . ' - ' . $ay['fyp_intake'];
+            } else {
+                $set_name = 'FYP Set ' . date('Y');
+            }
         }
-        $stmt->close();
+        
+        // Try with fyp_setname first, if fails try without
+        $stmt = $conn->prepare("INSERT INTO `set` (fyp_setname, fyp_academicid, fyp_projectphase) VALUES (?, ?, ?)");
+        if ($stmt) {
+            $stmt->bind_param("sii", $set_name, $academic_id, $project_phase);
+            if ($stmt->execute()) {
+                $message = "Assessment set '$set_name' created successfully!";
+                $message_type = 'success';
+            } else {
+                $message = "Error creating set: " . $conn->error;
+                $message_type = 'error';
+            }
+            $stmt->close();
+        } else {
+            // Try without fyp_setname column
+            $stmt = $conn->prepare("INSERT INTO `set` (fyp_academicid, fyp_projectphase) VALUES (?, ?)");
+            if ($stmt) {
+                $stmt->bind_param("ii", $academic_id, $project_phase);
+                if ($stmt->execute()) {
+                    $message = "Assessment set created successfully!";
+                    $message_type = 'success';
+                } else {
+                    $message = "Error creating set: " . $conn->error;
+                    $message_type = 'error';
+                }
+                $stmt->close();
+            } else {
+                $message = "Error: Unable to prepare statement - " . $conn->error;
+                $message_type = 'error';
+            }
+        }
         header("Location: ?action=sets&msg=" . urlencode($message) . "&type=" . $message_type);
         exit;
     }
@@ -391,7 +421,7 @@ if (isset($_GET['msg'])) {
                             <?php foreach ($sets as $set): ?>
                             <tr>
                                 <td><?= $set['fyp_setid']; ?></td>
-                                <td><strong style="color:#e2e8f0;"><?= htmlspecialchars($set['fyp_setname']); ?></strong></td>
+                                <td><strong style="color:#e2e8f0;"><?= htmlspecialchars($set['fyp_setname'] ?? 'FYP ' . ($set['fyp_acdyear'] ?? 'Set #' . $set['fyp_setid'])); ?></strong></td>
                                 <td><span class="badge badge-purple"><?= htmlspecialchars($set['fyp_acdyear'] ?? '-'); ?></span></td>
                                 <td><span class="badge badge-blue"><?= htmlspecialchars($set['fyp_intake'] ?? '-'); ?></span></td>
                                 <td>

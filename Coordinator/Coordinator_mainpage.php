@@ -411,7 +411,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_student_assessme
         } else {
             // Insert new mark
             $stmt = $conn->prepare("INSERT INTO criteria_mark (fyp_studid, fyp_criteriaid, fyp_initialwork, fyp_finalwork, fyp_markbymoderator, fyp_avgmark, fyp_scaledmark) VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmt->bind_param("sidddddd", $assess_student_id, $criteria_id, $initial, $final, $mod_mark, $avg_mark, $scaled);
+            $stmt->bind_param("siddddd", $assess_student_id, $criteria_id, $initial, $final, $mod_mark, $avg_mark, $scaled);
         }
         
         if ($stmt->execute()) {
@@ -473,6 +473,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_announcement']
         $message_type = 'success';
     }
     $stmt->close();
+}
+
+// --- Delete/Unsend Announcement ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_announcement'])) {
+    $ann_id = intval($_POST['announcement_id']);
+    
+    // Try different possible column names for announcement ID
+    $deleted = false;
+    $column_names = ['fyp_announcementid', 'announcementid', 'id'];
+    
+    foreach ($column_names as $col) {
+        $stmt = $conn->prepare("DELETE FROM announcement WHERE $col = ?");
+        if ($stmt) {
+            $stmt->bind_param("i", $ann_id);
+            if ($stmt->execute() && $stmt->affected_rows > 0) {
+                $deleted = true;
+                $stmt->close();
+                break;
+            }
+            $stmt->close();
+        }
+    }
+    
+    if ($deleted) {
+        $message = "Announcement unsent/deleted successfully!";
+        $message_type = 'success';
+    } else {
+        $message = "Error deleting announcement.";
+        $message_type = 'error';
+    }
 }
 
 // --- Approve Student Registration ---
@@ -2006,13 +2036,16 @@ $menu_items = [
         <?php elseif ($current_page === 'students'): 
             $students = [];
             $res = $conn->query("SELECT s.*, p.fyp_progname, p.fyp_progid, a.fyp_acdyear, a.fyp_intake, u.fyp_username,
-                                        pr.fyp_projecttitle, pr.fyp_projectid
+                                        pr.fyp_projecttitle, pr.fyp_projectid,
+                                        pa.fyp_pairingid, pa_pr.fyp_projecttitle as paired_project
                                  FROM student s 
                                  LEFT JOIN programme p ON s.fyp_progid = p.fyp_progid 
                                  LEFT JOIN academic_year a ON s.fyp_academicid = a.fyp_academicid 
                                  LEFT JOIN user u ON s.fyp_userid = u.fyp_userid 
                                  LEFT JOIN fyp_registration fr ON s.fyp_studid = fr.fyp_studid
                                  LEFT JOIN project pr ON fr.fyp_projectid = pr.fyp_projectid
+                                 LEFT JOIN pairing pa ON s.fyp_studid = pa.fyp_studid
+                                 LEFT JOIN project pa_pr ON pa.fyp_projectid = pa_pr.fyp_projectid
                                  ORDER BY s.fyp_studname");
             if ($res) { while ($row = $res->fetch_assoc()) { $students[] = $row; } }
         ?>
@@ -2021,13 +2054,16 @@ $menu_items = [
                 <?php if (empty($students)): ?><div class="empty-state"><i class="fas fa-user-graduate"></i><p>No students found</p></div>
                 <?php else: ?>
                     <div style="overflow-x:auto;"><table class="data-table" id="studentTable"><thead><tr><th>Student ID</th><th>Name</th><th>Programme</th><th>Project</th><th>Group Type</th><th>Email</th><th>Contact</th><th>Actions</th></tr></thead><tbody>
-                        <?php foreach ($students as $s): ?>
+                        <?php foreach ($students as $s): 
+                            // Get project title from either registration or pairing
+                            $project_title = $s['fyp_projecttitle'] ?? $s['paired_project'] ?? null;
+                        ?>
                         <tr>
                             <td><?= htmlspecialchars($s['fyp_studfullid']); ?></td>
                             <td><?= htmlspecialchars($s['fyp_studname']); ?></td>
                             <td><?= htmlspecialchars($s['fyp_progname'] ?? '-'); ?></td>
-                            <td><?= htmlspecialchars($s['fyp_projecttitle'] ?? '<span style="color:#64748b;">No Project</span>'); ?></td>
-                            <td><?= htmlspecialchars($s['fyp_group'] ?? '-'); ?></td>
+                            <td><?php if ($project_title): ?><?= htmlspecialchars($project_title); ?><?php else: ?><span style="color:#64748b;">No Project</span><?php endif; ?></td>
+                            <td><?= $s['fyp_group'] ? htmlspecialchars($s['fyp_group']) : '<span style="color:#64748b;">Individual</span>'; ?></td>
                             <td><?= htmlspecialchars($s['fyp_email'] ?? '-'); ?></td>
                             <td><?= htmlspecialchars($s['fyp_contactno'] ?? '-'); ?></td>
                             <td>
@@ -4293,26 +4329,291 @@ $menu_items = [
 
         <!-- ==================== ANNOUNCEMENTS ==================== -->
         <?php elseif ($current_page === 'announcements'): 
+            // Get filter parameters
+            $ann_sort = $_GET['sort'] ?? 'newest';
+            $ann_filter_receiver = $_GET['receiver'] ?? '';
+            
+            // Build query with sorting
+            $ann_order = $ann_sort === 'oldest' ? 'ASC' : 'DESC';
+            $ann_where = '';
+            if (!empty($ann_filter_receiver)) {
+                $ann_where = " WHERE fyp_receiver LIKE '%" . $conn->real_escape_string($ann_filter_receiver) . "%'";
+            }
+            
             $announcements = [];
-            $res = $conn->query("SELECT * FROM announcement ORDER BY fyp_datecreated DESC LIMIT 20");
-            if ($res) { while ($row = $res->fetch_assoc()) { $announcements[] = $row; } }
+            $res = $conn->query("SELECT * FROM announcement $ann_where ORDER BY fyp_datecreated $ann_order LIMIT 50");
+            if ($res) { 
+                while ($row = $res->fetch_assoc()) { 
+                    $announcements[] = $row; 
+                }
+            }
+            
+            // Detect the primary key column name from first result
+            $ann_pk_column = 'fyp_announcementid'; // default
+            if (!empty($announcements)) {
+                $first = $announcements[0];
+                if (isset($first['fyp_announcementid'])) $ann_pk_column = 'fyp_announcementid';
+                elseif (isset($first['announcementid'])) $ann_pk_column = 'announcementid';
+                elseif (isset($first['id'])) $ann_pk_column = 'id';
+                elseif (isset($first['announcement_id'])) $ann_pk_column = 'announcement_id';
+            }
         ?>
-            <div class="card"><div class="card-header"><h3>Announcements</h3><button class="btn btn-primary" onclick="openModal('createAnnouncementModal')"><i class="fas fa-plus"></i> New Announcement</button></div><div class="card-body">
-                <?php if (empty($announcements)): ?><div class="empty-state"><i class="fas fa-bullhorn"></i><p>No announcements yet</p></div>
-                <?php else: ?>
-                    <table class="data-table"><thead><tr><th>Subject</th><th>Description</th><th>From</th><th>Receiver</th><th>Date</th></tr></thead><tbody>
-                        <?php foreach ($announcements as $a): ?>
-                        <tr>
-                            <td><strong><?= htmlspecialchars($a['fyp_subject']); ?></strong></td>
-                            <td><?= htmlspecialchars($a['fyp_description']); ?></td>
-                            <td><?= htmlspecialchars($a['fyp_supervisorid']); ?></td>
-                            <td><?= htmlspecialchars($a['fyp_receiver']); ?></td>
-                            <td><?= date('M j, Y H:i', strtotime($a['fyp_datecreated'])); ?></td>
-                        </tr>
-                        <?php endforeach; ?>
-                    </tbody></table>
-                <?php endif; ?>
-            </div></div>
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-bullhorn" style="color:#a78bfa;"></i> Announcements</h3>
+                    <div style="display:flex;gap:10px;">
+                        <button class="btn btn-secondary btn-sm" onclick="openModal('annFilterModal')">
+                            <i class="fas fa-filter"></i> Filter
+                            <?php if (!empty($ann_filter_receiver) || $ann_sort !== 'newest'): ?>
+                            <span style="background:#8b5cf6;color:white;padding:2px 6px;border-radius:8px;font-size:0.7rem;margin-left:5px;">!</span>
+                            <?php endif; ?>
+                        </button>
+                        <button class="btn btn-primary" onclick="openModal('createAnnouncementModal')">
+                            <i class="fas fa-plus"></i> New Announcement
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <!-- Active Filters Display -->
+                    <?php if (!empty($ann_filter_receiver) || $ann_sort !== 'newest'): ?>
+                    <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center;">
+                        <span style="color:#94a3b8;font-size:0.85rem;">Active filters:</span>
+                        <?php if ($ann_sort === 'oldest'): ?>
+                        <span style="background:rgba(59,130,246,0.2);color:#60a5fa;padding:5px 12px;border-radius:15px;font-size:0.8rem;">
+                            <i class="fas fa-sort-amount-up"></i> Oldest First
+                            <a href="?page=announcements&sort=newest<?= !empty($ann_filter_receiver) ? '&receiver=' . urlencode($ann_filter_receiver) : ''; ?>" style="color:#60a5fa;margin-left:8px;"><i class="fas fa-times"></i></a>
+                        </span>
+                        <?php endif; ?>
+                        <?php if (!empty($ann_filter_receiver)): ?>
+                        <span style="background:rgba(139,92,246,0.2);color:#a78bfa;padding:5px 12px;border-radius:15px;font-size:0.8rem;">
+                            Receiver: <?= htmlspecialchars($ann_filter_receiver); ?>
+                            <a href="?page=announcements&sort=<?= $ann_sort; ?>" style="color:#a78bfa;margin-left:8px;"><i class="fas fa-times"></i></a>
+                        </span>
+                        <?php endif; ?>
+                        <a href="?page=announcements" style="color:#f87171;font-size:0.85rem;margin-left:10px;"><i class="fas fa-times-circle"></i> Clear All</a>
+                    </div>
+                    <?php endif; ?>
+                    
+                    <?php if (empty($announcements)): ?>
+                    <div class="empty-state">
+                        <i class="fas fa-bullhorn"></i>
+                        <p>No announcements yet</p>
+                        <button class="btn btn-primary" style="margin-top:15px;" onclick="openModal('createAnnouncementModal')">
+                            <i class="fas fa-plus"></i> Create First Announcement
+                        </button>
+                    </div>
+                    <?php else: ?>
+                    <div style="overflow-x:auto;">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Subject</th>
+                                    <th>Description</th>
+                                    <th>From</th>
+                                    <th>Receiver</th>
+                                    <th>Date</th>
+                                    <th style="width:100px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($announcements as $a): ?>
+                                <tr>
+                                    <td><strong style="color:#e2e8f0;"><?= htmlspecialchars($a['fyp_subject']); ?></strong></td>
+                                    <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><?= htmlspecialchars($a['fyp_description']); ?></td>
+                                    <td><?= htmlspecialchars($a['fyp_supervisorid']); ?></td>
+                                    <td>
+                                        <span style="background:rgba(139,92,246,0.2);color:#a78bfa;padding:3px 10px;border-radius:12px;font-size:0.8rem;">
+                                            <?= htmlspecialchars($a['fyp_receiver']); ?>
+                                        </span>
+                                    </td>
+                                    <td style="white-space:nowrap;"><?= date('M j, Y H:i', strtotime($a['fyp_datecreated'])); ?></td>
+                                    <td>
+                                        <?php 
+                                        // Use the detected primary key column
+                                        $ann_id = $a[$ann_pk_column] ?? $a['fyp_announcementid'] ?? $a['announcementid'] ?? $a['id'] ?? $a['announcement_id'] ?? 0;
+                                        $ann_subj = htmlspecialchars($a['fyp_subject'] ?? '', ENT_QUOTES);
+                                        $ann_desc = htmlspecialchars($a['fyp_description'] ?? '', ENT_QUOTES);
+                                        $ann_from = htmlspecialchars($a['fyp_supervisorid'] ?? '', ENT_QUOTES);
+                                        $ann_recv = htmlspecialchars($a['fyp_receiver'] ?? '', ENT_QUOTES);
+                                        $ann_date = isset($a['fyp_datecreated']) ? date('M j, Y H:i', strtotime($a['fyp_datecreated'])) : '';
+                                        ?>
+                                        <button class="btn btn-info btn-sm" onclick="viewAnnDetail('<?= $ann_subj; ?>', '<?= $ann_desc; ?>', '<?= $ann_from; ?>', '<?= $ann_recv; ?>', '<?= $ann_date; ?>')" title="View"><i class="fas fa-eye"></i></button>
+                                        <button class="btn btn-danger btn-sm" onclick="confirmUnsend(<?= $ann_id; ?>, '<?= $ann_subj; ?>')" title="Unsend"><i class="fas fa-trash"></i></button>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    <p style="color:#64748b;font-size:0.85rem;margin-top:15px;"><i class="fas fa-info-circle"></i> Showing <?= count($announcements); ?> announcement(s)</p>
+                    <?php endif; ?>
+                </div>
+            </div>
+            
+            <!-- Announcement Filter Modal -->
+            <div class="modal-overlay" id="annFilterModal">
+                <div class="modal" style="max-width:450px;">
+                    <div class="modal-header">
+                        <h3><i class="fas fa-filter" style="color:#8b5cf6;"></i> Filter Announcements</h3>
+                        <button class="modal-close" onclick="closeModal('annFilterModal')">&times;</button>
+                    </div>
+                    <form method="GET" action="">
+                        <input type="hidden" name="page" value="announcements">
+                        <div class="modal-body" style="padding:25px;">
+                            <!-- Sort Order -->
+                            <div class="form-group">
+                                <label style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+                                    <span style="width:40px;height:40px;border-radius:10px;background:rgba(59,130,246,0.2);display:flex;align-items:center;justify-content:center;">
+                                        <i class="fas fa-sort" style="color:#60a5fa;"></i>
+                                    </span>
+                                    <span style="font-weight:600;">Sort Order</span>
+                                </label>
+                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                                    <label style="cursor:pointer;">
+                                        <input type="radio" name="sort" value="newest" <?= $ann_sort === 'newest' ? 'checked' : ''; ?> style="display:none;">
+                                        <span style="display:block;padding:15px;text-align:center;border-radius:10px;background:<?= $ann_sort === 'newest' ? 'rgba(139,92,246,0.3)' : 'rgba(30,41,59,0.6)'; ?>;border:2px solid <?= $ann_sort === 'newest' ? '#8b5cf6' : 'transparent'; ?>;transition:all 0.2s;font-weight:500;">
+                                            <i class="fas fa-sort-amount-down" style="margin-right:8px;"></i> Newest First
+                                        </span>
+                                    </label>
+                                    <label style="cursor:pointer;">
+                                        <input type="radio" name="sort" value="oldest" <?= $ann_sort === 'oldest' ? 'checked' : ''; ?> style="display:none;">
+                                        <span style="display:block;padding:15px;text-align:center;border-radius:10px;background:<?= $ann_sort === 'oldest' ? 'rgba(139,92,246,0.3)' : 'rgba(30,41,59,0.6)'; ?>;border:2px solid <?= $ann_sort === 'oldest' ? '#8b5cf6' : 'transparent'; ?>;transition:all 0.2s;font-weight:500;">
+                                            <i class="fas fa-sort-amount-up" style="margin-right:8px;"></i> Oldest First
+                                        </span>
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <!-- Receiver Filter -->
+                            <div class="form-group" style="margin-top:20px;">
+                                <label style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+                                    <span style="width:40px;height:40px;border-radius:10px;background:rgba(139,92,246,0.2);display:flex;align-items:center;justify-content:center;">
+                                        <i class="fas fa-users" style="color:#a78bfa;"></i>
+                                    </span>
+                                    <span style="font-weight:600;">Filter by Receiver</span>
+                                </label>
+                                <input type="text" name="receiver" class="form-control" placeholder="e.g. Everyone, Project: click this, My Supervisees..." value="<?= htmlspecialchars($ann_filter_receiver); ?>">
+                                <small style="color:#64748b;margin-top:8px;display:block;">Leave empty to show all</small>
+                            </div>
+                        </div>
+                        <div class="modal-footer" style="display:flex;justify-content:space-between;">
+                            <button type="button" class="btn btn-secondary" onclick="window.location='?page=announcements'">
+                                <i class="fas fa-undo"></i> Reset
+                            </button>
+                            <div style="display:flex;gap:10px;">
+                                <button type="button" class="btn btn-secondary" onclick="closeModal('annFilterModal')">Cancel</button>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-check"></i> Apply Filter
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- View Announcement Modal -->
+            <div class="modal-overlay" id="viewAnnouncementModal">
+                <div class="modal" style="max-width:600px;">
+                    <div class="modal-header">
+                        <h3><i class="fas fa-bullhorn" style="color:#a78bfa;"></i> Announcement Details</h3>
+                        <button class="modal-close" onclick="closeModal('viewAnnouncementModal')">&times;</button>
+                    </div>
+                    <div class="modal-body" style="padding:25px;">
+                        <div style="margin-bottom:20px;">
+                            <label style="color:#94a3b8;font-size:0.85rem;">Subject</label>
+                            <h3 id="viewAnnSubject" style="color:#e2e8f0;margin:5px 0;"></h3>
+                        </div>
+                        <div style="margin-bottom:20px;">
+                            <label style="color:#94a3b8;font-size:0.85rem;">Description</label>
+                            <p id="viewAnnDescription" style="color:#e2e8f0;margin:5px 0;white-space:pre-wrap;"></p>
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+                            <div>
+                                <label style="color:#94a3b8;font-size:0.85rem;">From</label>
+                                <p id="viewAnnFrom" style="color:#60a5fa;margin:5px 0;"></p>
+                            </div>
+                            <div>
+                                <label style="color:#94a3b8;font-size:0.85rem;">Receiver</label>
+                                <p id="viewAnnReceiver" style="color:#a78bfa;margin:5px 0;"></p>
+                            </div>
+                        </div>
+                        <div style="margin-top:15px;">
+                            <label style="color:#94a3b8;font-size:0.85rem;">Date Created</label>
+                            <p id="viewAnnDate" style="color:#e2e8f0;margin:5px 0;"></p>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('viewAnnouncementModal')">Close</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Confirm Unsend Modal -->
+            <div class="modal-overlay" id="unsendAnnouncementModal">
+                <div class="modal" style="max-width:450px;">
+                    <div class="modal-header">
+                        <h3><i class="fas fa-trash-alt" style="color:#f87171;"></i> Unsend Announcement</h3>
+                        <button class="modal-close" onclick="closeModal('unsendAnnouncementModal')">&times;</button>
+                    </div>
+                    <form method="POST">
+                        <input type="hidden" name="announcement_id" id="unsendAnnId">
+                        <div class="modal-body" style="padding:25px;">
+                            <div style="text-align:center;margin-bottom:20px;">
+                                <div style="width:70px;height:70px;border-radius:50%;background:rgba(239,68,68,0.2);display:flex;align-items:center;justify-content:center;margin:0 auto;">
+                                    <i class="fas fa-exclamation-triangle" style="font-size:30px;color:#f87171;"></i>
+                                </div>
+                            </div>
+                            <p style="color:#e2e8f0;text-align:center;margin-bottom:10px;">Are you sure you want to unsend this announcement?</p>
+                            <p id="unsendAnnSubject" style="color:#a78bfa;text-align:center;font-weight:600;"></p>
+                            <p style="color:#94a3b8;text-align:center;font-size:0.85rem;margin-top:15px;">
+                                <i class="fas fa-info-circle"></i> This action cannot be undone. Recipients who have already seen the announcement may still remember its contents.
+                            </p>
+                        </div>
+                        <div class="modal-footer" style="justify-content:center;gap:15px;">
+                            <button type="button" class="btn btn-secondary" onclick="closeModal('unsendAnnouncementModal')">Cancel</button>
+                            <button type="submit" name="delete_announcement" class="btn btn-danger">
+                                <i class="fas fa-trash"></i> Unsend
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
+            <script>
+            function viewAnnDetail(subject, desc, from, receiver, date) {
+                document.getElementById('viewAnnSubject').textContent = subject;
+                document.getElementById('viewAnnDescription').textContent = desc;
+                document.getElementById('viewAnnFrom').textContent = from;
+                document.getElementById('viewAnnReceiver').textContent = receiver;
+                document.getElementById('viewAnnDate').textContent = date;
+                openModal('viewAnnouncementModal');
+            }
+            
+            function confirmUnsend(id, subject) {
+                document.getElementById('unsendAnnId').value = id;
+                document.getElementById('unsendAnnSubject').textContent = '"' + subject + '"';
+                openModal('unsendAnnouncementModal');
+            }
+            
+            // Radio button styling for filter modal
+            document.addEventListener('DOMContentLoaded', function() {
+                document.querySelectorAll('#annFilterModal input[type="radio"]').forEach(function(radio) {
+                    radio.addEventListener('change', function() {
+                        var name = this.name;
+                        document.querySelectorAll('#annFilterModal input[name="' + name + '"]').forEach(function(r) {
+                            var span = r.nextElementSibling;
+                            if (r.checked) {
+                                span.style.background = 'rgba(139,92,246,0.3)';
+                                span.style.borderColor = '#8b5cf6';
+                            } else {
+                                span.style.background = 'rgba(30,41,59,0.6)';
+                                span.style.borderColor = 'transparent';
+                            }
+                        });
+                    });
+                });
+            });
+            </script>
 
         <!-- ==================== SETTINGS ==================== -->
         <?php elseif ($current_page === 'settings'): 
