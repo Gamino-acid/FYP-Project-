@@ -3468,6 +3468,9 @@ $menu_items = [
                             <a href="?page=rubrics&action=link" class="btn btn-warning btn-sm">
                                 <i class="fas fa-link"></i> Link Items
                             </a>
+                            <a href="Coordinator_report.php" class="btn btn-success btn-sm" title="Generate Reports">
+                                <i class="fas fa-file-export"></i> Reports
+                            </a>
                             <a href="Coordinator_marks.php" class="btn btn-info btn-sm" title="Open Standalone Marks Manager">
                                 <i class="fas fa-external-link-alt"></i> Advanced
                             </a>
