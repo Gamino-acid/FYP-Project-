@@ -861,6 +861,26 @@ if (isset($_GET['action']) && $_GET['action'] === 'view') {
         .btn-row{display:flex;gap:10px;align-items:flex-end}
         .filter-toggle-btn{background:none;border:none;color:#1976D2;cursor:pointer;font-size:0.9rem;padding:8px 12px;display:flex;align-items:center;gap:5px}
         .filter-toggle-btn:hover{text-decoration:underline}
+        
+        /* Dynamic button styles based on report type */
+        .btn-view{padding:10px 24px;border:none;border-radius:4px;font-size:0.9rem;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all 0.3s ease;font-weight:500}
+        .btn-view.orange{background:linear-gradient(135deg,#F59E0B,#D97706);color:#fff}
+        .btn-view.orange:hover{background:linear-gradient(135deg,#D97706,#B45309);transform:translateY(-1px);box-shadow:0 4px 12px rgba(245,158,11,0.4)}
+        .btn-view.teal{background:linear-gradient(135deg,#14B8A6,#0D9488);color:#fff}
+        .btn-view.teal:hover{background:linear-gradient(135deg,#0D9488,#0F766E);transform:translateY(-1px);box-shadow:0 4px 12px rgba(20,184,166,0.4)}
+        .btn-generate{padding:10px 24px;border:none;border-radius:4px;font-size:0.9rem;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all 0.3s ease;font-weight:500;background:linear-gradient(135deg,#10B981,#059669);color:#fff}
+        .btn-generate:hover{background:linear-gradient(135deg,#059669,#047857);transform:translateY(-1px);box-shadow:0 4px 12px rgba(16,185,129,0.4)}
+        
+        /* Workload filters */
+        .workload-filters{padding:20px 0;border-bottom:1px solid #e0e0e0}
+        .filter-row{display:flex;flex-wrap:wrap;gap:20px;align-items:center;margin-bottom:15px}
+        .filter-row:last-child{margin-bottom:0}
+        .filter-label{font-size:0.85rem;color:#666;min-width:100px;text-align:right}
+        .radio-group{display:flex;gap:20px}
+        .radio-item{display:flex;align-items:center;gap:6px;font-size:0.9rem;color:#333}
+        .radio-item input[type="radio"]{width:16px;height:16px;accent-color:#14B8A6}
+        .btn-calculate{background:linear-gradient(135deg,#14B8A6,#0D9488);color:#fff;padding:10px 24px;border:none;border-radius:4px;font-size:0.9rem;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all 0.3s ease;font-weight:500}
+        .btn-calculate:hover{background:linear-gradient(135deg,#0D9488,#0F766E);transform:translateY(-1px);box-shadow:0 4px 12px rgba(20,184,166,0.4)}
     </style>
 </head>
 <body>
@@ -887,8 +907,48 @@ if (isset($_GET['action']) && $_GET['action'] === 'view') {
                 </div>
                 <div class="btn-row">
                     <button class="filter-toggle-btn" onclick="toggleFilters()"><i class="fas fa-plus" id="filterIcon"></i> Filter Options</button>
-                    <button class="btn btn-primary" onclick="viewReport()"><i class="fas fa-eye"></i> View Report</button>
-                    <button class="btn btn-success" id="generateFileBtn" onclick="generateFile()"><i class="fas fa-file-excel"></i> Generate File</button>
+                    <button class="btn-view teal" id="viewReportBtn" onclick="viewReport()"><i class="fas fa-eye"></i> View Report</button>
+                    <button class="btn-generate" id="generateFileBtn" onclick="generateFile()"><i class="fas fa-file-excel"></i> Generate File</button>
+                </div>
+            </div>
+            
+            <!-- Workload Specific Filters (Figure 126) -->
+            <div id="workloadFilters" class="workload-filters" style="display:none">
+                <div class="filter-row">
+                    <span class="filter-label">Academic Year</span>
+                    <select id="workloadYear" class="form-control" style="width:150px">
+                        <option value="">-- All --</option>
+                        <?php foreach ($academic_years as $ay): ?>
+                        <option value="<?= $ay['fyp_acdyear']; ?>"><?= $ay['fyp_acdyear']; ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <span class="filter-label" style="margin-left:30px">Intake</span>
+                    <select id="workloadIntake" class="form-control" style="width:150px">
+                        <option value="">-- All --</option>
+                        <?php foreach (array_unique(array_column($academic_years, 'fyp_intake')) as $i): ?>
+                        <option value="<?= $i; ?>"><?= $i; ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="filter-row">
+                    <span class="filter-label">Job Type</span>
+                    <div class="radio-group">
+                        <label class="radio-item"><input type="radio" name="jobType" value="full" checked> Full Time</label>
+                    </div>
+                </div>
+                <div class="filter-row">
+                    <span class="filter-label">Semester</span>
+                    <div class="radio-group">
+                        <label class="radio-item"><input type="radio" name="semester" value="long"> Long Semester</label>
+                        <label class="radio-item"><input type="radio" name="semester" value="short" checked> Short Semester</label>
+                    </div>
+                </div>
+                <div class="filter-row">
+                    <span class="filter-label">Project Phase</span>
+                    <div class="radio-group">
+                        <label class="radio-item"><input type="radio" name="projectPhase" value="1" checked> Project 1</label>
+                    </div>
+                    <button class="btn-calculate" onclick="calculateWorkload()" style="margin-left:30px"><i class="fas fa-calculator"></i> Calculate Workload</button>
                 </div>
             </div>
             
@@ -998,6 +1058,13 @@ if (isset($_GET['action']) && $_GET['action'] === 'view') {
 
 <script>
 function toggleFilters() {
+    var report = document.getElementById('reportType').value;
+    
+    // For workload, the filters are always visible, so toggle does nothing
+    if (report === 'workload') {
+        return;
+    }
+    
     var section = document.getElementById('filterSection');
     section.classList.toggle('show');
     document.getElementById('filterIcon').className = section.classList.contains('show') ? 'fas fa-minus' : 'fas fa-plus';
@@ -1005,12 +1072,38 @@ function toggleFilters() {
 
 function onReportChange() {
     var report = document.getElementById('reportType').value;
+    var viewBtn = document.getElementById('viewReportBtn');
+    
+    // ONLY change View Report button color - nothing else
+    viewBtn.className = 'btn-view';
+    if (report === 'workload') {
+        viewBtn.classList.add('orange');
+    } else {
+        viewBtn.classList.add('teal');
+    }
+}
+
+function showFiltersForReport(report) {
+    var workloadFilters = document.getElementById('workloadFilters');
+    var filterSection = document.getElementById('filterSection');
+    
+    // Show/hide workload-specific filters
+    if (report === 'workload') {
+        workloadFilters.style.display = 'block';
+        filterSection.classList.remove('show');
+        document.getElementById('filterIcon').className = 'fas fa-plus';
+    } else {
+        workloadFilters.style.display = 'none';
+    }
+    
     // Show/hide supervisor dropdown vs checkboxes
     document.getElementById('supervisorFilterGroup').style.display = (report === 'marks') ? 'none' : 'block';
     document.getElementById('marksFilters').style.display = (report === 'marks') ? 'block' : 'none';
     // Show moderator filter only for pairing and moderation
     document.getElementById('moderatorFilterGroup').style.display = (report === 'pairing' || report === 'moderation') ? 'block' : 'none';
-    // Auto-refresh report when changing type
+}
+
+function calculateWorkload() {
     viewReport();
 }
 
@@ -1054,6 +1147,11 @@ function getFilterParams() {
 }
 
 function viewReport() {
+    var report = document.getElementById('reportType').value;
+    
+    // Show appropriate filters for this report
+    showFiltersForReport(report);
+    
     var container = document.getElementById('tableContainer');
     container.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><p>Loading...</p></div>';
     
@@ -1185,7 +1283,9 @@ function downloadSelectedForms() {
 
 // Initialize
 document.addEventListener('DOMContentLoaded', function() {
+    // Set initial button color only
     onReportChange();
+    // Show filters and load initial report
     viewReport();
 });
 </script>
