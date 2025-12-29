@@ -1,4 +1,12 @@
 <?php
+/**
+ * Coordinator Main Page - Part 1
+ * Session, Database Connection, Core Variables, and POST Handlers
+ * 
+ * This file is the entry point. Include chain:
+ * Part1 -> Part2 -> Part3 -> Part4 -> Part5
+ */
+
 session_start();
 include("../db_connect.php");
 
@@ -369,126 +377,5 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['unlink_item_criteria'
     $stmt->close();
 }
 
-// --- Save Student Assessment Marks ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_student_assessment'])) {
-    $assess_student_id = $_POST['assess_student_id'];
-    $initial_work = $_POST['initial_work'] ?? [];
-    $final_work = $_POST['final_work'] ?? [];
-    $moderator_mark = $_POST['moderator_mark'] ?? [];
-    $scaled_mark = $_POST['scaled_mark'] ?? [];
-    
-    $success_count = 0;
-    $error_count = 0;
-    
-    foreach ($initial_work as $criteria_id => $initial) {
-        $initial = floatval($initial);
-        $final = floatval($final_work[$criteria_id] ?? 0);
-        $mod_mark = floatval($moderator_mark[$criteria_id] ?? 0);
-        $scaled = floatval($scaled_mark[$criteria_id] ?? 0);
-        
-        $values = array_filter([$initial, $final, $mod_mark], function($v) { return $v > 0; });
-        $avg_mark = count($values) > 0 ? array_sum($values) / count($values) : 0;
-        
-        $stmt = $conn->prepare("SELECT fyp_criteriamarkid FROM criteria_mark WHERE fyp_studid = ? AND fyp_criteriaid = ?");
-        $stmt->bind_param("si", $assess_student_id, $criteria_id);
-        $stmt->execute();
-        $existing = $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-        
-        if ($existing) {
-            $stmt = $conn->prepare("UPDATE criteria_mark SET fyp_initialwork = ?, fyp_finalwork = ?, fyp_markbymoderator = ?, fyp_avgmark = ?, fyp_scaledmark = ? WHERE fyp_criteriamarkid = ?");
-            $stmt->bind_param("dddddi", $initial, $final, $mod_mark, $avg_mark, $scaled, $existing['fyp_criteriamarkid']);
-        } else {
-            $stmt = $conn->prepare("INSERT INTO criteria_mark (fyp_studid, fyp_criteriaid, fyp_initialwork, fyp_finalwork, fyp_markbymoderator, fyp_avgmark, fyp_scaledmark) VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmt->bind_param("siddddd", $assess_student_id, $criteria_id, $initial, $final, $mod_mark, $avg_mark, $scaled);
-        }
-        
-        if ($stmt->execute()) {
-            $success_count++;
-        } else {
-            $error_count++;
-        }
-        $stmt->close();
-    }
-    
-    $total_scaled = 0;
-    $res = $conn->query("SELECT SUM(fyp_scaledmark) as total FROM criteria_mark WHERE fyp_studid = '$assess_student_id'");
-    if ($res) {
-        $row = $res->fetch_assoc();
-        $total_scaled = floatval($row['total'] ?? 0);
-    }
-    
-    $stmt = $conn->prepare("SELECT fyp_studid FROM total_mark WHERE fyp_studid = ?");
-    $stmt->bind_param("s", $assess_student_id);
-    $stmt->execute();
-    $existing_total = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
-    
-    if ($existing_total) {
-        $stmt = $conn->prepare("UPDATE total_mark SET fyp_totalmark = ? WHERE fyp_studid = ?");
-        $stmt->bind_param("ds", $total_scaled, $assess_student_id);
-    } else {
-        $res = $conn->query("SELECT fyp_projectid FROM pairing WHERE fyp_studid = '$assess_student_id'");
-        $project_id = $res ? ($res->fetch_assoc()['fyp_projectid'] ?? null) : null;
-        
-        $stmt = $conn->prepare("INSERT INTO total_mark (fyp_studid, fyp_projectid, fyp_totalmark) VALUES (?, ?, ?)");
-        $stmt->bind_param("sid", $assess_student_id, $project_id, $total_scaled);
-    }
-    $stmt->execute();
-    $stmt->close();
-    
-    if ($success_count > 0) {
-        $message = "Marks saved successfully! ($success_count criteria updated)";
-        $message_type = 'success';
-    } else {
-        $message = "Error saving marks.";
-        $message_type = 'error';
-    }
-}
-
-// --- Create Announcement ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_announcement'])) {
-    $subject = $_POST['subject'];
-    $description = $_POST['description'];
-    $receiver = $_POST['receiver'];
-    
-    $stmt = $conn->prepare("INSERT INTO announcement (fyp_supervisorid, fyp_subject, fyp_description, fyp_receiver, fyp_datecreated) VALUES (?, ?, ?, ?, NOW())");
-    $stmt->bind_param("ssss", $user_name, $subject, $description, $receiver);
-    if ($stmt->execute()) {
-        $message = "Announcement created successfully!";
-        $message_type = 'success';
-    }
-    $stmt->close();
-}
-
-// --- Delete/Unsend Announcement ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_announcement'])) {
-    $ann_id = intval($_POST['announcement_id']);
-    
-    $deleted = false;
-    $column_names = ['fyp_announcementid', 'announcementid', 'id'];
-    
-    foreach ($column_names as $col) {
-        $stmt = $conn->prepare("DELETE FROM announcement WHERE $col = ?");
-        if ($stmt) {
-            $stmt->bind_param("i", $ann_id);
-            if ($stmt->execute() && $stmt->affected_rows > 0) {
-                $deleted = true;
-                $stmt->close();
-                break;
-            }
-            $stmt->close();
-        }
-    }
-    
-    if ($deleted) {
-        $message = "Announcement unsent/deleted successfully!";
-        $message_type = 'success';
-    } else {
-        $message = "Error deleting announcement.";
-        $message_type = 'error';
-    }
-}
-
 // Include Part 2
-include("Coordinator_mainpage_part2.php");
+include("Coordinator_handlers.php");
