@@ -1,6 +1,6 @@
 <?php
 session_start();
-require_once 'db_connect.php';
+require_once '../db_connect.php';
 date_default_timezone_set('Asia/Kuala_Lumpur');
 
 $view = 'login';
@@ -65,19 +65,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
                             if ($chk->num_rows === 0) {
                                 // student exists in USER but not registered
-                                header("Location: Registration.php");
+                                header("Location: ../Registration.php");
                                 exit;
                             }
 
-                            header("Location: Student_mainpage.php");
+                            header("Location: ../Student_mainpage.php");
                             exit;
                         } else if ($user_type === 'coordinator') {
-                            // COORDINATOR goes to Coordinator_mainpage.php
-                            header("Location: Coordinator/Coordinator_mainpage.php");
+                            // COORDINATOR goes to Coordinator_mainpage.php (same folder)
+                            header("Location: Coordinator_mainpage.php");
                             exit;
                         } else if ($user_type === 'lecturer') {
-                            // LECTURER goes to Supervisor_mainpage.php
-                            header("Location: Supervisor_mainpage.php");
+                            // LECTURER goes to Supervisor_mainpage.php (parent folder)
+                            header("Location: ../Supervisor_mainpage.php");
                             exit;
                         } else {
                             $login_err = "Login failed: Unknown user type ($user_type).";
