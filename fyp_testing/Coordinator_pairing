@@ -1,0 +1,152 @@
+<?php
+/**
+ * COORDINATOR STUDENT-SUPERVISOR PAIRING
+ * Coordinator_pairing.php
+ */
+include("includes/header.php");
+
+// Handle POST - Create Pairing
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_pairing'])) {
+    $supervisor_id = $_POST['supervisor_id'];
+    $project_id = $_POST['project_id'];
+    $moderator_id = $_POST['moderator_id'];
+    $academic_id = $_POST['academic_id'];
+    $pairing_type = $_POST['pairing_type'];
+    
+    $stmt = $conn->prepare("INSERT INTO pairing (fyp_supervisorid, fyp_projectid, fyp_moderatorid, fyp_academicid, fyp_type, fyp_datecreated) VALUES (?, ?, ?, ?, ?, NOW())");
+    $stmt->bind_param("siiss", $supervisor_id, $project_id, $moderator_id, $academic_id, $pairing_type);
+    if ($stmt->execute()) {
+        $message = "Pairing created successfully!";
+        $message_type = 'success';
+    }
+    $stmt->close();
+}
+
+$pairings = [];
+$res = $conn->query("SELECT p.*, pr.fyp_projecttitle, s.fyp_name as supervisor_name, 
+                     (SELECT fyp_name FROM supervisor WHERE fyp_supervisorid = p.fyp_moderatorid) as moderator_name,
+                     a.fyp_acdyear, a.fyp_intake
+                     FROM pairing p 
+                     LEFT JOIN project pr ON p.fyp_projectid = pr.fyp_projectid 
+                     LEFT JOIN supervisor s ON p.fyp_supervisorid = s.fyp_supervisorid 
+                     LEFT JOIN academic_year a ON p.fyp_academicid = a.fyp_academicid 
+                     ORDER BY p.fyp_datecreated DESC");
+if ($res) { while ($row = $res->fetch_assoc()) { $pairings[] = $row; } }
+
+$sup_list = [];
+$res = $conn->query("SELECT fyp_supervisorid, fyp_name FROM supervisor ORDER BY fyp_name");
+if ($res) { while ($row = $res->fetch_assoc()) { $sup_list[] = $row; } }
+
+$proj_list = [];
+$res = $conn->query("SELECT fyp_projectid, fyp_projecttitle FROM project ORDER BY fyp_projecttitle");
+if ($res) { while ($row = $res->fetch_assoc()) { $proj_list[] = $row; } }
+?>
+
+<?php if ($message): ?>
+<div class="alert alert-<?= $message_type; ?>">
+    <i class="fas fa-<?= $message_type === 'success' ? 'check-circle' : 'exclamation-circle'; ?>"></i> 
+    <?= $message; ?>
+</div>
+<?php endif; ?>
+
+<div class="card">
+    <div class="card-header">
+        <h3>Student-Supervisor Pairings (<?= count($pairings); ?>)</h3>
+        <button class="btn btn-primary" onclick="openModal('createPairingModal')"><i class="fas fa-plus"></i> Create Pairing</button>
+    </div>
+    <div class="card-body">
+        <?php if (empty($pairings)): ?>
+            <div class="empty-state"><i class="fas fa-link"></i><p>No pairings found</p></div>
+        <?php else: ?>
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Project</th>
+                            <th>Supervisor</th>
+                            <th>Moderator</th>
+                            <th>Type</th>
+                            <th>Academic Year</th>
+                            <th>Created</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($pairings as $p): ?>
+                        <tr>
+                            <td><?= $p['fyp_pairingid']; ?></td>
+                            <td><?= htmlspecialchars($p['fyp_projecttitle'] ?? '-'); ?></td>
+                            <td><?= htmlspecialchars($p['supervisor_name'] ?? '-'); ?></td>
+                            <td><?= htmlspecialchars($p['moderator_name'] ?? '-'); ?></td>
+                            <td><?= htmlspecialchars($p['fyp_type'] ?? '-'); ?></td>
+                            <td><?= htmlspecialchars(($p['fyp_acdyear'] ?? '') . ' ' . ($p['fyp_intake'] ?? '')); ?></td>
+                            <td><?= $p['fyp_datecreated'] ? date('M j, Y', strtotime($p['fyp_datecreated'])) : '-'; ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php endif; ?>
+    </div>
+</div>
+
+<!-- Create Pairing Modal -->
+<div class="modal-overlay" id="createPairingModal">
+    <div class="modal">
+        <div class="modal-header"><h3>Create New Pairing</h3><button class="modal-close" onclick="closeModal('createPairingModal')">&times;</button></div>
+        <form method="POST">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Supervisor</label>
+                    <select name="supervisor_id" class="form-control" required>
+                        <option value="">-- Select Supervisor --</option>
+                        <?php foreach ($sup_list as $s): ?>
+                        <option value="<?= $s['fyp_supervisorid']; ?>"><?= htmlspecialchars($s['fyp_name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Project</label>
+                    <select name="project_id" class="form-control" required>
+                        <option value="">-- Select Project --</option>
+                        <?php foreach ($proj_list as $p): ?>
+                        <option value="<?= $p['fyp_projectid']; ?>"><?= htmlspecialchars($p['fyp_projecttitle']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Moderator</label>
+                    <select name="moderator_id" class="form-control">
+                        <option value="">-- Select Moderator --</option>
+                        <?php foreach ($sup_list as $s): ?>
+                        <option value="<?= $s['fyp_supervisorid']; ?>"><?= htmlspecialchars($s['fyp_name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Academic Year</label>
+                        <select name="academic_id" class="form-control" required>
+                            <?php foreach ($academic_years as $ay): ?>
+                            <option value="<?= $ay['fyp_academicid']; ?>"><?= $ay['fyp_acdyear'] . ' ' . $ay['fyp_intake']; ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Type</label>
+                        <select name="pairing_type" class="form-control" required>
+                            <option value="Individual">Individual</option>
+                            <option value="Group">Group</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('createPairingModal')">Cancel</button>
+                <button type="submit" name="create_pairing" class="btn btn-primary">Create Pairing</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<?php include("includes/footer.php"); ?>
