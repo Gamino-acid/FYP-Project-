@@ -1,215 +1,8 @@
 <?php
-// Part 3 - Assessment Marks Handlers, Project CRUD, Menu, HTML Start, CSS
-
-// --- Add Assessment Mark ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_mark'])) {
-    $studid = $_POST['mark_studid'];
-    $sup_mark = floatval($_POST['supervisor_mark']);
-    $mod_mark = floatval($_POST['moderator_mark']);
-    $total_mark = ($sup_mark + $mod_mark) / 2;
-    
-    $project_id = !empty($_POST['mark_projectid']) ? intval($_POST['mark_projectid']) : null;
-    
-    if (!$project_id) {
-        $stmt = $conn->prepare("SELECT fyp_projectid FROM pairing WHERE fyp_studid = ? LIMIT 1");
-        if ($stmt) {
-            $stmt->bind_param("s", $studid);
-            $stmt->execute();
-            $result = $stmt->get_result()->fetch_assoc();
-            $project_id = $result['fyp_projectid'] ?? null;
-            $stmt->close();
-        }
-    }
-    
-    if (!$project_id) {
-        $stmt = $conn->prepare("SELECT fyp_projectid FROM student WHERE fyp_studid = ? LIMIT 1");
-        if ($stmt) {
-            $stmt->bind_param("s", $studid);
-            $stmt->execute();
-            $result = $stmt->get_result()->fetch_assoc();
-            $project_id = $result['fyp_projectid'] ?? null;
-            $stmt->close();
-        }
-    }
-    
-    if (!$project_id) {
-        $result = $conn->query("SELECT fyp_projectid FROM project LIMIT 1");
-        if ($result && $row = $result->fetch_assoc()) {
-            $project_id = $row['fyp_projectid'];
-        } else {
-            $project_id = 1;
-        }
-    }
-    
-    $set_id = 1;
-    $academic_id = 1;
-    $result = $conn->query("SELECT fyp_setid FROM `set` ORDER BY fyp_setid DESC LIMIT 1");
-    if ($result && $row = $result->fetch_assoc()) {
-        $set_id = $row['fyp_setid'];
-    }
-    $result = $conn->query("SELECT fyp_academicid FROM academic_year ORDER BY fyp_academicid DESC LIMIT 1");
-    if ($result && $row = $result->fetch_assoc()) {
-        $academic_id = $row['fyp_academicid'];
-    }
-    
-    $stmt = $conn->prepare("INSERT INTO total_mark (fyp_studid, fyp_projectid, fyp_totalfinalsupervisor, fyp_totalfinalmoderator, fyp_totalmark, fyp_setid, fyp_projectphase, fyp_academicid) VALUES (?, ?, ?, ?, ?, ?, 1, ?)");
-    
-    if ($stmt) {
-        $stmt->bind_param("sidddii", $studid, $project_id, $sup_mark, $mod_mark, $total_mark, $set_id, $academic_id);
-        if ($stmt->execute()) {
-            $message = "Assessment mark added successfully! Total: " . number_format($total_mark, 2) . "%";
-            $message_type = 'success';
-        } else {
-            $message = "Error adding mark: " . $conn->error;
-            $message_type = 'error';
-        }
-        $stmt->close();
-    } else {
-        $message = "Database error: " . $conn->error;
-        $message_type = 'error';
-    }
-}
-
-// --- Update Assessment Mark ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_mark'])) {
-    $studid = $_POST['edit_mark_studid'];
-    $sup_mark = floatval($_POST['edit_supervisor_mark']);
-    $mod_mark = floatval($_POST['edit_moderator_mark']);
-    $total_mark = ($sup_mark + $mod_mark) / 2;
-    
-    $stmt = $conn->prepare("UPDATE total_mark SET fyp_totalfinalsupervisor = ?, fyp_totalfinalmoderator = ?, fyp_totalmark = ? WHERE fyp_studid = ?");
-    
-    if ($stmt) {
-        $stmt->bind_param("ddds", $sup_mark, $mod_mark, $total_mark, $studid);
-        if ($stmt->execute()) {
-            $message = "Assessment mark updated successfully! New Total: " . number_format($total_mark, 2) . "%";
-            $message_type = 'success';
-        } else {
-            $message = "Error updating mark: " . $conn->error;
-            $message_type = 'error';
-        }
-        $stmt->close();
-    } else {
-        $message = "Database error: " . $conn->error;
-        $message_type = 'error';
-    }
-}
-
-// ===================== PROJECT CRUD HANDLERS =====================
-
-// --- Add New Project ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_project'])) {
-    $title = trim($_POST['project_title']);
-    $description = trim($_POST['project_description'] ?? '');
-    $type = $_POST['project_type'];
-    $status = $_POST['project_status'];
-    $category = $_POST['project_category'] ?? '';
-    $supervisor_id = !empty($_POST['supervisor_id']) ? $_POST['supervisor_id'] : null;
-    $max_students = intval($_POST['max_students'] ?? 2);
-    
-    $stmt = $conn->prepare("SELECT fyp_projectid FROM project WHERE fyp_projecttitle = ?");
-    if (!$stmt) {
-        $message = "Database error: " . $conn->error;
-        $message_type = 'error';
-    } else {
-        $stmt->bind_param("s", $title);
-        $stmt->execute();
-        if ($stmt->get_result()->num_rows > 0) {
-            $message = "A project with this title already exists!";
-            $message_type = 'error';
-        } else {
-            $stmt->close();
-            
-            $stmt = $conn->prepare("INSERT INTO project (fyp_projecttitle, fyp_projectdesc, fyp_projectcat, fyp_projecttype, fyp_projectstatus, fyp_supervisorid, fyp_maxstudent, fyp_datecreated) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())");
-            
-            if ($stmt) {
-                $stmt->bind_param("ssssssi", $title, $description, $category, $type, $status, $supervisor_id, $max_students);
-                if ($stmt->execute()) {
-                    $message = "Project <strong>" . htmlspecialchars($title) . "</strong> added successfully!";
-                    $message_type = 'success';
-                } else {
-                    $message = "Error adding project: " . $conn->error;
-                    $message_type = 'error';
-                }
-                $stmt->close();
-            } else {
-                $message = "Database error: " . $conn->error;
-                $message_type = 'error';
-            }
-        }
-    }
-}
-
-// --- Update Project ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_project'])) {
-    $project_id = $_POST['project_id'];
-    $title = trim($_POST['project_title']);
-    $description = trim($_POST['project_description'] ?? '');
-    $type = $_POST['project_type'];
-    $status = $_POST['project_status'];
-    $category = $_POST['project_category'] ?? '';
-    $supervisor_id = !empty($_POST['supervisor_id']) ? $_POST['supervisor_id'] : null;
-    $max_students = intval($_POST['max_students'] ?? 2);
-    
-    $stmt = $conn->prepare("SELECT fyp_projectid FROM project WHERE fyp_projecttitle = ? AND fyp_projectid != ?");
-    if (!$stmt) {
-        $message = "Database error: " . $conn->error;
-        $message_type = 'error';
-    } else {
-        $stmt->bind_param("si", $title, $project_id);
-        $stmt->execute();
-        if ($stmt->get_result()->num_rows > 0) {
-            $message = "Another project with this title already exists!";
-            $message_type = 'error';
-        } else {
-            $stmt->close();
-            
-            $stmt = $conn->prepare("UPDATE project SET fyp_projecttitle = ?, fyp_projectdesc = ?, fyp_projectcat = ?, fyp_projecttype = ?, fyp_projectstatus = ?, fyp_supervisorid = ?, fyp_maxstudent = ? WHERE fyp_projectid = ?");
-            
-            if ($stmt) {
-                $stmt->bind_param("ssssssii", $title, $description, $category, $type, $status, $supervisor_id, $max_students, $project_id);
-                if ($stmt->execute()) {
-                    $message = "Project updated successfully!";
-                    $message_type = 'success';
-                } else {
-                    $message = "Error updating project: " . $conn->error;
-                    $message_type = 'error';
-                }
-                $stmt->close();
-            } else {
-                $message = "Database error: " . $conn->error;
-                $message_type = 'error';
-            }
-        }
-    }
-}
-
-// --- Delete Project ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_project'])) {
-    $project_id = $_POST['project_id'];
-    
-    $stmt = $conn->prepare("SELECT COUNT(*) as cnt FROM pairing WHERE fyp_projectid = ?");
-    $stmt->bind_param("i", $project_id);
-    $stmt->execute();
-    $result = $stmt->get_result()->fetch_assoc();
-    
-    if ($result['cnt'] > 0) {
-        $message = "Cannot delete this project! It is assigned to " . $result['cnt'] . " student(s).";
-        $message_type = 'error';
-    } else {
-        $stmt->close();
-        $stmt = $conn->prepare("DELETE FROM project WHERE fyp_projectid = ?");
-        $stmt->bind_param("i", $project_id);
-        if ($stmt->execute()) {
-            $message = "Project deleted successfully!";
-            $message_type = 'success';
-        } else {
-            $message = "Error deleting project.";
-            $message_type = 'error';
-        }
-    }
-    $stmt->close();
-}
+/**
+ * Coordinator Main Page - Part 3
+ * Menu Definition, HTML Header, CSS Styles
+ */
 
 // ===================== MENU =====================
 $menu_items = [
@@ -269,7 +62,7 @@ $menu_items = [
         .card-body { padding: 25px; }
         
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
-        .stat-card { background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%); padding: 25px; border-radius: 16px; border: 1px solid rgba(139, 92, 246, 0.2); display: flex; align-items: center; transition: transform 0.3s; cursor: pointer; }
+        .stat-card { background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%); padding: 25px; border-radius: 16px; border: 1px solid rgba(139, 92, 246, 0.2); display: flex; align-items: center; transition: transform 0.3s; cursor: pointer; text-decoration: none; }
         .stat-card:hover { transform: translateY(-5px); }
         .stat-icon { width: 60px; height: 60px; border-radius: 12px; display: flex; align-items: center; justify-content: center; margin-right: 20px; font-size: 1.5rem; }
         .stat-icon.purple { background: rgba(139, 92, 246, 0.2); color: #a78bfa; }
@@ -298,12 +91,14 @@ $menu_items = [
         .btn-danger { background: linear-gradient(135deg, #ef4444, #dc2626); color: white; }
         .btn-secondary { background: rgba(100, 116, 139, 0.2); color: #94a3b8; border: 1px solid rgba(100, 116, 139, 0.3); }
         .btn-info { background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; }
+        .btn-warning { background: linear-gradient(135deg, #f59e0b, #d97706); color: white; }
         .btn-sm { padding: 6px 12px; font-size: 0.8rem; }
         
         .alert { padding: 15px 20px; border-radius: 10px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
         .alert-success { background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); color: #34d399; }
         .alert-error { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171; }
         .alert-warning { background: rgba(249, 115, 22, 0.1); border: 1px solid rgba(249, 115, 22, 0.3); color: #fb923c; }
+        .alert-info { background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); color: #60a5fa; }
         
         .form-group { margin-bottom: 20px; }
         .form-group label { display: block; color: #a78bfa; font-size: 0.9rem; margin-bottom: 8px; font-weight: 500; }
@@ -351,6 +146,7 @@ $menu_items = [
         #searchPreviewDropdown::-webkit-scrollbar { width: 6px; }
         #searchPreviewDropdown::-webkit-scrollbar-track { background: rgba(30,41,59,0.5); border-radius: 3px; }
         #searchPreviewDropdown::-webkit-scrollbar-thumb { background: rgba(139,92,246,0.5); border-radius: 3px; }
+        #searchPreviewDropdown::-webkit-scrollbar-thumb:hover { background: rgba(139,92,246,0.7); }
         
         .filter-tag { transition: all 0.2s; }
         .filter-tag:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
@@ -360,6 +156,8 @@ $menu_items = [
         .intake-option span:hover, .status-option span:hover { background: rgba(139,92,246,0.15) !important; }
         
         @media (max-width: 768px) {
+            .sidebar { width: 100%; height: auto; position: relative; }
+            .main-content { margin-left: 0; }
             #marksSearchInput { font-size: 0.9rem; height: 45px; }
         }
     </style>
@@ -399,4 +197,4 @@ $menu_items = [
 
 <?php
 // Include Part 4
-include("Coordinator_mainpage_part4.php");
+include("Coordinator_pages.php");
