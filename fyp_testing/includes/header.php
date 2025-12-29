@@ -1,11 +1,30 @@
 <?php
 /**
+ * FILE 1: includes/header.php
  * COMMON HEADER - Include at the top of all Coordinator pages
- * includes/header.php
  */
 
 session_start();
-include("../db_connect.php");
+
+// Try multiple paths for db_connect.php
+$db_paths = [
+    __DIR__ . "/../../db_connect.php",
+    __DIR__ . "/../db_connect.php",
+    dirname(__DIR__) . "/db_connect.php",
+];
+
+$db_found = false;
+foreach ($db_paths as $path) {
+    if (file_exists($path)) {
+        include($path);
+        $db_found = true;
+        break;
+    }
+}
+
+if (!$db_found) {
+    die("Database connection file not found. Please check db_connect.php location.");
+}
 
 // Authentication check
 if (!isset($_SESSION['user_id']) || !isset($_SESSION['user_role']) || $_SESSION['user_role'] !== 'coordinator') {
@@ -14,7 +33,7 @@ if (!isset($_SESSION['user_id']) || !isset($_SESSION['user_role']) || $_SESSION[
 }
 
 $auth_user_id = $_SESSION['user_id'];
-$user_name = $_SESSION['username'];
+$user_name = isset($_SESSION['username']) ? $_SESSION['username'] : 'Coordinator';
 $current_page = basename($_SERVER['PHP_SELF'], '.php');
 $current_page = str_replace('Coordinator_', '', $current_page);
 
@@ -64,7 +83,7 @@ $menu_items = [
     'register' => ['name' => 'Student Registrations', 'icon' => 'fa-user-plus', 'badge' => $pending_registrations, 'file' => 'Coordinator_register.php'],
     'grouprequest' => ['name' => 'Group Requests', 'icon' => 'fa-users', 'badge' => $pending_requests, 'file' => 'Coordinator_grouprequest.php'],
     'students' => ['name' => 'Manage Students', 'icon' => 'fa-user-graduate', 'file' => 'Coordinator_students.php'],
-    'supervisors' => ['name' => 'Manage Supervisors', 'icon' => 'fa-user-tie', 'file' => 'Coordinator_supervisors.php'],
+    'supervisor' => ['name' => 'Manage Supervisors', 'icon' => 'fa-user-tie', 'file' => 'Coordinator_supervisor.php'],
     'pairing' => ['name' => 'Student-Supervisor Pairing', 'icon' => 'fa-link', 'file' => 'Coordinator_pairing.php'],
     'project' => ['name' => 'Manage Projects', 'icon' => 'fa-folder-open', 'file' => 'Coordinator_project.php'],
     'moderation' => ['name' => 'Student Moderation', 'icon' => 'fa-clipboard-check', 'file' => 'Coordinator_moderation.php'],
@@ -88,7 +107,7 @@ foreach ($menu_items as $key => $item) {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title><?= $page_title; ?> - FYP Portal</title>
+    <title><?php echo $page_title; ?> - FYP Portal</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
@@ -197,9 +216,9 @@ foreach ($menu_items as $key => $item) {
         .search-box { display: flex; gap: 10px; margin-bottom: 20px; }
         .filter-row { display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; }
         
-        .tab-nav { display: flex; gap: 5px; margin-bottom: 20px; border-bottom: 1px solid rgba(139, 92, 246, 0.1); padding-bottom: 10px; }
-        .tab-btn { padding: 10px 20px; background: transparent; border: none; color: #94a3b8; cursor: pointer; border-radius: 8px 8px 0 0; transition: all 0.3s; }
-        .tab-btn.active { background: rgba(139, 92, 246, 0.2); color: #fff; }
+        .tab-nav { display: flex; gap: 5px; margin-bottom: 20px; border-bottom: 1px solid rgba(139, 92, 246, 0.1); padding-bottom: 10px; flex-wrap: wrap; }
+        .tab-btn { padding: 10px 20px; background: transparent; border: none; color: #94a3b8; cursor: pointer; border-radius: 8px 8px 0 0; transition: all 0.3s; text-decoration: none; }
+        .tab-btn:hover, .tab-btn.active { background: rgba(139, 92, 246, 0.2); color: #fff; }
     </style>
 </head>
 <body>
@@ -207,18 +226,18 @@ foreach ($menu_items as $key => $item) {
 <!-- SIDEBAR -->
 <nav class="sidebar">
     <div class="sidebar-header">
-        <img src="<?= $img_src; ?>" alt="Profile">
-        <h3><?= htmlspecialchars($user_name); ?></h3>
+        <img src="<?php echo $img_src; ?>" alt="Profile">
+        <h3><?php echo htmlspecialchars($user_name); ?></h3>
         <p>Coordinator</p>
     </div>
     <ul class="sidebar-nav">
         <?php foreach ($menu_items as $key => $item): 
             $is_active = strpos($current_page, $key) !== false;
         ?>
-            <li><a href="<?= $item['file']; ?>" class="<?= $is_active ? 'active' : ''; ?>">
-                <i class="fas <?= $item['icon']; ?>"></i><?= $item['name']; ?>
+            <li><a href="<?php echo $item['file']; ?>" class="<?php echo $is_active ? 'active' : ''; ?>">
+                <i class="fas <?php echo $item['icon']; ?>"></i><?php echo $item['name']; ?>
                 <?php if (isset($item['badge']) && $item['badge'] > 0): ?>
-                    <span class="nav-badge"><?= $item['badge']; ?></span>
+                    <span class="nav-badge"><?php echo $item['badge']; ?></span>
                 <?php endif; ?>
             </a></li>
         <?php endforeach; ?>
@@ -231,14 +250,14 @@ foreach ($menu_items as $key => $item) {
 <!-- MAIN CONTENT -->
 <div class="main-content">
     <header class="header">
-        <h1><?= $page_title; ?></h1>
-        <span class="header-time"><?= date('l, F j, Y'); ?></span>
+        <h1><?php echo $page_title; ?></h1>
+        <span class="header-time"><?php echo date('l, F j, Y'); ?></span>
     </header>
     
     <div class="content">
         <?php if ($message): ?>
-            <div class="alert alert-<?= $message_type; ?>">
-                <i class="fas fa-<?= $message_type === 'success' ? 'check-circle' : 'exclamation-circle'; ?>"></i> 
-                <?= $message; ?>
+            <div class="alert alert-<?php echo $message_type; ?>">
+                <i class="fas fa-<?php echo $message_type === 'success' ? 'check-circle' : 'exclamation-circle'; ?>"></i> 
+                <?php echo $message; ?>
             </div>
         <?php endif; ?>

@@ -1,14 +1,32 @@
 <?php
 /**
- * REGISTRATION HANDLERS
- * includes/registration_handlers.php
- * Handles all POST actions for student registrations
+ * FILE 3: includes/registration_handlers.php
+ * Handles: Group Requests, Student Registration, Student Edit/Delete, Pairing
  */
 
-// Handle POST - Approve Single Registration
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['approve_single'])) {
-    $reg_id = $_POST['registration_id'];
+// Group Request - Update Status
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_request_status'])) {
+    $request_id = intval($_POST['request_id']);
+    $new_status = $_POST['new_status'];
     
+    $stmt = $conn->prepare("UPDATE group_request SET request_status = ? WHERE request_id = ?");
+    $stmt->bind_param("si", $new_status, $request_id);
+    
+    if ($stmt->execute()) {
+        $message = "Group request status updated to: $new_status";
+        $message_type = 'success';
+    } else {
+        $message = "Error updating status.";
+        $message_type = 'error';
+    }
+    $stmt->close();
+}
+
+// Approve Registration
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['approve_registration'])) {
+    $reg_id = intval($_POST['registration_id']);
+    
+    // Get registration data
     $stmt = $conn->prepare("SELECT * FROM pending_registration WHERE id = ?");
     $stmt->bind_param("i", $reg_id);
     $stmt->execute();
@@ -21,178 +39,104 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['approve_single'])) {
         $password = bin2hex(random_bytes(4));
         $hashed_password = password_hash($password, PASSWORD_DEFAULT);
         
-        // Insert user
+        // Create user account
         $stmt = $conn->prepare("INSERT INTO user (fyp_username, fyp_password, fyp_usertype) VALUES (?, ?, 'student')");
         $stmt->bind_param("ss", $username, $hashed_password);
         $stmt->execute();
         $user_id = $conn->insert_id;
         $stmt->close();
         
-        // Insert student
+        // Create student record
         $stmt = $conn->prepare("INSERT INTO student (fyp_studfullid, fyp_studname, fyp_email, fyp_contactno, fyp_progid, fyp_academicid, fyp_userid) VALUES (?, ?, ?, ?, ?, ?, ?)");
         $stmt->bind_param("ssssiis", $reg['student_id'], $reg['full_name'], $reg['email'], $reg['phone'], $reg['programme_id'], $reg['academic_year_id'], $user_id);
         $stmt->execute();
         $stmt->close();
         
-        // Update status
+        // Update registration status
         $stmt = $conn->prepare("UPDATE pending_registration SET status = 'approved' WHERE id = ?");
         $stmt->bind_param("i", $reg_id);
         $stmt->execute();
         $stmt->close();
         
-        $_SESSION['imported_credentials'][] = [
-            'student_id' => $reg['student_id'],
-            'name' => $reg['full_name'],
-            'username' => $username,
-            'password' => $password
-        ];
-        
-        $message = "Registration approved! Username: $username, Password: $password";
+        $message = "Registration approved! Username: <strong>$username</strong>, Password: <strong>$password</strong>";
         $message_type = 'success';
     }
 }
 
-// Handle POST - Reject Single Registration
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reject_single'])) {
-    $reg_id = $_POST['registration_id'];
+// Reject Registration
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reject_registration'])) {
+    $reg_id = intval($_POST['registration_id']);
+    
     $stmt = $conn->prepare("UPDATE pending_registration SET status = 'rejected' WHERE id = ?");
     $stmt->bind_param("i", $reg_id);
+    
     if ($stmt->execute()) {
         $message = "Registration rejected.";
         $message_type = 'success';
+    } else {
+        $message = "Error rejecting registration.";
+        $message_type = 'error';
     }
     $stmt->close();
 }
 
-// Handle POST - Approve All Pending
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['approve_all_pending'])) {
-    $pending = [];
-    $res = $conn->query("SELECT * FROM pending_registration WHERE status = 'pending'");
-    if ($res) { while ($row = $res->fetch_assoc()) { $pending[] = $row; } }
+// Student - Edit
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_student'])) {
+    $studid = $_POST['studid'];
+    $studname = trim($_POST['studname']);
+    $email = trim($_POST['email']);
+    $contact = trim($_POST['contactno']);
+    $progid = intval($_POST['progid']);
+    $group_type = $_POST['group_type'];
     
-    $approved_count = 0;
-    $credentials = [];
+    $stmt = $conn->prepare("UPDATE student SET fyp_studname = ?, fyp_email = ?, fyp_contactno = ?, fyp_progid = ?, fyp_group = ? WHERE fyp_studid = ?");
+    $stmt->bind_param("sssiss", $studname, $email, $contact, $progid, $group_type, $studid);
     
-    foreach ($pending as $reg) {
-        $username = strtolower(str_replace(' ', '', $reg['student_id']));
-        $password = bin2hex(random_bytes(4));
-        $hashed_password = password_hash($password, PASSWORD_DEFAULT);
-        
-        // Insert user
-        $stmt = $conn->prepare("INSERT INTO user (fyp_username, fyp_password, fyp_usertype) VALUES (?, ?, 'student')");
-        $stmt->bind_param("ss", $username, $hashed_password);
-        if ($stmt->execute()) {
-            $user_id = $conn->insert_id;
-            $stmt->close();
-            
-            // Insert student
-            $stmt = $conn->prepare("INSERT INTO student (fyp_studfullid, fyp_studname, fyp_email, fyp_contactno, fyp_progid, fyp_academicid, fyp_userid) VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmt->bind_param("ssssiis", $reg['student_id'], $reg['full_name'], $reg['email'], $reg['phone'], $reg['programme_id'], $reg['academic_year_id'], $user_id);
-            $stmt->execute();
-            $stmt->close();
-            
-            // Update status
-            $stmt = $conn->prepare("UPDATE pending_registration SET status = 'approved' WHERE id = ?");
-            $stmt->bind_param("i", $reg['id']);
-            $stmt->execute();
-            $stmt->close();
-            
-            $credentials[] = [
-                'student_id' => $reg['student_id'],
-                'name' => $reg['full_name'],
-                'username' => $username,
-                'password' => $password
-            ];
-            $approved_count++;
-        }
-    }
-    
-    $_SESSION['imported_credentials'] = $credentials;
-    $message = "Successfully approved $approved_count registration(s)!";
-    $message_type = 'success';
-}
-
-// Handle POST - Import Excel
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['import_excel'])) {
-    if (isset($_FILES['excel_file']) && $_FILES['excel_file']['error'] === UPLOAD_ERR_OK) {
-        $file = $_FILES['excel_file']['tmp_name'];
-        $academic_id = $_POST['academic_year_id'];
-        $programme_id = $_POST['programme_id'];
-        
-        // Read CSV file
-        $handle = fopen($file, 'r');
-        $header = fgetcsv($handle); // Skip header row
-        
-        $imported = 0;
-        $errors = [];
-        $credentials = [];
-        
-        while (($data = fgetcsv($handle)) !== FALSE) {
-            if (count($data) >= 3) {
-                $student_id = trim($data[0]);
-                $full_name = trim($data[1]);
-                $email = trim($data[2]);
-                $phone = isset($data[3]) ? trim($data[3]) : '';
-                
-                // Check if already exists
-                $stmt = $conn->prepare("SELECT id FROM pending_registration WHERE student_id = ?");
-                $stmt->bind_param("s", $student_id);
-                $stmt->execute();
-                if ($stmt->get_result()->num_rows > 0) {
-                    $errors[] = "Student $student_id already exists";
-                    $stmt->close();
-                    continue;
-                }
-                $stmt->close();
-                
-                // Generate credentials
-                $username = strtolower(str_replace(' ', '', $student_id));
-                $password = bin2hex(random_bytes(4));
-                $hashed_password = password_hash($password, PASSWORD_DEFAULT);
-                
-                // Insert user
-                $stmt = $conn->prepare("INSERT INTO user (fyp_username, fyp_password, fyp_usertype) VALUES (?, ?, 'student')");
-                $stmt->bind_param("ss", $username, $hashed_password);
-                $stmt->execute();
-                $user_id = $conn->insert_id;
-                $stmt->close();
-                
-                // Insert student
-                $stmt = $conn->prepare("INSERT INTO student (fyp_studfullid, fyp_studname, fyp_email, fyp_contactno, fyp_progid, fyp_academicid, fyp_userid) VALUES (?, ?, ?, ?, ?, ?, ?)");
-                $stmt->bind_param("ssssiis", $student_id, $full_name, $email, $phone, $programme_id, $academic_id, $user_id);
-                $stmt->execute();
-                $stmt->close();
-                
-                $credentials[] = [
-                    'student_id' => $student_id,
-                    'name' => $full_name,
-                    'username' => $username,
-                    'password' => $password
-                ];
-                $imported++;
-            }
-        }
-        fclose($handle);
-        
-        $_SESSION['import_results'] = [
-            'imported' => $imported,
-            'errors' => $errors
-        ];
-        $_SESSION['imported_credentials'] = $credentials;
-        
-        $message = "Imported $imported student(s) successfully!";
+    if ($stmt->execute()) {
+        $message = "Student information updated successfully!";
         $message_type = 'success';
     } else {
-        $message = "Error uploading file.";
+        $message = "Error updating student.";
         $message_type = 'error';
     }
+    $stmt->close();
 }
 
-// Handle POST - Clear Credentials Display
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['clear_credentials'])) {
-    unset($_SESSION['imported_credentials']);
-    unset($_SESSION['import_results']);
-    header("Location: Coordinator_register.php");
-    exit;
+// Student - Delete
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_student'])) {
+    $studid = $_POST['studid'];
+    
+    $stmt = $conn->prepare("DELETE FROM student WHERE fyp_studid = ?");
+    $stmt->bind_param("s", $studid);
+    
+    if ($stmt->execute()) {
+        $message = "Student deleted successfully!";
+        $message_type = 'success';
+    } else {
+        $message = "Error deleting student.";
+        $message_type = 'error';
+    }
+    $stmt->close();
+}
+
+// Create Pairing
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_pairing'])) {
+    $supervisor_id = intval($_POST['supervisor_id']);
+    $project_id = intval($_POST['project_id']);
+    $moderator_id = !empty($_POST['moderator_id']) ? intval($_POST['moderator_id']) : null;
+    $academic_id = intval($_POST['academic_id']);
+    $pairing_type = $_POST['pairing_type'];
+    
+    $stmt = $conn->prepare("INSERT INTO pairing (fyp_supervisorid, fyp_projectid, fyp_moderatorid, fyp_academicid, fyp_type, fyp_datecreated) VALUES (?, ?, ?, ?, ?, NOW())");
+    $stmt->bind_param("iiiss", $supervisor_id, $project_id, $moderator_id, $academic_id, $pairing_type);
+    
+    if ($stmt->execute()) {
+        $message = "Pairing created successfully!";
+        $message_type = 'success';
+    } else {
+        $message = "Error creating pairing.";
+        $message_type = 'error';
+    }
+    $stmt->close();
 }
 ?>
