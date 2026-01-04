@@ -72,7 +72,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                             header("Location: ../Student_mainpage.php");
                             exit;
                         } else if ($user_type === 'coordinator') {
+<<<<<<< HEAD
                             // COORDINATOR goes to Coordinator_mainpage.php (same folder)
+=======
+                            // COORDINATORss goes to Coordinator_mainpage.php (same folder)
+>>>>>>> Coordinator
                             header("Location: Coordinator_mainpage.php");
                             exit;
                         } else if ($user_type === 'lecturer') {
