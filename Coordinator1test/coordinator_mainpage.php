@@ -1,12 +1,4 @@
 <?php
-/**
- * Coordinator Main Page - Part 1
- * Session, Database Connection, Core Variables, and POST Handlers
- * 
- * This file is the entry point. Include chain:
- * Part1 -> Part2 -> Part3 -> Part4 -> Part5
- */
-
 session_start();
 include("../db_connect.php");
 
@@ -22,7 +14,6 @@ $action = $_GET['action'] ?? '';
 
 $img_src = "https://ui-avatars.com/api/?name=" . urlencode($user_name) . "&background=7C3AED&color=fff";
 
-// Get counts with error handling
 $total_students = 0;
 $total_supervisors = 0;
 $pending_requests = 0;
@@ -48,12 +39,10 @@ if ($res) $total_projects = $res->fetch_assoc()['cnt'];
 $res = $conn->query("SELECT COUNT(*) as cnt FROM pairing");
 if ($res) $total_pairings = $res->fetch_assoc()['cnt'];
 
-// Get academic years
 $academic_years = [];
 $res = $conn->query("SELECT * FROM academic_year ORDER BY fyp_academicid DESC");
 if ($res) { while ($row = $res->fetch_assoc()) { $academic_years[] = $row; } }
 
-// Get programmes
 $programmes = [];
 $res = $conn->query("SELECT * FROM programme ORDER BY fyp_progname");
 if ($res) { while ($row = $res->fetch_assoc()) { $programmes[] = $row; } }
@@ -61,9 +50,6 @@ if ($res) { while ($row = $res->fetch_assoc()) { $programmes[] = $row; } }
 $message = '';
 $message_type = '';
 
-// ===================== HANDLE POST ACTIONS =====================
-
-// --- Update Group Request Status ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_request_status'])) {
     $request_id = $_POST['request_id'];
     $new_status = $_POST['new_status'];
@@ -79,7 +65,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_request_status
     $stmt->close();
 }
 
-// --- Edit Student Info ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_student'])) {
     $studid = $_POST['studid'];
     $studname = $_POST['studname'];
@@ -100,7 +85,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_student'])) {
     $stmt->close();
 }
 
-// --- Delete Student ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_student'])) {
     $studid = $_POST['studid'];
     $stmt = $conn->prepare("SELECT fyp_userid FROM student WHERE fyp_studid = ?");
@@ -130,7 +114,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_student'])) {
     }
 }
 
-// --- Create Pairing ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_pairing'])) {
     $supervisor_id = $_POST['supervisor_id'];
     $project_id = $_POST['project_id'];
@@ -150,9 +133,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_pairing'])) {
     $stmt->close();
 }
 
-// ===================== RUBRICS ASSESSMENT HANDLERS =====================
-
-// --- Create/Update Assessment Set ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_set'])) {
     $set_id = $_POST['set_id'] ?? '';
     $project_phase = intval($_POST['project_phase'] ?? 1);
@@ -181,7 +161,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_set'])) {
     }
 }
 
-// --- Delete Assessment Set ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_set'])) {
     $set_id = intval($_POST['set_id']);
     $stmt = $conn->prepare("DELETE FROM `set` WHERE fyp_setid = ?");
@@ -196,13 +175,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_set'])) {
     $stmt->close();
 }
 
-// --- Create/Update Assessment Item ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_item'])) {
     $item_id = $_POST['item_id'] ?? '';
     $item_name = trim($_POST['item_name']);
     $item_mark = floatval($_POST['item_mark'] ?? 0);
     $item_doc = intval($_POST['item_doc'] ?? 1);
-    $item_moderate = intval($_POST['item_moderate'] ?? 0);
     $item_start = !empty($_POST['item_start']) ? $_POST['item_start'] : null;
     $item_deadline = !empty($_POST['item_deadline']) ? $_POST['item_deadline'] : null;
     
@@ -211,11 +188,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_item'])) {
         $message_type = 'error';
     } else {
         if (!empty($item_id)) {
-            $stmt = $conn->prepare("UPDATE item SET fyp_itemname = ?, fyp_originalmarkallocation = ?, fyp_isdocument = ?, fyp_ismoderation = ?, fyp_startdate = ?, fyp_finaldeadline = ? WHERE fyp_itemid = ?");
-            $stmt->bind_param("sdiissi", $item_name, $item_mark, $item_doc, $item_moderate, $item_start, $item_deadline, $item_id);
+            $stmt = $conn->prepare("UPDATE item SET fyp_itemname = ?, fyp_originalmarkallocation = ?, fyp_isdocument = ?, fyp_startdate = ?, fyp_finaldeadline = ? WHERE fyp_itemid = ?");
+            $stmt->bind_param("sdissi", $item_name, $item_mark, $item_doc, $item_start, $item_deadline, $item_id);
         } else {
-            $stmt = $conn->prepare("INSERT INTO item (fyp_itemname, fyp_originalmarkallocation, fyp_isdocument, fyp_ismoderation, fyp_startdate, fyp_finaldeadline) VALUES (?, ?, ?, ?, ?, ?)");
-            $stmt->bind_param("sdiiss", $item_name, $item_mark, $item_doc, $item_moderate, $item_start, $item_deadline);
+            $stmt = $conn->prepare("INSERT INTO item (fyp_itemname, fyp_originalmarkallocation, fyp_isdocument, fyp_startdate, fyp_finaldeadline) VALUES (?, ?, ?, ?, ?)");
+            $stmt->bind_param("sdiss", $item_name, $item_mark, $item_doc, $item_start, $item_deadline);
         }
         
         if ($stmt->execute()) {
@@ -229,7 +206,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_item'])) {
     }
 }
 
-// --- Delete Assessment Item ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_item'])) {
     $item_id = intval($_POST['item_id']);
     $stmt = $conn->prepare("DELETE FROM item WHERE fyp_itemid = ?");
@@ -244,7 +220,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_item'])) {
     $stmt->close();
 }
 
-// --- Create/Update Assessment Criteria ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_criteria'])) {
     $criteria_id = $_POST['criteria_id'] ?? '';
     $crit_name = trim($_POST['crit_name']);
@@ -275,7 +250,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_criteria'])) {
     }
 }
 
-// --- Delete Assessment Criteria ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_criteria'])) {
     $criteria_id = intval($_POST['criteria_id']);
     $stmt = $conn->prepare("DELETE FROM assessment_criteria WHERE fyp_assessmentcriteriaid = ?");
@@ -290,7 +264,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_criteria'])) {
     $stmt->close();
 }
 
-// --- Create/Update Marking Criteria ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_marking'])) {
     $marking_id = $_POST['marking_id'] ?? '';
     $marking_name = trim($_POST['marking_name']);
@@ -319,7 +292,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_marking'])) {
     }
 }
 
-// --- Delete Marking Criteria ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_marking'])) {
     $marking_id = intval($_POST['marking_id']);
     $stmt = $conn->prepare("DELETE FROM marking_criteria WHERE fyp_criteriaid = ?");
@@ -334,7 +306,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_marking'])) {
     $stmt->close();
 }
 
-// --- Link Item to Marking Criteria ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['link_item_criteria'])) {
     $link_itemid = intval($_POST['link_itemid']);
     $link_criteriaid = intval($_POST['link_criteriaid']);
@@ -360,7 +331,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['link_item_criteria'])
     $stmt->close();
 }
 
-// --- Unlink Item from Marking Criteria ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['unlink_item_criteria'])) {
     $unlink_itemid = intval($_POST['unlink_itemid']);
     $unlink_criteriaid = intval($_POST['unlink_criteriaid']);
@@ -377,5 +347,4 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['unlink_item_criteria'
     $stmt->close();
 }
 
-// Include Part 2
 include("Coordinator_handlers.php");

@@ -1,10 +1,4 @@
 <?php
-/**
- * Coordinator Main Page - Part 3
- * Menu Definition, HTML Header, CSS Styles
- */
-
-// ===================== MENU =====================
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home'],
     'registrations' => ['name' => 'Student Registrations', 'icon' => 'fa-user-plus', 'badge' => $pending_registrations],
@@ -13,7 +7,6 @@ $menu_items = [
     'supervisors' => ['name' => 'Manage Supervisors', 'icon' => 'fa-user-tie'],
     'pairing' => ['name' => 'Student-Supervisor Pairing', 'icon' => 'fa-link'],
     'projects' => ['name' => 'Manage Projects', 'icon' => 'fa-folder-open'],
-    'moderation' => ['name' => 'Student Moderation', 'icon' => 'fa-clipboard-check'],
     'rubrics' => ['name' => 'Rubrics Assessment', 'icon' => 'fa-list-check'],
     'marks' => ['name' => 'Assessment Marks', 'icon' => 'fa-calculator'],
     'reports' => ['name' => 'Reports', 'icon' => 'fa-file-alt'],
@@ -196,5 +189,4 @@ $menu_items = [
         <?php endif; ?>
 
 <?php
-// Include Part 4
 include("Coordinator_pages.php");
