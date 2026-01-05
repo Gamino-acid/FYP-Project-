@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// supervisor_assignment_purpose.php - 发布新作业 (针对特定小组/个人)
+// supervisor_assignment_purpose.php - 发布新作业 (带预设权重 & 目标选择)
 // ====================================================
 
 include("connect.php");
@@ -18,8 +18,8 @@ if (!$auth_user_id) {
 $user_name = "Supervisor"; 
 $user_avatar = "image/user.png"; 
 $sv_id = 0;
-$my_groups = [];      // 存储该导师名下的所有小组
-$my_individuals = []; // 存储该导师名下的所有个人学生
+$my_groups = [];      
+$my_individuals = []; 
 
 if (isset($conn)) {
     // 获取 USER 表名字
@@ -44,22 +44,8 @@ if (isset($conn)) {
         $stmt->close();
     }
 
-    // [核心逻辑] 获取该导师名下的 Active Students
+    // 获取 Active Students (用于下拉菜单)
     if ($sv_id > 0) {
-        // 1. 获取所有通过 fyp_registration 注册的学生
-        // 并连接 student_group 表来判断是否属于某个组
-        // 注意：这里假设 fyp_registration 表关联了 project 和 student
-        
-        $sql_students = "SELECT r.fyp_studid, s.fyp_studname, s.fyp_group, sg.group_name, sg.group_id
-                         FROM fyp_registration r
-                         JOIN student s ON r.fyp_studid = s.fyp_studid
-                         LEFT JOIN group_request gr ON s.fyp_studid = gr.invitee_id AND gr.request_status = 'Accepted'
-                         LEFT JOIN student_group sg ON (gr.group_id = sg.group_id OR s.fyp_studid = sg.leader_id)
-                         WHERE r.fyp_supervisorid = ?";
-                         
-        // 上面的查询可能有点复杂，我们简化逻辑：
-        // 先查出所有在该导师名下的学生，然后分别处理
-        
         $sql_my_students = "SELECT s.fyp_studid, s.fyp_studname, s.fyp_group 
                             FROM fyp_registration r
                             JOIN student s ON r.fyp_studid = s.fyp_studid
@@ -72,21 +58,14 @@ if (isset($conn)) {
             
             while ($row = $res->fetch_assoc()) {
                 if ($row['fyp_group'] == 'Individual') {
-                    // 这是一个 Individual 学生
-                    // 检查是否重复添加 (虽然 registration 应该唯一，但防万一)
                     $my_individuals[$row['fyp_studid']] = $row['fyp_studname'];
                 } else {
-                    // 这是一个 Group 学生，我们需要找到他的 Group Name
-                    // 查询该学生所属的 Group
-                    // 逻辑：要么他是 Leader (在 student_group 表)，要么他是 Member (在 group_request 表)
-                    
-                    // 查 Leader
+                    // 查 Group Name
                     $g_sql = "SELECT group_id, group_name FROM student_group WHERE leader_id = '" . $row['fyp_studid'] . "' LIMIT 1";
                     $g_res = $conn->query($g_sql);
                     if ($g_row = $g_res->fetch_assoc()) {
                         $my_groups[$g_row['group_id']] = $g_row['group_name'];
                     } else {
-                        // 查 Member
                         $m_sql = "SELECT g.group_id, g.group_name 
                                   FROM group_request gr 
                                   JOIN student_group g ON gr.group_id = g.group_id
@@ -114,43 +93,26 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $a_title = $_POST['assignment_title'];
         $a_desc = $_POST['assignment_description'];
         $a_deadline = $_POST['deadline'];
-        $a_type = $_POST['assignment_type']; // 'Individual' or 'Group'
-        
-        // 获取选定的目标 (可能是 "All" 或者具体的 ID)
+        $a_type = $_POST['assignment_type']; 
         $target_id = $_POST['target_selection']; 
-        
-        // 如果选的是 "All Individuals" 或 "All Groups"，target_id 可能是特殊值
-        // 这里为了简单，我们存入数据库时，如果是 Specific Group，我们在 Description 或 Title 里备注，或者 Assignment 表需要一个 target_id 字段
-        // 假设您的 assignment 表目前没有 target_id，我们暂时只支持 "发布给该类型下的所有人"
-        // 或者，如果您希望 assignment 表能区分是发给哪个组的，您需要修改数据库表结构增加 `fyp_assign_target_id`
-        
-        // 方案：我们在 description 前面加个 tag 标识 (权宜之计)，或者默认发给该类型下的所有学生
-        // 根据您的需求 "只针对那个group发布"，我们需要一个字段来存。
-        // 假设 assignment 表新增了一个字段 `fyp_target_id` (varchar)，存 GroupID 或 StudentID，如果为 'ALL' 则发给所有。
-        
-        // 为了代码能跑，我假设您还没改数据库，这里先只做 "Type" 的区分。
-        // 如果您想要精确到组，请执行 SQL: ALTER TABLE assignment ADD COLUMN fyp_target_id VARCHAR(50) DEFAULT 'ALL';
-        
-        // 只有当选择了特定目标时才存 ID，否则存 'ALL'
-        $final_target = ($target_id == 'all_groups' || $target_id == 'all_individuals') ? 'ALL' : $target_id;
+        $weightage = $_POST['weightage']; // 新增：权重
 
+        $final_target = ($target_id == 'all_groups' || $target_id == 'all_individuals') ? 'ALL' : $target_id;
         $a_status = 'Active';
         $date_now = date('Y-m-d H:i:s');
 
-        // 注意：这里我加入了一个假设的字段 fyp_target_id，如果您没有加，请在数据库加一下，或者忽略这个字段
-        // SQL: INSERT ...
-        $sql_insert = "INSERT INTO assignment (fyp_supervisorid, fyp_title, fyp_description, fyp_deadline, fyp_assignment_type, fyp_status, fyp_datecreated, fyp_target_id) 
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-                       
-        // 如果数据库还没加 fyp_target_id，请删除上面 SQL 的最后一部分和下面的绑定参数
-        // 这里我写的是完整版逻辑
+        // SQL: 包含 fyp_weightage
+        $sql_insert = "INSERT INTO assignment (fyp_supervisorid, fyp_title, fyp_description, fyp_deadline, fyp_weightage, fyp_assignment_type, fyp_status, fyp_datecreated, fyp_target_id) 
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         if ($stmt_insert = $conn->prepare($sql_insert)) {
-            $stmt_insert->bind_param("isssssss", 
+            // 参数绑定: i = int, s = string (共9个参数, weightage 是 int)
+            $stmt_insert->bind_param("isssissss", 
                 $sv_id,
                 $a_title, 
                 $a_desc, 
-                $a_deadline, 
+                $a_deadline,
+                $weightage, // 绑定权重
                 $a_type, 
                 $a_status, 
                 $date_now,
@@ -158,21 +120,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             );
 
             if ($stmt_insert->execute()) {
-                echo "<script>alert('Assignment proposed successfully!'); window.location.href='Supervisor_mainpage.php?auth_user_id=" . $auth_user_id . "';</script>";
+                echo "<script>alert('Assignment proposed successfully with $weightage% weightage!'); window.location.href='Supervisor_mainpage.php?auth_user_id=" . $auth_user_id . "';</script>";
             } else {
-                // 如果报错 Unknown column 'fyp_target_id'，请去数据库添加该字段
-                echo "<script>alert('Database Error (Check if fyp_target_id exists): " . $stmt_insert->error . "');</script>";
+                echo "<script>alert('Database Error: " . $stmt_insert->error . "');</script>";
             }
             $stmt_insert->close();
         } else {
-             // Fallback for old schema (no target_id)
-             $sql_old = "INSERT INTO assignment (fyp_supervisorid, fyp_title, fyp_description, fyp_deadline, fyp_assignment_type, fyp_status, fyp_datecreated) 
-                         VALUES (?, ?, ?, ?, ?, ?, ?)";
-             if ($stmt_old = $conn->prepare($sql_old)) {
-                 $stmt_old->bind_param("issssss", $sv_id, $a_title, $a_desc, $a_deadline, $a_type, $a_status, $date_now);
-                 $stmt_old->execute();
-                 echo "<script>alert('Assignment published (Broadcast Mode)!'); window.location.href='Supervisor_mainpage.php?auth_user_id=" . $auth_user_id . "';</script>";
-             }
+             echo "<script>alert('SQL Prepare Error: " . $conn->error . "');</script>";
         }
     }
 }
@@ -198,6 +152,13 @@ $menu_items = [
             'propose_assignment' => ['name' => 'Propose Assignment', 'icon' => 'fa-tasks', 'link' => 'supervisor_assignment_purpose.php']
         ]
     ],
+    'grading' => [
+        'name' => 'Assessment',
+        'icon' => 'fa-marker',
+        'sub_items' => [
+            'grade_assignment' => ['name' => 'Grade Assignments', 'icon' => 'fa-check-square', 'link' => 'supervisor_assessment.php'],
+        ]
+    ],
     'announcement' => [
         'name' => 'Announcement',
         'icon' => 'fa-bullhorn',
@@ -219,10 +180,11 @@ $menu_items = [
     <link rel="icon" type="image/png" href="<?php echo $user_avatar; ?>">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        /* 复用样式 */
+        /* 复用 mainpage 的 CSS */
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap');
         :root { --primary-color: #0056b3; --primary-hover: #004494; --secondary-color: #f4f4f9; --text-color: #333; --border-color: #e0e0e0; --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); --gradient-start: #eef2f7; --gradient-end: #ffffff; --sidebar-width: 260px; }
         body { font-family: 'Poppins', sans-serif; margin: 0; background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end)); color: var(--text-color); min-height: 100vh; display: flex; flex-direction: column; }
+        
         .topbar { display: flex; justify-content: space-between; align-items: center; padding: 15px 40px; background-color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); z-index: 100; position: sticky; top: 0; }
         .logo { font-size: 22px; font-weight: 600; color: var(--primary-color); display: flex; align-items: center; gap: 10px; }
         .topbar-right { display: flex; align-items: center; gap: 20px; }
@@ -232,6 +194,7 @@ $menu_items = [
         .user-avatar-circle img { width: 100%; height: 100%; object-fit: cover; }
         .logout-btn { color: #d93025; text-decoration: none; font-size: 14px; font-weight: 500; padding: 8px 15px; border-radius: 6px; transition: background 0.2s; }
         .logout-btn:hover { background-color: #fff0f0; }
+        
         .layout-container { display: flex; flex: 1; max-width: 1400px; margin: 0 auto; width: 100%; padding: 20px; box-sizing: border-box; gap: 20px; }
         .sidebar { width: var(--sidebar-width); background: #fff; border-radius: 12px; box-shadow: var(--card-shadow); padding: 20px 0; flex-shrink: 0; min-height: calc(100vh - 120px); }
         .menu-list { list-style: none; padding: 0; margin: 0; }
@@ -243,18 +206,24 @@ $menu_items = [
         .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: none; }
         .menu-item.has-active-child .submenu, .menu-item:hover .submenu { display: block; }
         .submenu .menu-link { padding-left: 58px; font-size: 14px; padding-top: 10px; padding-bottom: 10px; }
+
         .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; }
+        
+        /* 页面特定样式 */
         .form-card { background: #fff; padding: 30px; border-radius: 12px; box-shadow: var(--card-shadow); }
         .page-header { border-bottom: 2px solid #eee; padding-bottom: 15px; margin-bottom: 25px; }
         .page-header h2 { margin: 0; color: var(--primary-color); }
         .page-header p { color: #666; font-size: 14px; margin-top: 5px; }
+        
         .form-row { display: flex; gap: 20px; }
         .form-group { margin-bottom: 20px; flex: 1; }
         .form-group label { display: block; margin-bottom: 8px; font-weight: 500; color: #444; }
         .form-control { width: 100%; padding: 10px 15px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; box-sizing: border-box; transition: border 0.3s; font-family: inherit; }
         .form-control:focus { border-color: var(--primary-color); outline: none; }
         textarea.form-control { resize: vertical; min-height: 120px; }
+        
         .info-note { background-color: #e3effd; padding: 10px 15px; border-radius: 6px; color: #0056b3; font-size: 13px; margin-bottom: 20px; border-left: 4px solid #0056b3; }
+
         .btn-submit { background-color: var(--primary-color); color: white; border: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: background 0.2s; display: inline-flex; align-items: center; gap: 8px; }
         .btn-submit:hover { background-color: var(--primary-hover); }
         
@@ -281,13 +250,14 @@ $menu_items = [
             <ul class="menu-list">
                 <?php foreach ($menu_items as $key => $item): ?>
                     <?php 
-                        $isActive = ($key == $current_page);
+                        $isActive = ($key == $current_page); // 这里检查主菜单
                         $hasActiveChild = false;
                         if (isset($item['sub_items'])) {
                             foreach ($item['sub_items'] as $sub_key => $sub) {
                                 if ($sub_key == $current_page) { $hasActiveChild = true; break; }
                             }
                         }
+                        
                         $linkUrl = isset($item['link']) ? $item['link'] : "#";
                         if ($linkUrl !== "#") {
                              $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?';
@@ -328,11 +298,24 @@ $menu_items = [
 
                 <div class="info-note">
                     <i class="fa fa-info-circle"></i> 
-                    <strong>Targeted Assignment:</strong> Select whether this task is for an individual student or a project group.
+                    <strong>Assessment Category:</strong> Selecting a category will automatically set the recommended weightage.
                 </div>
                 
                 <form action="" method="POST">
                     
+                    <!-- NEW: Assessment Category -->
+                    <div class="form-group">
+                        <label for="assessment_category">Assessment Category <span style="color:red">*</span></label>
+                        <select id="assessment_category" class="form-control" onchange="autoFillWeightage(this.value)">
+                            <option value="" disabled selected>-- Select Category --</option>
+                            <option value="Proposal_10">Project Proposal (10%)</option>
+                            <option value="Interim_20">Interim / Progress Report (20%)</option>
+                            <option value="Final_40">Final Report (40%)</option>
+                            <option value="Presentation_30">Presentation (30%)</option>
+                            <option value="Custom">Custom Assignment</option>
+                        </select>
+                    </div>
+
                     <div class="form-group">
                         <label for="assignment_title">Assignment Title <span style="color:red">*</span></label>
                         <input type="text" id="assignment_title" name="assignment_title" class="form-control" placeholder="Enter assignment title (e.g. Chapter 1 Draft)" required>
@@ -347,11 +330,16 @@ $menu_items = [
                                 <option value="Group">Group Project</option>
                             </select>
                         </div>
-
+                        
                         <div class="form-group">
-                            <label for="deadline">Deadline <span style="color:red">*</span></label>
-                            <input type="datetime-local" id="deadline" name="deadline" class="form-control" required>
+                            <label for="weightage">Weightage (%) <span style="color:red">*</span></label>
+                            <input type="number" id="weightage" name="weightage" class="form-control" placeholder="0-100" min="0" max="100" required readonly style="background-color:#e9ecef;">
                         </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="deadline">Deadline <span style="color:red">*</span></label>
+                        <input type="datetime-local" id="deadline" name="deadline" class="form-control" required>
                     </div>
                     
                     <!-- 动态目标选择器 -->
@@ -373,31 +361,53 @@ $menu_items = [
         </main>
     </div>
 
-    <!-- 将 PHP 数组转为 JS 对象供前端使用 -->
     <script>
         const myGroups = <?php echo json_encode($my_groups); ?>;
         const myIndividuals = <?php echo json_encode($my_individuals); ?>;
+
+        function autoFillWeightage(val) {
+            const wInput = document.getElementById('weightage');
+            const tInput = document.getElementById('assignment_title');
+            
+            if (val === 'Custom') {
+                wInput.readOnly = false;
+                wInput.style.backgroundColor = '#fff';
+                wInput.value = '';
+                wInput.focus();
+            } else {
+                // Format is like "Proposal_10"
+                const parts = val.split('_');
+                const titleKey = parts[0];
+                const weight = parts[1];
+                
+                wInput.readOnly = true;
+                wInput.style.backgroundColor = '#e9ecef';
+                wInput.value = weight;
+                
+                // Auto-suggest title if empty or default
+                if (titleKey === 'Proposal') tInput.value = "Project Proposal Submission";
+                else if (titleKey === 'Interim') tInput.value = "Interim / Progress Report";
+                else if (titleKey === 'Final') tInput.value = "Final Report Submission";
+                else if (titleKey === 'Presentation') tInput.value = "Presentation Slides / Materials";
+            }
+        }
 
         function toggleTargetList(type) {
             const container = document.getElementById('target_container');
             const select = document.getElementById('target_selection');
             
-            // 清空现有选项
             select.innerHTML = '';
             container.style.display = 'block';
 
             if (type === 'Group') {
-                // 添加 "All Groups" 选项
                 const allOpt = document.createElement('option');
                 allOpt.value = 'all_groups';
                 allOpt.text = 'All My Groups';
                 select.appendChild(allOpt);
 
-                // 添加具体小组
-                // myGroups 是个对象 {id: name, id: name}
                 for (const [id, name] of Object.entries(myGroups)) {
                     const opt = document.createElement('option');
-                    opt.value = id; // 这里存的是 Group ID
+                    opt.value = id; 
                     opt.text = `Group: ${name}`;
                     select.appendChild(opt);
                 }
@@ -410,16 +420,14 @@ $menu_items = [
                 }
 
             } else if (type === 'Individual') {
-                // 添加 "All Individuals" 选项
                 const allOpt = document.createElement('option');
                 allOpt.value = 'all_individuals';
                 allOpt.text = 'All My Individual Students';
                 select.appendChild(allOpt);
 
-                // 添加具体个人
                 for (const [id, name] of Object.entries(myIndividuals)) {
                     const opt = document.createElement('option');
-                    opt.value = id; // 这里存的是 Student ID
+                    opt.value = id; 
                     opt.text = `Student: ${name} (${id})`;
                     select.appendChild(opt);
                 }

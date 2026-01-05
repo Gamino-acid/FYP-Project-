@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// Supervisor_mainpage.php - 导师主页 (动态数据版 + Announcement Menu + Schedule Link Update)
+// Supervisor_mainpage.php - 导师主页 (Sidebar Expanded)
 // ====================================================
 
 include("connect.php");
@@ -110,12 +110,18 @@ $menu_items = [
         'sub_items' => [
             'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'supervisor_purpose.php'],
             'my_projects'     => ['name' => 'My Projects', 'icon' => 'fa-folder-open', 'link' => '?page=my_projects'],
-            // --- Updated Icon Here ---
-            'propose_assignment' => ['name' => 'Propose Assignment', 'icon' => 'fa-tasks','link' => 'supervisor_assignment_purpose.php'],
-            'grade_assignment' => ['name' => 'Grade Assignments', 'icon' => 'fa-check-square', 'link' => 'supervisor_assignment_grade.php'],
+            'propose_assignment' => ['name' => 'Propose Assignment', 'icon' => 'fa-tasks','link' => 'supervisor_assignment_purpose.php']
         ]
     ],
-    // --- Announcement ---
+    // --- Grading Menu Included ---
+    'grading' => [
+        'name' => 'Assessment',
+        'icon' => 'fa-marker',
+        'sub_items' => [
+            'grade_assignment' => ['name' => 'Grade Assignments', 'icon' => 'fa-check-square', 'link' => 'Supervisor_assignment_grade.php'],
+        ]
+    ],
+    // -----------------------------
     'announcement' => [
         'name' => 'Announcement',
         'icon' => 'fa-bullhorn',
@@ -157,9 +163,12 @@ $menu_items = [
         .menu-link:hover { background-color: var(--secondary-color); color: var(--primary-color); }
         .menu-link.active { background-color: #e3effd; color: var(--primary-color); border-left-color: var(--primary-color); }
         .menu-icon { width: 24px; margin-right: 10px; text-align: center; }
-        .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: none; }
-        .menu-item.has-active-child .submenu, .menu-item:hover .submenu { display: block; }
+        
+        /* --- CHANGED: Submenu Always Visible --- */
+        .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: block; }
         .submenu .menu-link { padding-left: 58px; font-size: 14px; padding-top: 10px; padding-bottom: 10px; }
+        /* -------------------------------------- */
+        
         .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; }
         .welcome-card { background: #fff; padding: 30px; border-radius: 12px; box-shadow: var(--card-shadow); border-left: 5px solid var(--primary-color); }
         .page-title { font-size: 24px; margin: 0 0 10px 0; color: var(--text-color); }
@@ -202,11 +211,13 @@ $menu_items = [
                     <?php 
                         $isActive = ($key == $current_page);
                         $hasActiveChild = false;
+                        // 检查子菜单是否激活
                         if (isset($item['sub_items'])) {
                             foreach ($item['sub_items'] as $sub_key => $sub) {
                                 if ($sub_key == $current_page) { $hasActiveChild = true; break; }
                             }
                         }
+                        
                         $linkUrl = isset($item['link']) ? $item['link'] : "#";
                         if ($linkUrl !== "#") {
                              $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?';

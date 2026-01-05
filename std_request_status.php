@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// std_request_status.php - 组队管理 (修复: 明确 Individual 不需要建组)
+// std_request_status.php - 组队管理 (Added Academic Year Validation)
 // ====================================================
 include("connect.php");
 
@@ -13,6 +13,7 @@ $stud_data = [];
 $current_stud_id = '';
 $current_stud_name = 'Student';
 $current_stud_group_status = 'Individual';
+$current_academic_id = 0; // 初始化
 
 if (isset($conn)) {
     // 获取 USER 表名字
@@ -34,6 +35,7 @@ if (isset($conn)) {
             $current_stud_id = $row['fyp_studid'];
             if (!empty($row['fyp_studname'])) $current_stud_name = $row['fyp_studname'];
             if (!empty($row['fyp_group'])) $current_stud_group_status = $row['fyp_group'];
+            if (!empty($row['fyp_academicid'])) $current_academic_id = $row['fyp_academicid']; // 获取 Academic ID
         }
         $stmt->close(); 
     }
@@ -85,7 +87,6 @@ $is_team_locked = false;
 if ($current_stud_id) {
     $applicant_id_to_check = $current_stud_id; 
     
-    // 如果在组里，查 Leader 的申请
     if ($my_group) {
         $applicant_id_to_check = $my_group['leader_id'];
     }
@@ -115,7 +116,7 @@ if ($current_stud_id) {
 // MODULE B: TEAM MANAGEMENT LOGIC (ACTIONS)
 // ====================================================
 
-// 4. AJAX 搜索功能
+// 4. AJAX 搜索功能 (Updated with Academic Year Filter)
 if (isset($_GET['action']) && $_GET['action'] == 'search_students') {
     header('Content-Type: application/json');
     $keyword = $_GET['keyword'] ?? '';
@@ -123,6 +124,7 @@ if (isset($_GET['action']) && $_GET['action'] == 'search_students') {
     if (strlen($keyword) < 1) { echo json_encode([]); exit; }
     $keyword = "%" . $keyword . "%";
     
+    // 增加 AND s.fyp_academicid = ? 条件
     $sql = "SELECT s.fyp_studid, s.fyp_studname, s.fyp_studfullid 
             FROM STUDENT s
             LEFT JOIN student_group g ON s.fyp_studid = g.leader_id
@@ -130,11 +132,13 @@ if (isset($_GET['action']) && $_GET['action'] == 'search_students') {
             AND s.fyp_userid != ? 
             AND s.fyp_group = 'Individual'
             AND g.group_id IS NULL
+            AND s.fyp_academicid = ? 
             LIMIT 5";
             
     $result = [];
     if ($stmt = $conn->prepare($sql)) {
-        $stmt->bind_param("si", $keyword, $auth_user_id);
+        // 绑定 3 个参数：keyword(s), userid(i), academicid(i)
+        $stmt->bind_param("sii", $keyword, $auth_user_id, $current_academic_id);
         $stmt->execute(); 
         $res = $stmt->get_result();
         while ($row = $res->fetch_assoc()) {
@@ -150,32 +154,28 @@ if (isset($_GET['action']) && $_GET['action'] == 'search_students') {
 
 // 5. GET Actions (Kick, Leave, Disband, Accept, Reject)
 
-// Action: KICK Member (Leader Only)
+// Action: KICK Member
 if (isset($_GET['action']) && $_GET['action'] == 'KickMember' && isset($_GET['tid'])) {
     if ($is_team_locked) {
-        echo "<script>alert('Action Failed: Project application is Pending or Approved. Team is locked.'); window.location.href='std_request_status.php?auth_user_id=".urlencode($auth_user_id)."';</script>";
+        echo "<script>alert('Action Failed: Team is locked.'); window.location.href='std_request_status.php?auth_user_id=".urlencode($auth_user_id)."';</script>";
     } elseif ($my_role == 'Leader' && $my_group) {
         $target_member_id = $_GET['tid'];
         $gid = $my_group['group_id'];
         
-        // 1. 删除 Request 记录
         $stmt = $conn->prepare("DELETE FROM group_request WHERE group_id = ? AND invitee_id = ?");
         $stmt->bind_param("is", $gid, $target_member_id);
         if ($stmt->execute()) {
-            // 2. 更新被踢学生状态为 Individual
             $conn->query("UPDATE STUDENT SET fyp_group = 'Individual' WHERE fyp_studid = '$target_member_id'");
-            // 3. 更新 Group 状态为 Recruiting
             $conn->query("UPDATE student_group SET status = 'Recruiting' WHERE group_id = $gid");
-            
             echo "<script>alert('Member kicked successfully.'); window.location.href='std_request_status.php?auth_user_id=".urlencode($auth_user_id)."';</script>";
         }
     }
 }
 
-// Action: LEAVE Team (Member Only)
+// Action: LEAVE Team
 if (isset($_GET['action']) && $_GET['action'] == 'LeaveTeam') {
     if ($is_team_locked) {
-        echo "<script>alert('Action Failed: Project application is Pending or Approved. You cannot leave now.'); window.location.href='std_request_status.php?auth_user_id=".urlencode($auth_user_id)."';</script>";
+        echo "<script>alert('Action Failed: Team is locked.'); window.location.href='std_request_status.php?auth_user_id=".urlencode($auth_user_id)."';</script>";
     } elseif ($my_role == 'Member' && $my_group) {
         $gid = $my_group['group_id'];
         
@@ -189,10 +189,10 @@ if (isset($_GET['action']) && $_GET['action'] == 'LeaveTeam') {
     }
 }
 
-// Action: DISBAND Group (Leader Only)
+// Action: DISBAND Group
 if (isset($_GET['action']) && $_GET['action'] == 'DisbandGroup' && $my_group) {
     if ($is_team_locked) {
-        echo "<script>alert('Action Failed: Project application is Pending or Approved. Cannot disband.'); window.location.href='std_request_status.php?auth_user_id=".urlencode($auth_user_id)."';</script>";
+        echo "<script>alert('Action Failed: Team is locked.'); window.location.href='std_request_status.php?auth_user_id=".urlencode($auth_user_id)."';</script>";
     } elseif ($my_role == 'Leader') {
         $gid = $my_group['group_id'];
         
@@ -211,7 +211,7 @@ if (isset($_GET['action']) && $_GET['action'] == 'DisbandGroup' && $my_group) {
         $conn->query("DELETE FROM student_group WHERE group_id = $gid");
         $conn->query("UPDATE STUDENT SET fyp_group = 'Individual' WHERE fyp_studid = '$current_stud_id'");
 
-        echo "<script>alert('Team Disbanded. All members are now free.'); window.location.href='std_request_status.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
+        echo "<script>alert('Team Disbanded.'); window.location.href='std_request_status.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
     }
 }
 
@@ -230,8 +230,15 @@ if (isset($_GET['action']) && isset($_GET['req_id'])) {
         
         if ($_GET['action'] == 'AcceptInvite') {
             if ($is_team_locked) {
-                echo "<script>alert('Action Failed: You have a Pending/Approved Project Application. You cannot join another team.'); window.location.href='std_request_status.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
+                echo "<script>alert('Action Failed: You are locked in a process.'); window.location.href='std_request_status.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
                 exit;
+            }
+
+            // 额外检查：再次确认 Academic ID 是否匹配 (防止前端绕过)
+            $chk_leader_acd = $conn->query("SELECT fyp_academicid FROM STUDENT WHERE fyp_studid = '$leader_id'")->fetch_assoc();
+            if ($chk_leader_acd && $chk_leader_acd['fyp_academicid'] != $current_academic_id) {
+                 echo "<script>alert('Error: You cannot join a team from a different academic intake.'); window.location.href='std_request_status.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
+                 exit;
             }
 
             $sql_check = "SELECT count(*) as c FROM group_request WHERE group_id = ? AND request_status = 'Accepted'";
@@ -265,7 +272,7 @@ if (isset($_GET['action']) && isset($_GET['req_id'])) {
 // A. Create Group
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['create_group'])) {
     if ($is_team_locked) {
-        echo "<script>alert('Action Failed: You have a Pending/Approved Project Application. You cannot create a group now.'); window.location.href='std_request_status.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
+        echo "<script>alert('Action Failed: Locked.'); window.location.href='std_request_status.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
         exit;
     }
 
@@ -281,15 +288,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['create_group'])) {
             if ($stmt = $conn->prepare($sql_ins)) {
                 $stmt->bind_param("ss", $group_name, $current_stud_id);
                 if ($stmt->execute()) {
-                    // Auto-reject incoming invites
                     $rej = $conn->prepare("UPDATE group_request SET request_status = 'Rejected' WHERE invitee_id = ? AND request_status = 'Pending'");
                     $rej->bind_param("s", $current_stud_id); $rej->execute(); $rej->close();
                     
-                    // 注意：创建组后，fyp_group 状态其实不用立刻变 Group，直到有人加入。
-                    // 但如果你想让 Individual 也有个“组名”，那这里逻辑是通的。
-                    // 只要 student_group 表里有记录，系统就会认出你是 Leader。
-                    
-                    echo "<script>alert('Group Created! You are now a Team Leader.'); window.location.href='std_request_status.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
+                    echo "<script>alert('Group Created!'); window.location.href='std_request_status.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
                 }
             }
         }
@@ -299,11 +301,28 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['create_group'])) {
 // B. Invite
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['invite_teammate'])) {
     if ($my_role != 'Leader') { echo "<script>alert('Only Leader can invite.');</script>"; }
-    elseif ($is_team_locked) { echo "<script>alert('Team Locked: Cannot invite pending project approval.');</script>"; } 
+    elseif ($is_team_locked) { echo "<script>alert('Team Locked.');</script>"; } 
     else {
         $target_stud_id = $_POST['target_stud_id'];
         $my_group_id = $my_group['group_id'];
         
+        // 1. 验证目标学生是否同一年级 (后端二次验证)
+        $chk_target = $conn->prepare("SELECT fyp_academicid FROM STUDENT WHERE fyp_studid = ?");
+        $chk_target->bind_param("s", $target_stud_id);
+        $chk_target->execute();
+        $res_target = $chk_target->get_result();
+        
+        if ($row_target = $res_target->fetch_assoc()) {
+            if ($row_target['fyp_academicid'] != $current_academic_id) {
+                echo "<script>alert('Cannot invite: Student is from a different academic intake.'); window.location.href='std_request_status.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
+                exit;
+            }
+        } else {
+            echo "<script>alert('Student not found.');</script>";
+            exit;
+        }
+        $chk_target->close();
+
         $sql_count = "SELECT count(*) as c FROM group_request WHERE group_id = ? AND request_status = 'Accepted'";
         $stmt_c = $conn->prepare($sql_count); $stmt_c->bind_param("i", $my_group_id); $stmt_c->execute();
         $cnt = $stmt_c->get_result()->fetch_assoc()['c'];
@@ -362,7 +381,7 @@ $menu_items = [
         'icon' => 'fa-project-diagram',
         'sub_items' => [
             'group_setup' => ['name' => 'Project Registration', 'icon' => 'fa-users', 'link' => 'std_projectreg.php'], 
-            'team_invitations' => ['name' => 'Request & Team Status', 'icon' => 'fa-tasks', 'link' => 'std_request_status.php'],
+            'team_invitations' => ['name' => 'Request & Team Status', 'icon' => 'fa-tasks', 'link' => 'std_request_status.php'], 
             'proposals' => ['name' => 'Proposal Submission', 'icon' => 'fa-file-alt', 'link' => 'Student_mainpage.php?page=proposals'],
         ]
     ],
@@ -725,9 +744,9 @@ $menu_items = [
         const inviteBtn = document.getElementById('btnInvite');
 
         if (searchInput) {
-            searchInput.addEventListener('input', function() {
-                const val = this.value.trim();
-                if (val.length < 1) { searchBox.style.display = 'none'; return; }
+            searchInput.addEventListener('keyup', function() {
+                const val = this.value;
+                if (val.length < 2) { searchBox.style.display = 'none'; return; }
                 
                 fetch(`std_request_status.php?action=search_students&keyword=${encodeURIComponent(val)}&auth_user_id=<?php echo $auth_user_id; ?>`)
                     .then(res => res.json())
@@ -738,22 +757,20 @@ $menu_items = [
                             data.forEach(stud => {
                                 const div = document.createElement('div');
                                 div.className = 'search-item';
-                                div.innerHTML = `<strong>${stud.name}</strong> <small>(${stud.fullid || stud.studid})</small>`;
-                                div.onclick = () => {
-                                    searchInput.value = stud.name;
-                                    targetInput.value = stud.studid;
-                                    searchBox.style.display = 'none';
-                                    inviteBtn.disabled = false;
-                                };
+                                div.innerHTML = `${stud.name} <small>(${stud.fullid || stud.studid})</small>`;
+                                div.onclick = () => selectStudent(stud);
                                 searchBox.appendChild(div);
                             });
                         } else { searchBox.style.display = 'none'; }
                     });
             });
-            // 点击外部关闭搜索框
-            document.addEventListener('click', (e) => {
-                if (e.target !== searchInput && e.target !== searchBox) searchBox.style.display = 'none';
-            });
+        }
+
+        function selectStudent(stud) {
+            searchInput.value = stud.name;
+            targetInput.value = stud.studid;
+            searchBox.style.display = 'none';
+            inviteBtn.disabled = false;
         }
     </script>
 </body>

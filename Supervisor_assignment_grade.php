@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// Supervisor_assignment_grade.php - 作业打分与反馈 (With File View)
+// Supervisor_assignment_grade.php - 作业列表(带统计) & 打分详情 (Insight Only on List)
 // ====================================================
 include("connect.php");
 
@@ -37,7 +37,7 @@ if (isset($conn)) {
 }
 
 // ====================================================
-// 3. 处理打分/退回提交 (POST)
+// 3. 处理打分/退回提交 (POST) - 保持不变
 // ====================================================
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $date_now = date('Y-m-d H:i:s');
@@ -46,7 +46,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $marks = $_POST['marks'];
     $feedback = $_POST['feedback'];
     
-    // 按钮逻辑判断
     $new_status = '';
     $msg = '';
 
@@ -59,7 +58,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     }
 
     if ($new_status) {
-        // 检查是否已经有记录
         $check_sql = "SELECT fyp_submissionid FROM assignment_submission WHERE fyp_assignmentid = ? AND fyp_studid = ?";
         if ($stmt = $conn->prepare($check_sql)) {
             $stmt->bind_param("is", $assign_id, $stud_id);
@@ -67,7 +65,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $stmt->store_result();
             
             if ($stmt->num_rows > 0) {
-                // Update
                 $sql_upd = "UPDATE assignment_submission 
                             SET fyp_marks = ?, fyp_feedback = ?, fyp_submission_status = ?, fyp_graded_date = ? 
                             WHERE fyp_assignmentid = ? AND fyp_studid = ?";
@@ -75,46 +72,122 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $stmt_upd->bind_param("isssis", $marks, $feedback, $new_status, $date_now, $assign_id, $stud_id);
                 $stmt_upd->execute();
             } else {
-                // Insert (Case: Grading before student submission, e.g. for absent student)
                 $sql_ins = "INSERT INTO assignment_submission (fyp_assignmentid, fyp_studid, fyp_marks, fyp_feedback, fyp_submission_status, fyp_graded_date) 
                             VALUES (?, ?, ?, ?, ?, ?)";
                 $stmt_ins = $conn->prepare($sql_ins);
                 $stmt_ins->bind_param("isissi", $assign_id, $stud_id, $marks, $feedback, $new_status, $date_now);
                 $stmt_ins->execute();
             }
-            // 注意：这里跳转回当前文件
             echo "<script>alert('$msg'); window.location.href='Supervisor_assignment_grade.php?auth_user_id=" . urlencode($auth_user_id) . "&view_id=" . $assign_id . "';</script>";
         }
     }
 }
 
 // ====================================================
-// 4. 获取数据 (Assignments List or Student List)
+// 4. 获取数据 (列表或详情)
 // ====================================================
 $view_assignment_id = $_GET['view_id'] ?? null;
 $assignments_list = [];
 $students_to_grade = [];
 $current_assignment = null;
-$insight_stats = [
-    'Total' => 0,
-    'Not Turned In' => 0,
-    'Viewed' => 0,
-    'Turned In' => 0,
-    'Late Turned In' => 0,
-    'Graded' => 0,
-    'Need Revision' => 0,
-    'Resubmitted' => 0
-];
+// $insight_stats is no longer needed for detail view calculation if we don't display it
+
+// 获取筛选参数 (列表页用)
+$sort_by = $_GET['sort_by'] ?? 'DESC'; 
+$filter_type = $_GET['filter_type'] ?? 'All';
 
 if ($sv_id > 0) {
     if (!$view_assignment_id) {
-        // A. 列表模式：显示所有作业
-        $sql_list = "SELECT * FROM assignment WHERE fyp_supervisorid = '$sv_id' ORDER BY fyp_datecreated DESC";
+        // --- VIEW A: List with Embedded Stats ---
+        
+        $sql_list = "SELECT a.*,
+                            (SELECT COUNT(*) FROM fyp_registration r JOIN student s ON r.fyp_studid = s.fyp_studid 
+                             WHERE r.fyp_supervisorid = a.fyp_supervisorid 
+                             AND (
+                                (a.fyp_target_id = 'ALL' AND (
+                                    (a.fyp_assignment_type = 'Individual' AND s.fyp_group = 'Individual') OR 
+                                    (a.fyp_assignment_type = 'Group' AND s.fyp_group = 'Group')
+                                )) OR 
+                                (a.fyp_target_id != 'ALL' AND (
+                                    (a.fyp_assignment_type = 'Individual' AND s.fyp_studid = a.fyp_target_id) OR
+                                    (a.fyp_assignment_type = 'Group' AND s.fyp_studid IN (SELECT leader_id FROM student_group WHERE group_id = a.fyp_target_id UNION SELECT invitee_id FROM group_request WHERE group_id = a.fyp_target_id AND request_status = 'Accepted'))
+                                ))
+                             )) as total_students,
+                             
+                            (SELECT COUNT(*) FROM assignment_submission sub WHERE sub.fyp_assignmentid = a.fyp_assignmentid AND sub.fyp_submission_status IN ('Turned In', 'Late Turned In', 'Resubmitted')) as submitted_count,
+                            
+                            (SELECT COUNT(*) FROM assignment_submission sub WHERE sub.fyp_assignmentid = a.fyp_assignmentid AND sub.fyp_submission_status = 'Graded') as graded_count,
+
+                            (SELECT COUNT(*) FROM assignment_submission sub WHERE sub.fyp_assignmentid = a.fyp_assignmentid AND sub.fyp_submission_status = 'Need Revision') as revision_count
+                            
+                     FROM assignment a 
+                     WHERE a.fyp_supervisorid = '$sv_id'";
+
+        if ($filter_type != 'All') {
+            $sql_list .= " AND a.fyp_assignment_type = '$filter_type'";
+        }
+        $sql_list .= " ORDER BY a.fyp_datecreated $sort_by";
+
         $res = $conn->query($sql_list);
-        while ($row = $res->fetch_assoc()) $assignments_list[] = $row;
+        if($res) {
+            while ($row = $res->fetch_assoc()) {
+                $target_display_name = 'All Students'; 
+                $target_id = $row['fyp_target_id'];
+                $target_type = $row['fyp_assignment_type'];
+
+                if ($target_id != 'ALL') {
+                    if ($target_type == 'Group') {
+                        $g_name_sql = "SELECT group_name FROM student_group WHERE group_id = '$target_id'";
+                        $g_name_res = $conn->query($g_name_sql);
+                        if ($g_name_res && $g_row = $g_name_res->fetch_assoc()) {
+                            $target_display_name = "Group: " . $g_row['group_name'];
+                        } else {
+                            $target_display_name = "Unknown Group (ID: $target_id)";
+                        }
+                    } else {
+                        $s_name_sql = "SELECT fyp_studname FROM student WHERE fyp_studid = '$target_id'";
+                        $s_name_res = $conn->query($s_name_sql);
+                        if ($s_name_res && $s_row = $s_name_res->fetch_assoc()) {
+                            $target_display_name = "Student: " . $s_row['fyp_studname'];
+                        } else {
+                            $target_display_name = "Unknown Student (ID: $target_id)";
+                        }
+                    }
+                } else {
+                    $target_display_name = ($target_type == 'Group') ? 'All Groups' : 'All Individual Students';
+                }
+                
+                $row['target_display_name'] = $target_display_name;
+
+                $total_count = $row['total_students'];
+                $submitted_count = $row['submitted_count'];
+                $graded_count = $row['graded_count'];
+                $revision_count = $row['revision_count']; // using the new subquery
+                
+                // Note: The previous logic iterated submission table again, but here we optimized with subquery for main stats.
+                // Revision count was missing in main subquery above, added it now.
+
+                // Simple Calc for Pending
+                // Not Submitted = Total - (Submitted + Graded + Revision)
+                // This is an estimation. Accurate way is checking 'Not Turned In' + 'Viewed'
+                // For list view summary, this is acceptable.
+                $not_submitted = $total_count - ($submitted_count + $graded_count + $revision_count);
+                if ($not_submitted < 0) $not_submitted = 0;
+
+                $row['stats'] = [
+                    'not_submitted' => $not_submitted,
+                    'submitted' => $submitted_count,
+                    'graded' => $graded_count,
+                    'revision' => $revision_count
+                ];
+                
+                $assignments_list[] = $row;
+            }
+        }
+
     } else {
-        // B. 打分模式：显示该作业下的学生
-        // 1. 先获取作业详情
+        // --- VIEW B: Grade Students (Detail) ---
+        
         $sql_detail = "SELECT * FROM assignment WHERE fyp_assignmentid = '$view_assignment_id' AND fyp_supervisorid = '$sv_id'";
         $res_d = $conn->query($sql_detail);
         $current_assignment = $res_d->fetch_assoc();
@@ -123,8 +196,6 @@ if ($sv_id > 0) {
             $target_type = $current_assignment['fyp_assignment_type'];
             $target_id = $current_assignment['fyp_target_id']; 
 
-            // 2. 构造查询：为每位学生获取独立状态
-            // 【关键修改】增加了 g.fyp_submitted_file 字段
             $base_fields = "s.fyp_studid, s.fyp_studname, s.fyp_studfullid, 
                             g.fyp_marks, g.fyp_feedback, g.fyp_submission_status, g.fyp_submission_date, g.fyp_submitted_file";
             
@@ -152,27 +223,51 @@ if ($sv_id > 0) {
                 $res_s = $conn->query($sql_studs);
                 if($res_s) {
                     while ($row = $res_s->fetch_assoc()) {
+                        
+                        $row['display_group_name'] = '';
+                        if ($target_type == 'Group') {
+                             $g_query = "SELECT group_name FROM student_group WHERE leader_id = '{$row['fyp_studid']}' UNION SELECT sg.group_name FROM group_request gr JOIN student_group sg ON gr.group_id = sg.group_id WHERE gr.invitee_id = '{$row['fyp_studid']}' AND gr.request_status = 'Accepted' LIMIT 1";
+                             $g_result = $conn->query($g_query);
+                             if ($g_result && $g_data = $g_result->fetch_assoc()) {
+                                 $row['display_group_name'] = $g_data['group_name'];
+                             }
+                        }
+
+                        $inherited = false;
+                        if ($target_type == 'Group' && (empty($row['fyp_submission_status']) || $row['fyp_submission_status'] == 'Not Turned In' || $row['fyp_submission_status'] == 'Viewed')) {
+                            $leader_id = null;
+                            $chk_l = $conn->query("SELECT leader_id FROM student_group WHERE leader_id = '{$row['fyp_studid']}'");
+                            if ($chk_l->num_rows > 0) $leader_id = $row['fyp_studid']; 
+                            else {
+                                $chk_m = $conn->query("SELECT sg.leader_id FROM group_request gr JOIN student_group sg ON gr.group_id = sg.group_id WHERE gr.invitee_id = '{$row['fyp_studid']}' AND gr.request_status = 'Accepted' LIMIT 1");
+                                if ($lm = $chk_m->fetch_assoc()) $leader_id = $lm['leader_id'];
+                            }
+
+                            if ($leader_id && $leader_id != $row['fyp_studid']) {
+                                $l_sub = $conn->query("SELECT fyp_submission_status, fyp_submission_date, fyp_submitted_file FROM assignment_submission WHERE fyp_assignmentid = '$view_assignment_id' AND fyp_studid = '$leader_id'");
+                                if ($l_row = $l_sub->fetch_assoc()) {
+                                    if (!empty($l_row['fyp_submission_status']) && $l_row['fyp_submission_status'] != 'Not Turned In' && $l_row['fyp_submission_status'] != 'Viewed') {
+                                        $row['fyp_submission_status'] = $l_row['fyp_submission_status']; 
+                                        $row['fyp_submission_date'] = $l_row['fyp_submission_date'];     
+                                        $row['fyp_submitted_file'] = $l_row['fyp_submitted_file'];       
+                                        $inherited = true; 
+                                    }
+                                }
+                            }
+                        }
+
                         $raw_status = $row['fyp_submission_status'];
                         if (empty($raw_status)) $raw_status = 'Not Turned In';
                         
                         $display_status = $raw_status;
                         
-                        // 判定 Late Turned In
                         if (($raw_status == 'Turned In' || $raw_status == 'Resubmitted') && !empty($row['fyp_submission_date'])) {
                             if ($row['fyp_submission_date'] > $current_assignment['fyp_deadline']) {
                                 $display_status = 'Late Turned In';
                             }
                         }
-
                         $row['final_status'] = $display_status;
-                        
-                        // 统计
-                        $insight_stats['Total']++;
-                        if (isset($insight_stats[$display_status])) {
-                            $insight_stats[$display_status]++;
-                        } else {
-                            $insight_stats[$display_status] = 1; 
-                        }
+                        $row['is_inherited'] = $inherited; 
 
                         $students_to_grade[] = $row;
                     }
@@ -260,24 +355,32 @@ $menu_items = [
         .card { background: #fff; padding: 25px; border-radius: 12px; box-shadow: var(--card-shadow); margin-bottom: 20px; }
         .card-header { font-size: 18px; font-weight: 600; color: #333; border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
         
-        /* Insights Panel */
-        .insights-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 15px; margin-bottom: 20px; }
-        .insight-box { background: #fff; border: 1px solid #eee; padding: 15px; border-radius: 8px; text-align: center; border-bottom: 4px solid transparent; }
-        .insight-val { font-size: 20px; font-weight: 700; color: #333; }
-        .insight-lbl { font-size: 12px; color: #777; text-transform: uppercase; font-weight: 600; margin-top: 5px; }
-        
-        .ins-total { border-bottom-color: #6c757d; }
-        .ins-pending { border-bottom-color: #ffc107; } 
-        .ins-submitted { border-bottom-color: #28a745; } 
-        .ins-graded { border-bottom-color: #17a2b8; }
-        .ins-revision { border-bottom-color: #fd7e14; }
+        /* Filter Bar */
+        .filter-bar { display: flex; gap: 10px; align-items: center; background: #f8f9fa; padding: 10px 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #eee; }
+        .filter-group { display: flex; align-items: center; gap: 8px; }
+        .filter-label { font-size: 13px; font-weight: 600; color: #555; }
+        .filter-select { padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; cursor: pointer; }
+        .btn-apply { padding: 6px 15px; background: var(--primary-color); color: white; border: none; border-radius: 4px; font-size: 13px; cursor: pointer; }
+
+        /* Stats in List View */
+        .ass-card { border: 1px solid #eee; border-radius: 8px; padding: 15px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; transition: all 0.2s; }
+        .ass-card:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        .ass-info { flex: 1; }
+        .ass-title { font-weight: 600; font-size: 16px; color: #333; margin-bottom: 5px; }
+        .ass-meta { font-size: 13px; color: #777; display: flex; gap: 15px; }
+        .ass-stats { display: flex; gap: 15px; margin-left: 20px; }
+        .stat-badge { font-size: 11px; padding: 4px 8px; border-radius: 4px; background: #f1f3f5; color: #555; font-weight: 500; }
+        .stat-badge i { margin-right: 4px; }
+        .stat-submitted { color: #155724; background: #d4edda; }
+        .stat-graded { color: #004085; background: #cce5ff; }
+        .stat-pending { color: #856404; background: #fff3cd; }
+        .stat-revision { color: #721c24; background: #f8d7da; }
 
         /* Student Card */
         .student-card { background: #fff; border: 1px solid #eee; border-radius: 8px; padding: 20px; margin-bottom: 20px; display: flex; gap: 20px; flex-wrap: wrap; box-shadow: 0 2px 5px rgba(0,0,0,0.02); }
         .stud-info { width: 240px; border-right: 1px solid #eee; padding-right: 20px; }
         .stud-status-badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; text-transform: uppercase; margin-top: 5px; }
         
-        /* Status Colors */
         .st-NotTurnedIn { background: #e2e3e5; color: #6c757d; }
         .st-Viewed { background: #cce5ff; color: #004085; }
         .st-TurnedIn { background: #d4edda; color: #155724; }
@@ -299,16 +402,16 @@ $menu_items = [
         .btn-revision:hover { background: #e0a800; }
         .btn-return:disabled, .btn-revision:disabled { opacity: 0.5; cursor: not-allowed; background: #ccc; color: #666; }
         
-        /* New File Link Style */
         .file-link { display: inline-block; margin-top: 8px; font-size: 13px; color: #0056b3; text-decoration: none; padding: 6px 12px; background: #e3effd; border-radius: 4px; border: 1px solid #b8daff; transition: all 0.2s; }
         .file-link:hover { background: #d0e4ff; }
         .file-link i { margin-right: 5px; }
         .no-file { font-size: 13px; color: #999; font-style: italic; margin-top: 5px; display: block; }
+        .inherited-badge { font-size: 10px; color: #666; background: #eee; padding: 2px 5px; border-radius: 4px; margin-left: 5px; }
 
         .ass-table { width: 100%; border-collapse: collapse; }
         .ass-table th { text-align: left; padding: 12px 15px; background: #f8f9fa; color: #555; font-weight: 600; font-size: 13px; }
         .ass-table td { padding: 12px 15px; border-bottom: 1px solid #eee; font-size: 14px; color: #333; }
-        .btn-view { padding: 6px 15px; background: var(--primary-color); color: white; text-decoration: none; border-radius: 4px; font-size: 12px; }
+        .btn-view { padding: 6px 15px; background: var(--primary-color); color: white; text-decoration: none; border-radius: 4px; font-size: 12px; white-space: nowrap; }
 
         .back-link { display: inline-block; margin-bottom: 15px; color: #666; text-decoration: none; font-size: 14px; }
         .back-link:hover { color: var(--primary-color); }
@@ -368,36 +471,66 @@ $menu_items = [
 
         <main class="main-content">
             <?php if (!$view_assignment_id): ?>
-                <!-- VIEW A: List Assignments -->
+                <!-- VIEW A: List Assignments with Embedded Stats -->
                 <div class="card">
                     <div class="card-header">
                         Select Assignment to Grade
                     </div>
+                    
+                    <!-- Filter Bar -->
+                    <form method="GET" class="filter-bar">
+                        <input type="hidden" name="auth_user_id" value="<?php echo htmlspecialchars($auth_user_id); ?>">
+                        <div class="filter-group">
+                            <span class="filter-label">Sort:</span>
+                            <select name="sort_by" class="filter-select">
+                                <option value="DESC" <?php echo $sort_by=='DESC'?'selected':''; ?>>Newest First</option>
+                                <option value="ASC" <?php echo $sort_by=='ASC'?'selected':''; ?>>Oldest First</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <span class="filter-label">Type:</span>
+                            <select name="filter_type" class="filter-select">
+                                <option value="All">All Types</option>
+                                <option value="Individual" <?php echo $filter_type=='Individual'?'selected':''; ?>>Individual</option>
+                                <option value="Group" <?php echo $filter_type=='Group'?'selected':''; ?>>Group</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn-apply">Apply</button>
+                    </form>
+
                     <?php if (count($assignments_list) > 0): ?>
-                        <table class="ass-table">
-                            <thead>
-                                <tr>
-                                    <th>Title</th>
-                                    <th>Type</th>
-                                    <th>Target</th>
-                                    <th>Deadline</th>
-                                    <th>Action</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($assignments_list as $ass): ?>
-                                    <tr>
-                                        <td><strong><?php echo htmlspecialchars($ass['fyp_title']); ?></strong></td>
-                                        <td><span style="font-size:12px; background:#f0f0f0; padding:2px 8px; border-radius:4px;"><?php echo $ass['fyp_assignment_type']; ?></span></td>
-                                        <td><span style="font-size:12px; color:#666;"><?php echo $ass['fyp_target_id'] == 'ALL' ? 'All Students' : 'Specific Group/Student'; ?></span></td>
-                                        <td><?php echo $ass['fyp_deadline']; ?></td>
-                                        <td>
-                                            <a href="?auth_user_id=<?php echo $auth_user_id; ?>&view_id=<?php echo $ass['fyp_assignmentid']; ?>" class="btn-view">Grade</a>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
+                        <div class="ass-list">
+                            <?php foreach ($assignments_list as $ass): ?>
+                                <div class="ass-card">
+                                    <div class="ass-info">
+                                        <div class="ass-title"><?php echo htmlspecialchars($ass['fyp_title']); ?></div>
+                                        <div class="ass-meta">
+                                            <span><?php echo $ass['fyp_assignment_type']; ?></span>
+                                            <span style="color:#666;">Deadline: <?php echo date('M d, Y', strtotime($ass['fyp_deadline'])); ?></span>
+                                            <span style="color:#666; margin-left:15px;"><?php echo $ass['target_display_name']; ?></span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="ass-stats">
+                                        <!-- Removed Total Students Badge -->
+                                        <div class="stat-badge stat-submitted">
+                                            <i class="fa fa-file-upload"></i> Submitted: <?php echo $ass['stats']['submitted']; ?>
+                                        </div>
+                                        <div class="stat-badge stat-pending">
+                                            <i class="fa fa-clock"></i> Not Submitted: <?php echo $ass['stats']['not_submitted']; ?>
+                                        </div>
+                                        <div class="stat-badge stat-graded">
+                                            <i class="fa fa-check"></i> Graded: <?php echo $ass['stats']['graded']; ?>
+                                        </div>
+                                        <div class="stat-badge stat-revision">
+                                            <i class="fa fa-undo"></i> Revision: <?php echo $ass['stats']['revision']; ?>
+                                        </div>
+                                    </div>
+                                    
+                                    <a href="?auth_user_id=<?php echo $auth_user_id; ?>&view_id=<?php echo $ass['fyp_assignmentid']; ?>" class="btn-view">Grade Students</a>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
                     <?php else: ?>
                         <div style="text-align:center; color:#999; padding:20px;">No assignments found.</div>
                     <?php endif; ?>
@@ -407,36 +540,6 @@ $menu_items = [
                 <!-- VIEW B: Grade Students -->
                 <a href="?auth_user_id=<?php echo $auth_user_id; ?>" class="back-link"><i class="fa fa-arrow-left"></i> Back to Assignments</a>
                 
-                <!-- INSIGHT DASHBOARD -->
-                <div class="insights-grid">
-                    <div class="insight-box ins-total">
-                        <div class="insight-val"><?php echo $insight_stats['Total']; ?></div>
-                        <div class="insight-lbl">Total Students</div>
-                    </div>
-                    <div class="insight-box ins-submitted">
-                        <div class="insight-val">
-                            <?php 
-                                echo $insight_stats['Turned In'] + $insight_stats['Late Turned In'] + $insight_stats['Resubmitted'];
-                            ?>
-                        </div>
-                        <div class="insight-lbl">Submitted</div>
-                    </div>
-                    <div class="insight-box ins-pending">
-                        <div class="insight-val">
-                            <?php echo $insight_stats['Not Turned In'] + $insight_stats['Viewed']; ?>
-                        </div>
-                        <div class="insight-lbl">Not Submitted</div>
-                    </div>
-                    <div class="insight-box ins-graded">
-                        <div class="insight-val"><?php echo $insight_stats['Graded']; ?></div>
-                        <div class="insight-lbl">Graded</div>
-                    </div>
-                    <div class="insight-box ins-revision">
-                        <div class="insight-val"><?php echo $insight_stats['Need Revision']; ?></div>
-                        <div class="insight-lbl">Need Revision</div>
-                    </div>
-                </div>
-
                 <div class="card">
                     <div class="card-header">
                         <div>
@@ -457,6 +560,14 @@ $menu_items = [
                                 <div class="stud-info">
                                     <div style="font-weight:600; color:#333; font-size:16px;"><?php echo htmlspecialchars($stud['fyp_studname']); ?></div>
                                     <div style="font-size:13px; color:#888; margin-bottom:5px;"><?php echo htmlspecialchars($stud['fyp_studfullid']); ?></div>
+                                    
+                                    <!-- NEW: Group Name Display -->
+                                    <?php if(!empty($stud['display_group_name'])): ?>
+                                        <div style="font-size:12px; color:#0056b3; font-weight:600; margin-bottom:5px;">
+                                            <i class="fa fa-users"></i> <?php echo htmlspecialchars($stud['display_group_name']); ?>
+                                        </div>
+                                    <?php endif; ?>
+
                                     <span class="stud-status-badge st-<?php echo $cssStatus; ?>"><?php echo $status; ?></span>
                                     
                                     <?php if(!empty($stud['fyp_submission_date'])): ?>
@@ -470,6 +581,9 @@ $menu_items = [
                                         <a href="<?php echo $stud['fyp_submitted_file']; ?>" target="_blank" class="file-link">
                                             <i class="fa fa-download"></i> View File
                                         </a>
+                                        <?php if (!empty($stud['is_inherited'])): ?>
+                                            <span class="inherited-badge" title="Submitted by group leader">(via Leader)</span>
+                                        <?php endif; ?>
                                     <?php else: ?>
                                         <span class="no-file">No file uploaded</span>
                                     <?php endif; ?>
@@ -497,9 +611,6 @@ $menu_items = [
                                         <button type="submit" name="return_revision" class="btn-revision" title="Request Revision" <?php echo $canGrade ? '' : 'disabled'; ?>>
                                             <i class="fa fa-undo"></i> Return with Revision
                                         </button>
-                                        <?php if(!$canGrade): ?>
-                                            <span style="font-size:11px; color:#999; align-self: center;">Waiting for submission...</span>
-                                        <?php endif; ?>
                                     </div>
                                 </form>
                             </div>

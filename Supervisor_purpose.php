@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// supervisor_purpose.php - 提议新项目页面 (已修复：绑定 Supervisor ID)
+// supervisor_purpose.php - 提议新项目页面 (Added Academic Year Selection)
 // ====================================================
 
 include("connect.php");
@@ -15,8 +15,20 @@ if (!$auth_user_id) {
     exit; 
 }
 
+// 2. 获取学术年列表 (New Feature)
+$academic_years = [];
+if (isset($conn)) {
+    $sql_acd = "SELECT * FROM academic_year ORDER BY fyp_acdyear DESC, fyp_intake ASC";
+    $res_acd = $conn->query($sql_acd);
+    if ($res_acd) {
+        while ($row = $res_acd->fetch_assoc()) {
+            $academic_years[] = $row;
+        }
+    }
+}
+
 // ====================================================
-// 2. 表单提交处理逻辑
+// 3. 表单提交处理逻辑
 // ====================================================
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     
@@ -25,14 +37,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $real_sv_name = "Unknown Supervisor";
     $real_sv_contact = "";
     
-    // 关键修复：同时获取 fyp_supervisorid
     $sql_fetch_sv = "SELECT fyp_supervisorid, fyp_name, fyp_email, fyp_contactno FROM supervisor WHERE fyp_userid = ?";
     if ($stmt_fetch = $conn->prepare($sql_fetch_sv)) {
         $stmt_fetch->bind_param("i", $auth_user_id);
         $stmt_fetch->execute();
         $res_fetch = $stmt_fetch->get_result();
         if ($row_sv = $res_fetch->fetch_assoc()) {
-            $real_sv_id   = $row_sv['fyp_supervisorid']; // 获取 ID
+            $real_sv_id   = $row_sv['fyp_supervisorid']; 
             $real_sv_name = $row_sv['fyp_name'];
             $real_sv_contact = !empty($row_sv['fyp_email']) ? $row_sv['fyp_email'] : $row_sv['fyp_contactno'];
         }
@@ -48,13 +59,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $p_desc = $_POST['project_description'];
         $p_req = $_POST['requirements'];
         $p_type = $_POST['project_type']; 
-        $p_course_req = 'FIST'; // 锁定
+        $p_academic_id = $_POST['academic_id']; // 获取选中的 Academic ID
+        
+        $p_course_req = 'FIST'; 
         $p_status = 'Open'; 
 
-        // C. 插入数据库 (包含 fyp_supervisorid)
-        // 请确保数据库 project 表已经添加了 fyp_supervisorid 字段！
+        // C. 插入数据库 (包含 fyp_supervisorid 和 fyp_academicid)
+        // SQL 语句更新：增加了 fyp_academicid
         $sql_insert = "INSERT INTO project (
             fyp_supervisorid,
+            fyp_academicid,
             fyp_projecttitle, 
             fyp_description, 
             fyp_projectcat, 
@@ -65,12 +79,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             fyp_contactperson, 
             fyp_contactpersonname, 
             fyp_datecreated
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())";
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())";
 
         if ($stmt_insert = $conn->prepare($sql_insert)) {
-            // 参数绑定: i = int, s = string (共10个参数)
-            $stmt_insert->bind_param("isssssssss", 
+            // 参数绑定: i = int, s = string (共11个参数: 2个int, 9个string)
+            $stmt_insert->bind_param("iisssssssss", 
                 $real_sv_id,
+                $p_academic_id, // 绑定 Academic ID
                 $p_title, 
                 $p_desc, 
                 $p_domain, 
@@ -94,7 +109,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     }
 }
 
-// 3. 获取用户信息用于显示 Topbar
+// 4. 获取用户信息用于显示 Topbar
 $user_name = "Supervisor"; 
 $user_avatar = "image/user.png"; 
 
@@ -111,7 +126,7 @@ if (isset($conn)) {
     }
 }
 
-// 4. 菜单定义
+// 5. 菜单定义
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Supervisor_mainpage.php?page=dashboard'],
     'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'supervisor_profile.php'],
@@ -129,9 +144,25 @@ $menu_items = [
         'sub_items' => [
             'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'supervisor_purpose.php'],
             'my_projects'     => ['name' => 'My Projects', 'icon' => 'fa-folder-open', 'link' => 'Supervisor_mainpage.php?page=my_projects'],
+            'propose_assignment' => ['name' => 'Propose Assignment', 'icon' => 'fa-tasks', 'link' => 'supervisor_assignment_purpose.php']
         ]
     ],
-    'schedule'  => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'Supervisor_mainpage.php?page=schedule'],
+    'grading' => [
+        'name' => 'Assessment',
+        'icon' => 'fa-marker',
+        'sub_items' => [
+            'grade_assignment' => ['name' => 'Grade Assignments', 'icon' => 'fa-check-square', 'link' => 'Supervisor_assignment_grade.php'],
+        ]
+    ],
+    'announcement' => [
+        'name' => 'Announcement',
+        'icon' => 'fa-bullhorn',
+        'sub_items' => [
+            'post_announcement' => ['name' => 'Post Announcement', 'icon' => 'fa-pen-square', 'link' => 'supervisor_announcement.php'],
+            'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Supervisor_mainpage.php?page=view_announcements'],
+        ]
+    ],
+    'schedule'  => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'supervisor_meeting.php'],
 ];
 ?>
 <!DOCTYPE html>
@@ -166,8 +197,9 @@ $menu_items = [
         .menu-link:hover { background-color: var(--secondary-color); color: var(--primary-color); }
         .menu-link.active { background-color: #e3effd; color: var(--primary-color); border-left-color: var(--primary-color); }
         .menu-icon { width: 24px; margin-right: 10px; text-align: center; }
-        .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: none; }
-        .menu-item.has-active-child .submenu, .menu-item:hover .submenu { display: block; }
+        
+        /* Sidebar Expanded */
+        .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: block; }
         .submenu .menu-link { padding-left: 58px; font-size: 14px; padding-top: 10px; padding-bottom: 10px; }
 
         .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; }
@@ -211,14 +243,13 @@ $menu_items = [
             <ul class="menu-list">
                 <?php foreach ($menu_items as $key => $item): ?>
                     <?php 
-                        $isActive = ($key == $current_page); // 这里检查主菜单
+                        $isActive = ($key == $current_page);
                         $hasActiveChild = false;
                         if (isset($item['sub_items'])) {
                             foreach ($item['sub_items'] as $sub_key => $sub) {
                                 if ($sub_key == $current_page) { $hasActiveChild = true; break; }
                             }
                         }
-                        
                         $linkUrl = isset($item['link']) ? $item['link'] : "#";
                         if ($linkUrl !== "#") {
                              $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?';
@@ -264,6 +295,7 @@ $menu_items = [
                     <strong>Contact Info:</strong> Your name and email (<?php echo htmlspecialchars($user_name); ?>) will be automatically linked to this project upon submission.
                 </div>
                 
+                <!-- Action 为空表示提交给自己 -->
                 <form action="" method="POST">
                     
                     <div class="form-group">
@@ -272,6 +304,21 @@ $menu_items = [
                     </div>
 
                     <div class="form-row">
+                        <div class="form-group">
+                            <label for="academic_id">Target Academic Year / Intake <span style="color:red">*</span></label>
+                            <select id="academic_id" name="academic_id" class="form-control" required>
+                                <?php if (empty($academic_years)): ?>
+                                    <option value="" disabled>No academic years found</option>
+                                <?php else: ?>
+                                    <?php foreach ($academic_years as $acy): ?>
+                                        <option value="<?php echo $acy['fyp_academicid']; ?>">
+                                            <?php echo htmlspecialchars($acy['fyp_acdyear'] . " - " . $acy['fyp_intake']); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </select>
+                        </div>
+                        
                         <div class="form-group">
                             <label for="project_domain">Domain / Category <span style="color:red">*</span></label>
                             <select id="project_domain" name="project_domain" class="form-control">
@@ -284,13 +331,21 @@ $menu_items = [
                                 <option value="IoT">IoT</option>
                             </select>
                         </div>
+                    </div>
 
+                    <div class="form-row">
                         <div class="form-group">
                             <label for="project_type">Project Type <span style="color:red">*</span></label>
                             <select id="project_type" name="project_type" class="form-control">
                                 <option value="Individual">Individual</option>
                                 <option value="Group">Group</option>
                             </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="course_req">Course Requirement</label>
+                            <!-- 锁定为 FIST 并设置为只读 -->
+                            <input type="text" id="course_req" name="course_req" class="form-control" value="FIST" readonly style="background-color: #e9ecef; cursor: not-allowed;">
                         </div>
                     </div>
 
@@ -302,12 +357,6 @@ $menu_items = [
                     <div class="form-group">
                         <label for="requirements">Technical Requirements</label>
                         <textarea id="requirements" name="requirements" class="form-control" placeholder="e.g. PHP, Python, MySQL, Flutter..."></textarea>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="course_req">Course Requirement</label>
-                        <!-- 锁定为 FIST 并设置为只读 -->
-                        <input type="text" id="course_req" name="course_req" class="form-control" value="FIST" readonly style="background-color: #e9ecef; cursor: not-allowed;">
                     </div>
 
                     <button type="submit" class="btn-submit"><i class="fa fa-paper-plane"></i> Submit Proposal</button>

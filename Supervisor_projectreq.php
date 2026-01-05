@@ -1,21 +1,31 @@
 <?php
 // ====================================================
-// supervisor_projectreq.php - Request Management (With Filters & Sorting)
+// supervisor_projectreq.php - Request Management (Sidebar Updated)
 // ====================================================
 include("connect.php");
 
 // 1. Auth Check
 $auth_user_id = $_GET['auth_user_id'] ?? null;
+// 手动设置当前页面为 project_requests 以高亮菜单
+$current_page = 'project_requests'; 
+
 if (!$auth_user_id) { header("location: login.php"); exit; }
 
 // 2. Get Supervisor Data
 $sv_data = [];
 $user_name = 'Supervisor';
+$user_avatar = "image/user.png"; // Default avatar
 $sv_id = null; 
 
 if (isset($conn)) {
     $sql_user = "SELECT fyp_username FROM `USER` WHERE fyp_userid = ?";
-    if ($stmt = $conn->prepare($sql_user)) { $stmt->bind_param("i", $auth_user_id); $stmt->execute(); $res=$stmt->get_result(); if($row=$res->fetch_assoc()) $user_name=$row['fyp_username']; $stmt->close(); }
+    if ($stmt = $conn->prepare($sql_user)) { 
+        $stmt->bind_param("i", $auth_user_id); 
+        $stmt->execute(); 
+        $res=$stmt->get_result(); 
+        if($row=$res->fetch_assoc()) $user_name=$row['fyp_username']; 
+        $stmt->close(); 
+    }
     
     $sql_sv = "SELECT * FROM supervisor WHERE fyp_userid = ?";
     if ($stmt = $conn->prepare($sql_sv)) { 
@@ -25,7 +35,8 @@ if (isset($conn)) {
         if($res->num_rows > 0) { 
             $sv_data = $res->fetch_assoc(); 
             $sv_id = $sv_data['fyp_supervisorid'];
-            if(!empty($sv_data['fyp_name'])) $user_name=$sv_data['fyp_name']; 
+            if(!empty($sv_data['fyp_name'])) $user_name=$sv_data['fyp_name'];
+            if(!empty($sv_data['fyp_profileimg'])) $user_avatar=$sv_data['fyp_profileimg'];
         }
         $stmt->close(); 
     }
@@ -161,8 +172,7 @@ if ($sv_id) {
     }
 }
 
-// Menu Items
-$current_page = 'project_requests';
+// 4. 菜单定义 (Updated Sidebar Structure)
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Supervisor_mainpage.php?page=dashboard'],
     'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'supervisor_profile.php'],
@@ -180,6 +190,14 @@ $menu_items = [
         'sub_items' => [
             'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'supervisor_purpose.php'],
             'my_projects'     => ['name' => 'My Projects', 'icon' => 'fa-folder-open', 'link' => 'Supervisor_mainpage.php?page=my_projects'],
+            'propose_assignment' => ['name' => 'Propose Assignment', 'icon' => 'fa-tasks', 'link' => 'supervisor_assignment_purpose.php']
+        ]
+    ],
+    'grading' => [
+        'name' => 'Assessment',
+        'icon' => 'fa-marker',
+        'sub_items' => [
+            'grade_assignment' => ['name' => 'Grade Assignments', 'icon' => 'fa-check-square', 'link' => 'Supervisor_assignment_grade.php'],
         ]
     ],
     'announcement' => [
@@ -190,7 +208,7 @@ $menu_items = [
             'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Supervisor_mainpage.php?page=view_announcements'],
         ]
     ],
-    'schedule'  => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'Supervisor_mainpage.php?page=schedule'],
+    'schedule'  => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'supervisor_meeting.php'],
 ];
 ?>
 <!DOCTYPE html>
@@ -199,12 +217,11 @@ $menu_items = [
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Project Requests</title>
-    <?php $favicon = !empty($sv_data['fyp_profileimg']) ? $sv_data['fyp_profileimg'] : "image/user.png"; ?>
-    <link rel="icon" type="image/png" href="<?php echo $favicon; ?>">
+    <link rel="icon" type="image/png" href="<?php echo $user_avatar; ?>">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <style>
-        /* CSS 保持不变 */
+        /* 复用 mainpage 的 CSS */
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap');
         :root { --primary-color: #0056b3; --primary-hover: #004494; --secondary-color: #f4f4f9; --text-color: #333; --border-color: #e0e0e0; --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); --gradient-start: #eef2f7; --gradient-end: #ffffff; --sidebar-width: 260px; --student-accent: #007bff; }
         body { font-family: 'Poppins', sans-serif; margin: 0; background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end)); color: var(--text-color); min-height: 100vh; display: flex; flex-direction: column; }
@@ -226,9 +243,12 @@ $menu_items = [
         .menu-link:hover { background-color: var(--secondary-color); color: var(--primary-color); }
         .menu-link.active { background-color: #e3effd; color: var(--primary-color); border-left-color: var(--primary-color); }
         .menu-icon { width: 24px; margin-right: 10px; text-align: center; }
-        .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: none; }
-        .menu-item.has-active-child .submenu, .menu-item:hover .submenu { display: block; }
+        
+        /* --- Sidebar Expanded Styles --- */
+        .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: block; }
         .submenu .menu-link { padding-left: 58px; font-size: 14px; padding-top: 10px; padding-bottom: 10px; }
+        /* ------------------------------- */
+
         .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; }
         .welcome-card { background: #fff; padding: 30px; border-radius: 12px; box-shadow: var(--card-shadow); border-left: 5px solid var(--primary-color); }
         .page-title { font-size: 24px; margin: 0 0 10px 0; color: var(--text-color); }
@@ -272,7 +292,7 @@ $menu_items = [
                 <span class="user-name-display"><?php echo htmlspecialchars($user_name); ?></span>
                 <span class="user-role-badge">Supervisor</span>
             </div>
-            <div class="user-avatar-circle"><img src="<?php echo $favicon; ?>" alt="User Avatar"></div>
+            <div class="user-avatar-circle"><img src="<?php echo $user_avatar; ?>" alt="User Avatar"></div>
             <a href="login.php" class="logout-btn"><i class="fa fa-sign-out-alt"></i> Logout</a>
         </div>
     </header>
@@ -282,8 +302,7 @@ $menu_items = [
             <ul class="menu-list">
                 <?php foreach ($menu_items as $key => $item): ?>
                     <?php 
-                        $isActive = ($key == 'students');
-                        $hasActiveChild = ($key == 'students');
+                        $isActive = ($key == 'students'); // Highlight students menu
                         
                         $linkUrl = isset($item['link']) ? $item['link'] : "#";
                         if (strpos($linkUrl, '.php') !== false) {
@@ -293,7 +312,7 @@ $menu_items = [
                              $linkUrl .= "&auth_user_id=" . urlencode($auth_user_id);
                         }
                     ?>
-                    <li class="menu-item <?php echo $hasActiveChild ? 'has-active-child' : ''; ?>">
+                    <li class="menu-item <?php echo $isActive ? 'has-active-child' : ''; ?>">
                         <a href="<?php echo $linkUrl; ?>" class="menu-link <?php echo $isActive ? 'active' : ''; ?>">
                             <span class="menu-icon"><i class="fa <?php echo $item['icon']; ?>"></i></span>
                             <?php echo $item['name']; ?>

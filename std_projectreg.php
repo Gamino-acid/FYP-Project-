@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// std_projectreg.php - 学生申请项目 (优化版: Member 禁用 + 已申请禁用 + 搜索过滤)
+// std_projectreg.php - 学生申请项目 (Academic Year Filter Added)
 // ====================================================
 include("connect.php");
 
@@ -8,13 +8,14 @@ include("connect.php");
 $auth_user_id = $_GET['auth_user_id'] ?? null;
 if (!$auth_user_id) { header("location: login.php"); exit; }
 
-// 2. 获取当前学生信息 (包括 fyp_group 状态)
+// 2. 获取当前学生信息 (包括 fyp_group 状态 和 Academic ID)
 $stud_data = [];
 $my_stud_id = '';
 $my_group_status = 'Individual'; // 默认为 Individual
 $user_name = 'Student';
 $is_leader = false; // 默认为 false
 $my_group_id = 0; // 存储 Group ID
+$my_academic_id = 0; // [新增] 存储学生的 Academic ID
 
 if (isset($conn)) {
     // 获取 USER 表名字
@@ -37,7 +38,9 @@ if (isset($conn)) {
             $stud_data=$row; 
             $my_stud_id = $row['fyp_studid'];
             if(!empty($row['fyp_studname'])) $user_name=$row['fyp_studname'];
-            if(!empty($row['fyp_group'])) $my_group_status = $row['fyp_group']; // 获取当前状态
+            if(!empty($row['fyp_group'])) $my_group_status = $row['fyp_group']; 
+            // [新增] 获取学生的 Academic ID
+            if(!empty($row['fyp_academicid'])) $my_academic_id = $row['fyp_academicid'];
         } 
         $stmt->close(); 
     }
@@ -177,7 +180,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_project_confi
 }
 
 // ----------------------------------------------------
-// 4. 获取项目列表 (含搜索和过滤功能)
+// 4. 获取项目列表 (含搜索和过滤功能 + [新增] 年级过滤)
 // ----------------------------------------------------
 $available_projects = [];
 
@@ -187,12 +190,18 @@ $search_title = $_GET['search_title'] ?? '';
 $search_sv = $_GET['search_sv'] ?? '';
 
 // 构建 SQL
+// [核心改动] 强制只显示学生所属 Academic ID 的项目
 $sql = "SELECT p.*, s.fyp_name as sv_name, s.fyp_email as sv_email, s.fyp_contactno as sv_phone 
         FROM PROJECT p 
         LEFT JOIN supervisor s ON p.fyp_supervisorid = s.fyp_supervisorid 
-        WHERE 1=1"; 
+        WHERE 1=1";
 
-// 动态添加过滤条件
+// [强制条件]
+if ($my_academic_id > 0) {
+    $sql .= " AND p.fyp_academicid = '$my_academic_id'";
+}
+
+// 动态添加筛选栏条件
 if (!empty($filter_status)) {
     $sql .= " AND p.fyp_projectstatus = '" . $conn->real_escape_string($filter_status) . "'";
 }
@@ -202,7 +211,6 @@ if (!empty($search_title)) {
 }
 
 if (!empty($search_sv)) {
-    // 搜索 Supervisor 名字，同时也匹配 contactpersonname 作为 fallback
     $sv_term = $conn->real_escape_string($search_sv);
     $sql .= " AND (s.fyp_name LIKE '%$sv_term%' OR p.fyp_contactpersonname LIKE '%$sv_term%')";
 }
@@ -315,7 +323,7 @@ $menu_items = [
         .btn-view { background: #fff; border: 1px solid var(--primary-color); color: var(--primary-color); padding: 10px; border-radius: 6px; width: 100%; cursor: pointer; font-weight: 500; transition: all 0.2s; }
         .btn-view:hover { background: var(--primary-color); color: #fff; }
 
-        /* Disable style */
+        /* Disable style for mismatch */
         .project-card.disabled { opacity: 0.6; }
         .project-card.disabled .btn-view { border-color: #ccc; color: #999; cursor: not-allowed; background: #f9f9f9; }
         .project-card.disabled:hover { transform: none; }
@@ -335,9 +343,6 @@ $menu_items = [
         
         .btn-confirm { background: var(--primary-color); color: white; border: none; padding: 12px 30px; border-radius: 6px; font-size: 16px; font-weight: 600; cursor: pointer; width: 100%; margin-top: 10px; }
         .btn-confirm:hover { background: var(--primary-hover); }
-        
-        /* Alert Box */
-        .alert-banner { background-color: #fff3cd; color: #856404; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #ffeeba; display: flex; align-items: center; gap: 10px; }
 
         @media (max-width: 900px) { .layout-container { flex-direction: column; } .sidebar { width: 100%; } }
     </style>
@@ -426,7 +431,7 @@ $menu_items = [
                 
                 <div class="filter-group">
                     <label>Status</label>
-                    <select name="filter_status" class="filter-input">
+                    <select name="filter_status" class="filter-select">
                         <option value="">All</option>
                         <option value="Open" <?php if($filter_status == 'Open') echo 'selected'; ?>>Open</option>
                         <option value="Taken" <?php if($filter_status == 'Taken') echo 'selected'; ?>>Taken</option>
@@ -470,7 +475,7 @@ $menu_items = [
                             // Button Text Logic
                             $btnText = "View & Apply";
                             if ($isTaken) $btnText = "Taken";
-                            else if ($isRejected) $btnText = "Application Rejected"; // 被拒绝显示
+                            else if ($isRejected) $btnText = "Application Rejected"; 
                             else if ($isAlreadyApplied) $btnText = "Already Applied"; 
                             else if ($isMismatch) $btnText = "Type Mismatch";
                             else if ($isMemberRestrict) $btnText = "Leader Only"; 
@@ -507,7 +512,7 @@ $menu_items = [
                         </div>
                     <?php endforeach; ?>
                 <?php else: ?>
-                    <div style="text-align:center; padding:40px; color:#999; grid-column: 1/-1;">No projects match your criteria.</div>
+                    <div style="text-align:center; padding:40px; color:#999; grid-column: 1/-1;">No projects match your criteria (Year Filter Applied).</div>
                 <?php endif; ?>
             </div>
         </main>
