@@ -136,22 +136,9 @@ $menu_items = [
         .tab-btn { padding: 10px 20px; background: transparent; border: none; color: #94a3b8; cursor: pointer; border-radius: 8px 8px 0 0; transition: all 0.3s; }
         .tab-btn.active { background: rgba(139, 92, 246, 0.2); color: #fff; }
         
-        #searchPreviewDropdown::-webkit-scrollbar { width: 6px; }
-        #searchPreviewDropdown::-webkit-scrollbar-track { background: rgba(30,41,59,0.5); border-radius: 3px; }
-        #searchPreviewDropdown::-webkit-scrollbar-thumb { background: rgba(139,92,246,0.5); border-radius: 3px; }
-        #searchPreviewDropdown::-webkit-scrollbar-thumb:hover { background: rgba(139,92,246,0.7); }
-        
-        .filter-tag { transition: all 0.2s; }
-        .filter-tag:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
-        
-        #marksSearchInput:focus { border-color: #8b5cf6; box-shadow: 0 0 0 3px rgba(139,92,246,0.2); outline: none; }
-        
-        .intake-option span:hover, .status-option span:hover { background: rgba(139,92,246,0.15) !important; }
-        
         @media (max-width: 768px) {
             .sidebar { width: 100%; height: auto; position: relative; }
             .main-content { margin-left: 0; }
-            #marksSearchInput { font-size: 0.9rem; height: 45px; }
         }
     </style>
 </head>
@@ -164,11 +151,8 @@ $menu_items = [
         <p>Coordinator</p>
     </div>
     <ul class="sidebar-nav">
-        <?php foreach ($menu_items as $key => $item): 
-            $href = isset($item['link']) ? $item['link'] : "?page=$key";
-            $is_active = isset($item['link']) ? false : ($key === $current_page);
-        ?>
-            <li><a href="<?= $href; ?>" class="<?= $is_active ? 'active' : ''; ?>">
+        <?php foreach ($menu_items as $key => $item): ?>
+            <li><a href="?page=<?= $key; ?>" class="<?= ($key === $current_page) ? 'active' : ''; ?>">
                 <i class="fas <?= $item['icon']; ?>"></i><?= $item['name']; ?>
                 <?php if (isset($item['badge']) && $item['badge'] > 0): ?><span class="nav-badge"><?= $item['badge']; ?></span><?php endif; ?>
             </a></li>
@@ -188,5 +172,4 @@ $menu_items = [
             <div class="alert alert-<?= $message_type; ?>"><i class="fas fa-<?= $message_type === 'success' ? 'check-circle' : 'exclamation-circle'; ?>"></i> <?= $message; ?></div>
         <?php endif; ?>
 
-<?php
-include("Coordinator_pages.php");
+<?php include("Coordinator_pages.php");
