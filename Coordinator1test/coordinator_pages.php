@@ -109,7 +109,7 @@ elseif ($current_page === 'registrations'):
                                     <td><?= date('M j, Y', strtotime($reg['created_at'])); ?></td>
                                     <td>
                                         <form method="POST" style="display:inline;"><input type="hidden" name="reg_id" value="<?= $reg['id']; ?>"><button type="submit" name="approve_registration" class="btn btn-success btn-sm"><i class="fas fa-check"></i></button></form>
-                                        <button class="btn btn-danger btn-sm" onclick="openRejectModal(<?= $reg['id']; ?>,'<?= htmlspecialchars($reg['studname'], ENT_QUOTES); ?>')"><i class="fas fa-times"></i></button>
+                                        <button class="btn btn-danger btn-sm" onclick="showRejectRegModal(<?= $reg['id']; ?>,'<?= htmlspecialchars($reg['studname'], ENT_QUOTES); ?>')"><i class="fas fa-times"></i></button>
                                     </td>
                                 </tr>
                                 <?php endforeach; ?>
@@ -149,74 +149,162 @@ elseif ($current_page === 'registrations'):
             </div>
         </div>
     </div>
+    
+    <script>
+    function showRegTab(tab) {
+        document.querySelectorAll('.tab-btn').forEach(function(btn) { btn.classList.remove('active'); });
+        event.target.classList.add('active');
+        document.getElementById('pendingTab').style.display = tab === 'pending' ? 'block' : 'none';
+        document.getElementById('processedTab').style.display = tab === 'processed' ? 'block' : 'none';
+    }
+    </script>
 
-<?php // ==================== GROUP REQUESTS ====================
+<?php 
+// ==================== GROUP REQUESTS ====================
 elseif ($current_page === 'group_requests'): 
     $group_requests = [];
-    $res = $conn->query("SELECT gr.*, s.fyp_studname as student_name, s.fyp_studfullid, s.fyp_email
+    $res = $conn->query("SELECT gr.*, 
+                                s1.fyp_studname as inviter_name, s1.fyp_studfullid as inviter_fullid, s1.fyp_email as inviter_email,
+                                s2.fyp_studname as invitee_name, s2.fyp_studfullid as invitee_fullid, s2.fyp_email as invitee_email
                          FROM group_request gr 
-                         LEFT JOIN student s ON gr.fyp_studid = s.fyp_studid 
-                         ORDER BY gr.request_date DESC");
+                         LEFT JOIN student s1 ON gr.inviter_id = s1.fyp_studid 
+                         LEFT JOIN student s2 ON gr.invitee_id = s2.fyp_studid
+                         ORDER BY gr.request_id DESC");
     if ($res) { while ($row = $res->fetch_assoc()) { $group_requests[] = $row; } }
+    
+    $total_gr = count($group_requests);
+    $pending_gr = count(array_filter($group_requests, function($r) { return ($r['request_status'] ?? '') === 'Pending'; }));
+    $accepted_gr = count(array_filter($group_requests, function($r) { return ($r['request_status'] ?? '') === 'Accepted'; }));
+    $rejected_gr = count(array_filter($group_requests, function($r) { return ($r['request_status'] ?? '') === 'Rejected'; }));
 ?>
-    <div class="card">
-        <div class="card-header"><h3><i class="fas fa-users"></i> Group Requests</h3></div>
-        <div class="card-body">
-            <div class="filter-row" style="margin-bottom:20px;">
-                <div class="form-group" style="min-width:200px;">
-                    <input type="text" class="form-control" placeholder="Search..." id="groupRequestSearch" onkeyup="filterTable('groupRequestSearch','groupRequestTable')">
-                </div>
-                <div class="form-group">
-                    <select class="form-control" id="groupRequestStatus" onchange="filterGroupRequests()">
-                        <option value="all">All Status</option>
-                        <option value="Pending">Pending</option>
-                        <option value="Accepted">Accepted</option>
-                        <option value="Rejected">Rejected</option>
-                    </select>
-                </div>
-            </div>
-            <?php if (empty($group_requests)): ?>
-                <div class="empty-state"><i class="fas fa-users"></i><p>No group requests found</p></div>
-            <?php else: ?>
-                <table class="data-table" id="groupRequestTable">
-                    <thead><tr><th>Request ID</th><th>Student</th><th>Student ID</th><th>Group Name</th><th>Members</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
-                    <tbody>
-                        <?php foreach ($group_requests as $gr): ?>
-                        <tr data-status="<?= $gr['request_status']; ?>">
-                            <td><?= $gr['request_id']; ?></td>
-                            <td><?= htmlspecialchars($gr['student_name'] ?? '-'); ?></td>
-                            <td><?= htmlspecialchars($gr['fyp_studfullid'] ?? '-'); ?></td>
-                            <td><?= htmlspecialchars($gr['group_name'] ?? '-'); ?></td>
-                            <td><?= $gr['member_count'] ?? '-'; ?></td>
-                            <td>
-                                <span class="badge badge-<?= $gr['request_status'] === 'Accepted' ? 'approved' : ($gr['request_status'] === 'Rejected' ? 'rejected' : 'pending'); ?>">
-                                    <?= $gr['request_status']; ?>
-                                </span>
-                            </td>
-                            <td><?= $gr['request_date'] ? date('M j, Y', strtotime($gr['request_date'])) : '-'; ?></td>
-                            <td>
-                                <?php if ($gr['request_status'] === 'Pending'): ?>
-                                    <form method="POST" style="display:inline;">
-                                        <input type="hidden" name="request_id" value="<?= $gr['request_id']; ?>">
-                                        <input type="hidden" name="new_status" value="Accepted">
-                                        <button type="submit" name="update_request_status" class="btn btn-success btn-sm"><i class="fas fa-check"></i></button>
-                                    </form>
-                                    <form method="POST" style="display:inline;">
-                                        <input type="hidden" name="request_id" value="<?= $gr['request_id']; ?>">
-                                        <input type="hidden" name="new_status" value="Rejected">
-                                        <button type="submit" name="update_request_status" class="btn btn-danger btn-sm"><i class="fas fa-times"></i></button>
-                                    </form>
-                                <?php else: ?>
-                                    <span style="color:#64748b;">-</span>
-                                <?php endif; ?>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            <?php endif; ?>
-        </div>
+
+<div class="stats-grid" style="margin-bottom:20px;">
+    <div class="stat-card" style="cursor:pointer;" onclick="filterGroupByStatus('all')">
+        <div class="stat-icon purple"><i class="fas fa-users"></i></div>
+        <div class="stat-info"><h4><?= $total_gr; ?></h4><p>Total</p></div>
     </div>
+    <div class="stat-card" style="cursor:pointer;" onclick="filterGroupByStatus('Pending')">
+        <div class="stat-icon orange"><i class="fas fa-clock"></i></div>
+        <div class="stat-info"><h4><?= $pending_gr; ?></h4><p>Pending</p></div>
+    </div>
+    <div class="stat-card" style="cursor:pointer;" onclick="filterGroupByStatus('Accepted')">
+        <div class="stat-icon green"><i class="fas fa-check"></i></div>
+        <div class="stat-info"><h4><?= $accepted_gr; ?></h4><p>Accepted</p></div>
+    </div>
+    <div class="stat-card" style="cursor:pointer;" onclick="filterGroupByStatus('Rejected')">
+        <div class="stat-icon red"><i class="fas fa-times"></i></div>
+        <div class="stat-info"><h4><?= $rejected_gr; ?></h4><p>Rejected</p></div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3><i class="fas fa-users"></i> Group Requests</h3>
+        <button class="btn btn-secondary btn-sm" onclick="resetGroupFilters()"><i class="fas fa-redo"></i> Reset</button>
+    </div>
+    <div class="card-body">
+        <div style="display:flex;gap:15px;margin-bottom:20px;padding:15px;background:rgba(139,92,246,0.1);border-radius:12px;flex-wrap:wrap;">
+            <div style="flex:2;min-width:200px;">
+                <input type="text" class="form-control" placeholder="Search..." id="groupSearch" onkeyup="filterGroupRequests()">
+            </div>
+            <div style="flex:1;min-width:150px;">
+                <select class="form-control" id="groupStatus" onchange="filterGroupRequests()">
+                    <option value="all" selected>All Status</option>
+                    <option value="Pending">Pending</option>
+                    <option value="Accepted">Accepted</option>
+                    <option value="Rejected">Rejected</option>
+                </select>
+            </div>
+        </div>
+        
+        <?php if (empty($group_requests)): ?>
+            <div class="empty-state"><i class="fas fa-users"></i><p>No group requests found</p></div>
+        <?php else: ?>
+            <table class="data-table" id="groupRequestTable">
+                <thead><tr><th>ID</th><th>Group ID</th><th>Inviter (From)</th><th>Invitee (To)</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>
+                    <?php foreach ($group_requests as $gr): 
+                        $status = $gr['request_status'] ?? 'Pending';
+                    ?>
+                    <tr data-status="<?= $status; ?>" data-search="<?= strtolower(($gr['inviter_name'] ?? ''). ' ' .($gr['invitee_name'] ?? '')); ?>">
+                        <td><?= $gr['request_id']; ?></td>
+                        <td><span class="badge" style="background:rgba(139,92,246,0.2);color:#a78bfa;">Group <?= $gr['group_id']; ?></span></td>
+                        <td>
+                            <strong><?= htmlspecialchars($gr['inviter_name'] ?? '-'); ?></strong>
+                            <br><small style="color:#64748b;"><?= htmlspecialchars($gr['inviter_fullid'] ?? ''); ?></small>
+                        </td>
+                        <td>
+                            <strong><?= htmlspecialchars($gr['invitee_name'] ?? '-'); ?></strong>
+                            <br><small style="color:#64748b;"><?= htmlspecialchars($gr['invitee_fullid'] ?? ''); ?></small>
+                        </td>
+                        <td>
+                            <span class="badge badge-<?= $status === 'Accepted' ? 'approved' : ($status === 'Rejected' ? 'rejected' : 'pending'); ?>">
+                                <?= $status; ?>
+                            </span>
+                        </td>
+                        <td>
+                            <?php if ($status === 'Pending'): ?>
+                                <button class="btn btn-success btn-sm" onclick="confirmGroupAction(<?= $gr['request_id']; ?>, 'Accepted', '<?= htmlspecialchars(($gr['inviter_name'] ?? '').' → '.($gr['invitee_name'] ?? ''), ENT_QUOTES); ?>')"><i class="fas fa-check"></i></button>
+                                <button class="btn btn-danger btn-sm" onclick="confirmGroupAction(<?= $gr['request_id']; ?>, 'Rejected', '<?= htmlspecialchars(($gr['inviter_name'] ?? '').' → '.($gr['invitee_name'] ?? ''), ENT_QUOTES); ?>')"><i class="fas fa-times"></i></button>
+                            <?php else: ?>
+                                <span style="color:#64748b;">-</span>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+    </div>
+</div>
+
+<!-- Confirm Group Action Modal -->
+<div class="modal-overlay" id="confirmGroupModal">
+    <div class="modal" style="max-width:450px;">
+        <div class="modal-header">
+            <h3><i class="fas fa-question-circle" style="color:#fbbf24;"></i> Confirm</h3>
+            <button class="modal-close" onclick="closeModal('confirmGroupModal')">&times;</button>
+        </div>
+        <form method="POST">
+            <input type="hidden" name="request_id" id="confirm_group_id">
+            <input type="hidden" name="new_status" id="confirm_group_status">
+            <div class="modal-body"><p id="confirmGroupMessage" style="text-align:center;">Are you sure?</p></div>
+            <div class="modal-footer" style="justify-content:center;">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('confirmGroupModal')">No</button>
+                <button type="submit" name="update_request_status" class="btn" id="confirmGroupBtn">Yes</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function filterGroupRequests() {
+    var search = (document.getElementById('groupSearch').value || '').toLowerCase();
+    var status = document.getElementById('groupStatus').value;
+    document.querySelectorAll('#groupRequestTable tbody tr').forEach(function(row) {
+        var rowSearch = row.dataset.search || '';
+        var rowStatus = row.dataset.status || '';
+        var matchSearch = !search || rowSearch.includes(search);
+        var matchStatus = status === 'all' || rowStatus === status;
+        row.style.display = (matchSearch && matchStatus) ? '' : 'none';
+    });
+}
+function filterGroupByStatus(s) { document.getElementById('groupStatus').value = s; filterGroupRequests(); }
+function resetGroupFilters() { document.getElementById('groupSearch').value = ''; document.getElementById('groupStatus').value = 'all'; filterGroupRequests(); }
+function confirmGroupAction(id, status, name) {
+    document.getElementById('confirm_group_id').value = id;
+    document.getElementById('confirm_group_status').value = status;
+    var btn = document.getElementById('confirmGroupBtn');
+    if (status === 'Accepted') {
+        document.getElementById('confirmGroupMessage').innerHTML = '<strong style="color:#34d399;">ACCEPT</strong> request:<br><strong>' + name + '</strong>?';
+        btn.className = 'btn btn-success'; btn.textContent = 'Yes, Accept';
+    } else {
+        document.getElementById('confirmGroupMessage').innerHTML = '<strong style="color:#f87171;">REJECT</strong> request:<br><strong>' + name + '</strong>?';
+        btn.className = 'btn btn-danger'; btn.textContent = 'Yes, Reject';
+    }
+    openModal('confirmGroupModal');
+}
+</script>
 
 <?php // ==================== MANAGE STUDENTS ====================
 elseif ($current_page === 'students'): 
@@ -233,13 +321,13 @@ elseif ($current_page === 'students'):
                          ORDER BY s.fyp_studname");
     if ($res) { while ($row = $res->fetch_assoc()) { $students[] = $row; } }
     
-    $programme_list = [];
+    $programmes = [];
     $prog_res = $conn->query("SELECT DISTINCT fyp_progid, fyp_progname FROM programme ORDER BY fyp_progname");
-    if ($prog_res) { while ($row = $prog_res->fetch_assoc()) { $programme_list[] = $row; } }
+    if ($prog_res) { while ($row = $prog_res->fetch_assoc()) { $programmes[] = $row; } }
 ?>
     <div class="card">
         <div class="card-header">
-            <h3>All Students (<span id="studentCount"><?= count($students); ?></span>)</h3>
+            <h3><i class="fas fa-user-graduate"></i> All Students (<span id="studentCount"><?= count($students); ?></span>)</h3>
             <button class="btn btn-secondary btn-sm" onclick="resetStudentFilters()"><i class="fas fa-redo"></i> Reset Filters</button>
         </div>
         <div class="card-body">
@@ -261,7 +349,7 @@ elseif ($current_page === 'students'):
                     <label style="color:#a78bfa;font-size:0.85rem;display:block;margin-bottom:5px;"><i class="fas fa-graduation-cap"></i> Programme</label>
                     <select id="studentProgramme" class="form-control" onchange="filterAndSortStudents()">
                         <option value="all">All Programmes</option>
-                        <?php foreach ($programme_list as $prog): ?>
+                        <?php foreach ($programmes as $prog): ?>
                             <option value="<?= htmlspecialchars($prog['fyp_progname']); ?>"><?= htmlspecialchars($prog['fyp_progname']); ?></option>
                         <?php endforeach; ?>
                     </select>
@@ -280,20 +368,21 @@ elseif ($current_page === 'students'):
             <?php else: ?>
                 <div style="overflow-x:auto;">
                     <table class="data-table" id="studentTable">
-                        <thead><tr><th>Student ID</th><th>Name</th><th>Programme</th><th>Project</th><th>Group Type</th><th>Email</th><th>Contact</th><th>Actions</th></tr></thead>
+                        <thead><tr><th><input type="checkbox" onclick="toggleAllStudents(this)"></th><th>Student ID</th><th>Name</th><th>Programme</th><th>Project</th><th>Group Type</th><th>Email</th><th>Contact</th><th>Actions</th></tr></thead>
                         <tbody>
                             <?php foreach ($students as $s): 
                                 $project_title = $s['fyp_projecttitle'] ?? $s['paired_project'] ?? null;
                             ?>
                             <tr data-name="<?= htmlspecialchars(strtolower($s['fyp_studname'])); ?>" 
                                 data-id="<?= htmlspecialchars(strtolower($s['fyp_studfullid'])); ?>"
-                                data-programme="<?= htmlspecialchars(strtolower($s['fyp_progname'] ?? '')); ?>"
+                                data-programme="<?= htmlspecialchars($s['fyp_progname'] ?? ''); ?>"
                                 data-group="<?= $s['fyp_group'] ?? 'Individual'; ?>">
+                                <td><input type="checkbox" class="student-checkbox" value="<?= $s['fyp_studid']; ?>"></td>
                                 <td><?= htmlspecialchars($s['fyp_studfullid']); ?></td>
                                 <td><?= htmlspecialchars($s['fyp_studname']); ?></td>
                                 <td><?= htmlspecialchars($s['fyp_progname'] ?? '-'); ?></td>
                                 <td><?= $project_title ? htmlspecialchars($project_title) : '<span style="color:#64748b;">No Project</span>'; ?></td>
-                                <td><?= $s['fyp_group'] ? htmlspecialchars($s['fyp_group']) : '<span style="color:#64748b;">Individual</span>'; ?></td>
+                                <td><span class="badge <?= ($s['fyp_group'] ?? '') === 'Group' ? 'badge-approved' : 'badge-pending'; ?>"><?= $s['fyp_group'] ?? 'Individual'; ?></span></td>
                                 <td><?= htmlspecialchars($s['fyp_email'] ?? '-'); ?></td>
                                 <td><?= htmlspecialchars($s['fyp_contactno'] ?? '-'); ?></td>
                                 <td>
@@ -305,9 +394,62 @@ elseif ($current_page === 'students'):
                         </tbody>
                     </table>
                 </div>
+                <div style="margin-top:15px;">
+                    <button class="btn btn-danger" onclick="bulkDeleteStudents()"><i class="fas fa-trash"></i> Delete Selected</button>
+                </div>
             <?php endif; ?>
         </div>
     </div>
+    
+    <script>
+    function toggleAllStudents(source) {
+        document.querySelectorAll('.student-checkbox').forEach(function(cb) {
+            if (cb.closest('tr').style.display !== 'none') cb.checked = source.checked;
+        });
+    }
+    
+    function bulkDeleteStudents() {
+        var selected = document.querySelectorAll('.student-checkbox:checked');
+        if (selected.length === 0) { alert('Please select students to delete.'); return; }
+        if (confirm('Delete ' + selected.length + ' student(s)? This cannot be undone!')) {
+            alert('Bulk delete: ' + selected.length + ' students');
+        }
+    }
+    
+    function filterAndSortStudents() {
+        var search = (document.getElementById('studentSearch').value || '').toLowerCase();
+        var sort = document.getElementById('studentSort').value;
+        var prog = document.getElementById('studentProgramme').value;
+        var group = document.getElementById('studentGroupType').value;
+        
+        var rows = Array.from(document.querySelectorAll('#studentTable tbody tr'));
+        var count = 0;
+        
+        rows.forEach(function(row) {
+            var name = row.dataset.name || '';
+            var id = row.dataset.id || '';
+            var rowProg = row.dataset.programme || '';
+            var rowGroup = row.dataset.group || '';
+            
+            var matchSearch = !search || name.includes(search) || id.includes(search);
+            var matchProg = prog === 'all' || rowProg === prog;
+            var matchGroup = group === 'all' || rowGroup === group;
+            
+            if (matchSearch && matchProg && matchGroup) { row.style.display = ''; count++; }
+            else { row.style.display = 'none'; }
+        });
+        
+        document.getElementById('studentCount').textContent = count;
+    }
+    
+    function resetStudentFilters() {
+        document.getElementById('studentSearch').value = '';
+        document.getElementById('studentSort').value = 'name_asc';
+        document.getElementById('studentProgramme').value = 'all';
+        document.getElementById('studentGroupType').value = 'all';
+        filterAndSortStudents();
+    }
+    </script>
 
 <?php // ==================== MANAGE SUPERVISORS ====================
 elseif ($current_page === 'supervisors'): 
@@ -341,7 +483,7 @@ elseif ($current_page === 'supervisors'):
 ?>
     <div class="card">
         <div class="card-header">
-            <h3>All Supervisors (<span id="supervisorCount"><?= count($supervisors); ?></span>)</h3>
+            <h3><i class="fas fa-user-tie"></i> All Supervisors (<span id="supervisorCount"><?= count($supervisors); ?></span>)</h3>
             <button class="btn btn-secondary btn-sm" onclick="resetSupervisorFilters()"><i class="fas fa-redo"></i> Reset Filters</button>
         </div>
         <div class="card-body">
@@ -391,7 +533,7 @@ elseif ($current_page === 'supervisors'):
             <?php else: ?>
                 <div style="overflow-x:auto;">
                     <table class="data-table" id="supervisorTable">
-                        <thead><tr><th>ID</th><th>Name</th><th>Room</th><th>Programme</th><th>Email</th><th>Contact</th><th>Specialization</th><th>Moderator</th><th>Actions</th></tr></thead>
+                        <thead><tr><th><input type="checkbox" onclick="toggleAllSupervisors(this)"></th><th>ID</th><th>Name</th><th>Room</th><th>Programme</th><th>Email</th><th>Contact</th><th>Specialization</th><th>Moderator</th><th>Actions</th></tr></thead>
                         <tbody>
                             <?php foreach ($supervisors as $sup): 
                                 $student_count = isset($supervisor_students[$sup['fyp_supervisorid']]) ? count($supervisor_students[$sup['fyp_supervisorid']]) : 0;
@@ -399,9 +541,10 @@ elseif ($current_page === 'supervisors'):
                             <tr data-id="<?= $sup['fyp_supervisorid']; ?>" 
                                 data-name="<?= htmlspecialchars(strtolower($sup['fyp_name'])); ?>" 
                                 data-email="<?= htmlspecialchars(strtolower($sup['fyp_email'] ?? '')); ?>"
-                                data-programme="<?= htmlspecialchars(strtolower($sup['fyp_programme'] ?? '')); ?>"
-                                data-specialization="<?= htmlspecialchars(strtolower($sup['fyp_specialization'] ?? '')); ?>"
+                                data-programme="<?= htmlspecialchars($sup['fyp_programme'] ?? ''); ?>"
+                                data-specialization="<?= htmlspecialchars($sup['fyp_specialization'] ?? ''); ?>"
                                 data-moderator="<?= $sup['fyp_ismoderator'] ? 'yes' : 'no'; ?>">
+                                <td><input type="checkbox" class="supervisor-checkbox" value="<?= $sup['fyp_supervisorid']; ?>"></td>
                                 <td><?= $sup['fyp_supervisorid']; ?></td>
                                 <td><strong><?= htmlspecialchars($sup['fyp_name']); ?></strong></td>
                                 <td><?= htmlspecialchars($sup['fyp_roomno'] ?? '-'); ?></td>
@@ -426,7 +569,83 @@ elseif ($current_page === 'supervisors'):
             <?php endif; ?>
         </div>
     </div>
-    <script>var supervisorStudentsData = <?= json_encode($supervisor_students); ?>;</script>
+    
+    <!-- Supervisor Students Modal -->
+    <div class="modal-overlay" id="supervisorStudentsModal">
+        <div class="modal" style="max-width:700px;">
+            <div class="modal-header">
+                <h3><i class="fas fa-users" style="color:#a78bfa;"></i> <span id="supStudentsTitle">Students</span></h3>
+                <button class="modal-close" onclick="closeModal('supervisorStudentsModal')">&times;</button>
+            </div>
+            <div class="modal-body" id="supStudentsContent"></div>
+            <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('supervisorStudentsModal')">Close</button></div>
+        </div>
+    </div>
+    
+    <script>
+    var supervisorStudentsData = <?= json_encode($supervisor_students); ?>;
+    
+    function toggleAllSupervisors(source) {
+        document.querySelectorAll('.supervisor-checkbox').forEach(function(cb) {
+            if (cb.closest('tr').style.display !== 'none') cb.checked = source.checked;
+        });
+    }
+    
+    function viewSupervisorStudents(supId, supName) {
+        document.getElementById('supStudentsTitle').textContent = supName + ' - Students';
+        var students = supervisorStudentsData[supId] || [];
+        var html = '';
+        if (students.length === 0) {
+            html = '<div class="empty-state"><i class="fas fa-users"></i><p>No students assigned</p></div>';
+        } else {
+            html = '<table class="data-table"><thead><tr><th>Student ID</th><th>Name</th><th>Project</th><th>Semester</th></tr></thead><tbody>';
+            students.forEach(function(s) {
+                html += '<tr><td>' + (s.fyp_studfullid || '-') + '</td><td>' + (s.fyp_studname || '-') + '</td><td>' + (s.fyp_projecttitle || '-') + '</td><td>' + (s.fyp_acdyear || '') + ' ' + (s.fyp_intake || '') + '</td></tr>';
+            });
+            html += '</tbody></table>';
+        }
+        document.getElementById('supStudentsContent').innerHTML = html;
+        openModal('supervisorStudentsModal');
+    }
+    
+    function filterAndSortSupervisors() {
+        var search = (document.getElementById('supervisorSearch').value || '').toLowerCase();
+        var sort = document.getElementById('supervisorSort').value;
+        var prog = document.getElementById('supervisorProgramme').value;
+        var spec = document.getElementById('supervisorSpecialization').value;
+        var mod = document.getElementById('supervisorModerator').value;
+        
+        var rows = Array.from(document.querySelectorAll('#supervisorTable tbody tr'));
+        var count = 0;
+        
+        rows.forEach(function(row) {
+            var name = row.dataset.name || '';
+            var email = row.dataset.email || '';
+            var rowProg = row.dataset.programme || '';
+            var rowSpec = row.dataset.specialization || '';
+            var rowMod = row.dataset.moderator || '';
+            
+            var matchSearch = !search || name.includes(search) || email.includes(search);
+            var matchProg = prog === 'all' || rowProg === prog;
+            var matchSpec = spec === 'all' || rowSpec === spec;
+            var matchMod = mod === 'all' || rowMod === mod;
+            
+            if (matchSearch && matchProg && matchSpec && matchMod) { row.style.display = ''; count++; }
+            else { row.style.display = 'none'; }
+        });
+        
+        document.getElementById('supervisorCount').textContent = count;
+    }
+    
+    function resetSupervisorFilters() {
+        document.getElementById('supervisorSearch').value = '';
+        document.getElementById('supervisorSort').value = 'name_asc';
+        document.getElementById('supervisorProgramme').value = 'all';
+        document.getElementById('supervisorSpecialization').value = 'all';
+        document.getElementById('supervisorModerator').value = 'all';
+        filterAndSortSupervisors();
+    }
+    </script>
 
 <?php // ==================== STUDENT-SUPERVISOR PAIRING ====================
 elseif ($current_page === 'pairing'): 
@@ -456,7 +675,7 @@ elseif ($current_page === 'pairing'):
             <h3><i class="fas fa-link"></i> Student-Supervisor Pairings (<span id="pairingCount"><?= count($pairings); ?></span>)</h3>
             <div style="display:flex;gap:10px;">
                 <button class="btn btn-secondary btn-sm" onclick="resetPairingFilters()"><i class="fas fa-redo"></i> Reset</button>
-                <button class="btn btn-primary" onclick="openModal('addPairingModal')"><i class="fas fa-plus"></i> Add Pairing</button>
+                <button class="btn btn-primary" onclick="openModal('createPairingModal')"><i class="fas fa-plus"></i> Add Pairing</button>
             </div>
         </div>
         <div class="card-body">
@@ -483,67 +702,76 @@ elseif ($current_page === 'pairing'):
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <div style="flex:1;min-width:120px;">
-                    <label style="color:#a78bfa;font-size:0.85rem;display:block;margin-bottom:5px;"><i class="fas fa-th-list"></i> View</label>
-                    <select id="pairingView" class="form-control" onchange="togglePairingView()">
-                        <option value="table">Table View</option>
-                        <option value="card">Card View</option>
-                    </select>
-                </div>
             </div>
             
-            <div id="pairingTableView">
-                <?php if (empty($pairings)): ?>
-                    <div class="empty-state"><i class="fas fa-link"></i><p>No pairings found</p></div>
-                <?php else: ?>
-                    <div style="overflow-x:auto;">
-                        <table class="data-table" id="pairingTable">
-                            <thead><tr><th>ID</th><th>Student</th><th>Student ID</th><th>Supervisor</th><th>Project</th><th>Intake</th><th>Actions</th></tr></thead>
-                            <tbody>
-                                <?php foreach ($pairings as $p): ?>
-                                <tr data-supervisor="<?= $p['fyp_supervisorid']; ?>" data-intake="<?= $p['fyp_academicid'] ?? ''; ?>">
-                                    <td><?= $p['fyp_pairingid']; ?></td>
-                                    <td><?= htmlspecialchars($p['fyp_studname'] ?? '-'); ?></td>
-                                    <td><?= htmlspecialchars($p['fyp_studfullid'] ?? '-'); ?></td>
-                                    <td><?= htmlspecialchars($p['supervisor_name'] ?? '-'); ?></td>
-                                    <td><?= htmlspecialchars($p['fyp_projecttitle'] ?? '-'); ?></td>
-                                    <td><?= ($p['fyp_acdyear'] ?? '') . ' - ' . ($p['fyp_intake'] ?? ''); ?></td>
-                                    <td>
-                                        <button class="btn btn-info btn-sm" onclick="viewPairing(<?= $p['fyp_pairingid']; ?>)"><i class="fas fa-eye"></i></button>
-                                        <button class="btn btn-danger btn-sm" onclick="confirmDeletePairing(<?= $p['fyp_pairingid']; ?>)"><i class="fas fa-trash"></i></button>
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                <?php endif; ?>
-            </div>
-            
-            <div id="pairingCardView" style="display:none;">
-                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px;">
-                    <?php foreach ($pairings as $p): ?>
-                    <div class="card" style="padding:20px;" data-supervisor="<?= $p['fyp_supervisorid']; ?>" data-intake="<?= $p['fyp_academicid'] ?? ''; ?>">
-                        <h4 style="color:#a78bfa;margin-bottom:15px;"><?= htmlspecialchars($p['fyp_studname'] ?? '-'); ?></h4>
-                        <p><strong>ID:</strong> <?= htmlspecialchars($p['fyp_studfullid'] ?? '-'); ?></p>
-                        <p><strong>Supervisor:</strong> <?= htmlspecialchars($p['supervisor_name'] ?? '-'); ?></p>
-                        <p><strong>Project:</strong> <?= htmlspecialchars($p['fyp_projecttitle'] ?? '-'); ?></p>
-                        <p><strong>Intake:</strong> <?= ($p['fyp_acdyear'] ?? '') . ' - ' . ($p['fyp_intake'] ?? ''); ?></p>
-                    </div>
-                    <?php endforeach; ?>
+            <?php if (empty($pairings)): ?>
+                <div class="empty-state"><i class="fas fa-link"></i><p>No pairings found</p></div>
+            <?php else: ?>
+                <div style="overflow-x:auto;">
+                    <table class="data-table" id="pairingTable">
+                        <thead><tr><th>ID</th><th>Student</th><th>Student ID</th><th>Supervisor</th><th>Project</th><th>Intake</th><th>Actions</th></tr></thead>
+                        <tbody>
+                            <?php foreach ($pairings as $p): ?>
+                            <tr data-supervisor="<?= $p['fyp_supervisorid']; ?>" data-intake="<?= $p['fyp_academicid'] ?? ''; ?>" data-search="<?= strtolower(($p['fyp_studname'] ?? '').($p['fyp_projecttitle'] ?? '')); ?>">
+                                <td><?= $p['fyp_pairingid']; ?></td>
+                                <td><?= htmlspecialchars($p['fyp_studname'] ?? '-'); ?></td>
+                                <td><?= htmlspecialchars($p['fyp_studfullid'] ?? '-'); ?></td>
+                                <td><?= htmlspecialchars($p['supervisor_name'] ?? '-'); ?></td>
+                                <td><?= htmlspecialchars($p['fyp_projecttitle'] ?? '-'); ?></td>
+                                <td><?= ($p['fyp_acdyear'] ?? '') . ' - ' . ($p['fyp_intake'] ?? ''); ?></td>
+                                <td>
+                                    <button class="btn btn-info btn-sm"><i class="fas fa-eye"></i></button>
+                                    <button class="btn btn-danger btn-sm"><i class="fas fa-trash"></i></button>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
                 </div>
-            </div>
+            <?php endif; ?>
         </div>
     </div>
+    
+    <script>
+    function filterPairings() {
+        var search = (document.getElementById('pairingSearch').value || '').toLowerCase();
+        var sup = document.getElementById('pairingSupervisor').value;
+        var intake = document.getElementById('pairingIntake').value;
+        var count = 0;
+        
+        document.querySelectorAll('#pairingTable tbody tr').forEach(function(row) {
+            var rowSearch = row.dataset.search || '';
+            var rowSup = row.dataset.supervisor || '';
+            var rowIntake = row.dataset.intake || '';
+            
+            var matchSearch = !search || rowSearch.includes(search);
+            var matchSup = sup === 'all' || rowSup === sup;
+            var matchIntake = intake === 'all' || rowIntake === intake;
+            
+            if (matchSearch && matchSup && matchIntake) { row.style.display = ''; count++; }
+            else { row.style.display = 'none'; }
+        });
+        
+        document.getElementById('pairingCount').textContent = count;
+    }
+    
+    function resetPairingFilters() {
+        document.getElementById('pairingSearch').value = '';
+        document.getElementById('pairingSupervisor').value = 'all';
+        document.getElementById('pairingIntake').value = 'all';
+        filterPairings();
+    }
+    </script>
 
-<?php // ==================== MANAGE PROJECTS ====================
+<?php 
+// ==================== MANAGE PROJECTS - FIXED ====================
 elseif ($current_page === 'projects'): 
     $projects = [];
     $res = $conn->query("SELECT p.*, s.fyp_name as supervisor_name, s.fyp_email as supervisor_email,
                                 (SELECT COUNT(*) FROM pairing WHERE fyp_projectid = p.fyp_projectid) as student_count
                          FROM project p 
                          LEFT JOIN supervisor s ON p.fyp_supervisorid = s.fyp_supervisorid 
-                         ORDER BY p.fyp_datecreated DESC");
+                         ORDER BY p.fyp_projectid DESC");
     if ($res) { while ($row = $res->fetch_assoc()) { $projects[] = $row; } }
 
     $supervisors_list = [];
@@ -554,32 +782,29 @@ elseif ($current_page === 'projects'):
     $res = $conn->query("SELECT DISTINCT fyp_projectcat FROM project WHERE fyp_projectcat IS NOT NULL AND fyp_projectcat != '' ORDER BY fyp_projectcat");
     if ($res) { while ($row = $res->fetch_assoc()) { $categories[] = $row['fyp_projectcat']; } }
 
-    $supervisor_filter = [];
-    $res = $conn->query("SELECT DISTINCT s.fyp_supervisorid, s.fyp_name FROM project p JOIN supervisor s ON p.fyp_supervisorid = s.fyp_supervisorid ORDER BY s.fyp_name");
-    if ($res) { while ($row = $res->fetch_assoc()) { $supervisor_filter[] = $row; } }
-
     $total_projects_count = count($projects);
     $available_count = count(array_filter($projects, function($p) { return ($p['fyp_projectstatus'] ?? '') === 'Available'; }));
     $unavailable_count = count(array_filter($projects, function($p) { return ($p['fyp_projectstatus'] ?? '') === 'Unavailable'; }));
 ?>
+
 <style>
-    .toggle-switch { position: relative; display: inline-block; width: 80px; height: 32px; }
-    .toggle-switch input { opacity: 0; width: 0; height: 0; }
-    .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(135deg, #ef4444, #dc2626); transition: 0.4s; border-radius: 32px; }
-    .toggle-slider:before { position: absolute; content: ""; height: 24px; width: 24px; left: 4px; bottom: 4px; background-color: white; transition: 0.4s; border-radius: 50%; }
-    .toggle-switch input:checked + .toggle-slider { background: linear-gradient(135deg, #10b981, #059669); }
-    .toggle-switch input:checked + .toggle-slider:before { transform: translateX(48px); }
-    .toggle-label { font-size: 0.7rem; font-weight: 600; position: absolute; top: 50%; transform: translateY(-50%); color: white; pointer-events: none; }
-    .toggle-label.on { left: 8px; display: none; }
-    .toggle-label.off { right: 6px; }
-    .toggle-switch input:checked ~ .toggle-label.on { display: block; }
-    .toggle-switch input:checked ~ .toggle-label.off { display: none; }
+.toggle-switch { position: relative; display: inline-block; width: 80px; height: 32px; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(135deg, #ef4444, #dc2626); transition: 0.4s; border-radius: 32px; }
+.toggle-slider:before { position: absolute; content: ""; height: 24px; width: 24px; left: 4px; bottom: 4px; background-color: white; transition: 0.4s; border-radius: 50%; }
+.toggle-switch input:checked + .toggle-slider { background: linear-gradient(135deg, #10b981, #059669); }
+.toggle-switch input:checked + .toggle-slider:before { transform: translateX(48px); }
+.toggle-label { font-size: 0.7rem; font-weight: 600; position: absolute; top: 50%; transform: translateY(-50%); color: white; pointer-events: none; }
+.toggle-label.on { left: 8px; display: none; }
+.toggle-label.off { right: 6px; }
+.toggle-switch input:checked ~ .toggle-label.on { display: block; }
+.toggle-switch input:checked ~ .toggle-label.off { display: none; }
 </style>
 
 <div class="stats-grid">
     <div class="stat-card" onclick="quickFilterProject('all')" style="cursor:pointer;">
         <div class="stat-icon purple"><i class="fas fa-folder-open"></i></div>
-        <div class="stat-info"><h4><?= $total_projects_count; ?></h4><p>Total Projects</p></div>
+        <div class="stat-info"><h4><?= $total_projects_count; ?></h4><p>Total</p></div>
     </div>
     <div class="stat-card" onclick="quickFilterProject('Available')" style="cursor:pointer;">
         <div class="stat-icon green"><i class="fas fa-check-circle"></i></div>
@@ -593,50 +818,22 @@ elseif ($current_page === 'projects'):
 
 <div class="card">
     <div class="card-header">
-        <h3><i class="fas fa-project-diagram"></i> Project Allocation (<span id="projectCount"><?= $total_projects_count; ?></span>)</h3>
+        <h3><i class="fas fa-project-diagram"></i> Projects (<span id="projectCount"><?= $total_projects_count; ?></span>)</h3>
         <div style="display:flex;gap:10px;">
             <button class="btn btn-secondary btn-sm" onclick="resetProjectFilters()"><i class="fas fa-redo"></i> Reset</button>
-            <button class="btn btn-primary" onclick="openModal('addProjectModal')"><i class="fas fa-plus"></i> Add New Project</button>
+            <button class="btn btn-primary" onclick="openModal('addProjectModal')"><i class="fas fa-plus"></i> Add Project</button>
         </div>
     </div>
     <div class="card-body">
-        <div style="display:flex;flex-wrap:wrap;gap:15px;margin-bottom:20px;padding:20px;background:rgba(139,92,246,0.1);border-radius:12px;">
+        <div style="display:flex;flex-wrap:wrap;gap:15px;margin-bottom:20px;padding:15px;background:rgba(139,92,246,0.1);border-radius:12px;">
             <div style="flex:2;min-width:200px;">
-                <label style="color:#a78bfa;font-size:0.85rem;display:block;margin-bottom:5px;"><i class="fas fa-search"></i> Search</label>
-                <input type="text" id="projectSearch" class="form-control" placeholder="Search by title, supervisor..." onkeyup="filterProjects()">
+                <input type="text" id="projectSearch" class="form-control" placeholder="Search..." onkeyup="filterProjects()">
             </div>
-            <div style="flex:1;min-width:140px;">
-                <label style="color:#a78bfa;font-size:0.85rem;display:block;margin-bottom:5px;"><i class="fas fa-filter"></i> Status</label>
+            <div style="flex:1;min-width:150px;">
                 <select id="filterProjectStatus" class="form-control" onchange="filterProjects()">
                     <option value="all">All Status</option>
                     <option value="Available">Available</option>
                     <option value="Unavailable">Unavailable</option>
-                </select>
-            </div>
-            <div style="flex:1;min-width:140px;">
-                <label style="color:#a78bfa;font-size:0.85rem;display:block;margin-bottom:5px;"><i class="fas fa-tags"></i> Type</label>
-                <select id="filterProjectType" class="form-control" onchange="filterProjects()">
-                    <option value="all">All Types</option>
-                    <option value="Research">Research</option>
-                    <option value="Application">Application</option>
-                </select>
-            </div>
-            <div style="flex:1;min-width:140px;">
-                <label style="color:#a78bfa;font-size:0.85rem;display:block;margin-bottom:5px;"><i class="fas fa-layer-group"></i> Category</label>
-                <select id="filterProjectCategory" class="form-control" onchange="filterProjects()">
-                    <option value="all">All Categories</option>
-                    <?php foreach ($categories as $cat): ?>
-                        <option value="<?= htmlspecialchars(strtolower($cat)); ?>"><?= htmlspecialchars($cat); ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-            <div style="flex:1;min-width:150px;">
-                <label style="color:#a78bfa;font-size:0.85rem;display:block;margin-bottom:5px;"><i class="fas fa-user-tie"></i> Supervisor</label>
-                <select id="filterProjectSupervisor" class="form-control" onchange="filterProjects()">
-                    <option value="all">All Supervisors</option>
-                    <?php foreach ($supervisor_filter as $sup): ?>
-                        <option value="<?= htmlspecialchars(strtolower($sup['fyp_name'])); ?>"><?= htmlspecialchars($sup['fyp_name']); ?></option>
-                    <?php endforeach; ?>
                 </select>
             </div>
         </div>
@@ -646,31 +843,32 @@ elseif ($current_page === 'projects'):
         <?php else: ?>
             <div style="overflow-x:auto;">
                 <table class="data-table" id="projectTable">
-                    <thead><tr><th>ID</th><th>Project Title</th><th>Type</th><th>Category</th><th>Status</th><th>Supervisor</th><th>Students</th><th>Created</th><th>Actions</th></tr></thead>
+                    <thead><tr><th>ID</th><th>Title</th><th>Type</th><th>Status</th><th>Supervisor</th><th>Students</th><th>Actions</th></tr></thead>
                     <tbody>
-                        <?php foreach ($projects as $p): ?>
+                        <?php foreach ($projects as $p): 
+                            $isAvailable = ($p['fyp_projectstatus'] ?? '') === 'Available';
+                        ?>
                         <tr data-title="<?= htmlspecialchars(strtolower($p['fyp_projecttitle'])); ?>" 
-                            data-status="<?= $p['fyp_projectstatus'] ?? ''; ?>" 
-                            data-type="<?= $p['fyp_projecttype'] ?? ''; ?>"
-                            data-category="<?= htmlspecialchars(strtolower($p['fyp_projectcat'] ?? '')); ?>"
+                            data-status="<?= $p['fyp_projectstatus'] ?? ''; ?>"
                             data-supervisor="<?= htmlspecialchars(strtolower($p['supervisor_name'] ?? '')); ?>">
                             <td><?= $p['fyp_projectid']; ?></td>
                             <td>
                                 <strong><?= htmlspecialchars($p['fyp_projecttitle']); ?></strong>
                                 <?php if (!empty($p['fyp_projectdesc'])): ?>
-                                    <br><small style="color:#64748b;"><?= htmlspecialchars(substr($p['fyp_projectdesc'], 0, 60)); ?><?= strlen($p['fyp_projectdesc']) > 60 ? '...' : ''; ?></small>
+                                    <br><small style="color:#64748b;"><?= htmlspecialchars(substr($p['fyp_projectdesc'], 0, 50)); ?>...</small>
                                 <?php endif; ?>
                             </td>
                             <td><span class="badge" style="background:rgba(139,92,246,0.2);color:#a78bfa;"><?= $p['fyp_projecttype'] ?? '-'; ?></span></td>
-                            <td><?= htmlspecialchars($p['fyp_projectcat'] ?? '-'); ?></td>
                             <td>
-                                <form method="POST" style="display:inline;" id="toggleForm-<?= $p['fyp_projectid']; ?>">
-                                    <input type="hidden" name="project_id" value="<?= $p['fyp_projectid']; ?>">
-                                    <input type="hidden" name="new_status" id="newStatus-<?= $p['fyp_projectid']; ?>" value="">
+                                <!-- FIXED: Each toggle has unique form with correct IDs -->
+                                <form method="POST" style="display:inline;" id="statusForm<?= $p['fyp_projectid']; ?>">
                                     <input type="hidden" name="toggle_project_status" value="1">
+                                    <input type="hidden" name="project_id" value="<?= $p['fyp_projectid']; ?>">
+                                    <input type="hidden" name="new_status" id="newStatus<?= $p['fyp_projectid']; ?>" value="<?= $isAvailable ? 'Unavailable' : 'Available'; ?>">
+                                    
                                     <label class="toggle-switch">
-                                        <input type="checkbox" <?= ($p['fyp_projectstatus'] ?? '') === 'Available' ? 'checked' : ''; ?> 
-                                               onchange="toggleProjectStatus(<?= $p['fyp_projectid']; ?>, this.checked)">
+                                        <input type="checkbox" <?= $isAvailable ? 'checked' : ''; ?> 
+                                               onchange="updateProjectStatus(<?= $p['fyp_projectid']; ?>, this.checked)">
                                         <span class="toggle-slider"></span>
                                         <span class="toggle-label on">Open</span>
                                         <span class="toggle-label off">Closed</span>
@@ -678,11 +876,13 @@ elseif ($current_page === 'projects'):
                                 </form>
                             </td>
                             <td><?= htmlspecialchars($p['supervisor_name'] ?? '-'); ?></td>
-                            <td style="text-align:center;"><span class="badge" style="background:rgba(139,92,246,0.2);color:#a78bfa;"><?= $p['student_count']; ?>/<?= $p['fyp_maxstudent'] ?? 2; ?></span></td>
-                            <td><?= $p['fyp_datecreated'] ? date('M j, Y', strtotime($p['fyp_datecreated'])) : '-'; ?></td>
+                            <td style="text-align:center;">
+                                <span class="badge" style="background:rgba(139,92,246,0.2);color:#a78bfa;">
+                                    <?= $p['student_count']; ?>/<?= $p['fyp_maxstudent'] ?? 2; ?>
+                                </span>
+                            </td>
                             <td>
-                                <button class="btn btn-primary btn-sm" onclick="openEditProjectModal(<?= htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8'); ?>)"><i class="fas fa-edit"></i></button>
-                                <button class="btn btn-info btn-sm" onclick="viewProjectDetails(<?= htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8'); ?>)"><i class="fas fa-eye"></i></button>
+                                <button class="btn btn-primary btn-sm" onclick='openEditProjectModal(<?= json_encode($p); ?>)'><i class="fas fa-edit"></i></button>
                                 <button class="btn btn-danger btn-sm" onclick="confirmDeleteProject(<?= $p['fyp_projectid']; ?>, '<?= htmlspecialchars($p['fyp_projecttitle'], ENT_QUOTES); ?>')"><i class="fas fa-trash"></i></button>
                             </td>
                         </tr>
@@ -693,6 +893,64 @@ elseif ($current_page === 'projects'):
         <?php endif; ?>
     </div>
 </div>
+
+<script>
+// FIXED: Project status toggle function
+function updateProjectStatus(projectId, isChecked) {
+    var newStatus = isChecked ? 'Available' : 'Unavailable';
+    document.getElementById('newStatus' + projectId).value = newStatus;
+    document.getElementById('statusForm' + projectId).submit();
+}
+
+function filterProjects() {
+    var search = (document.getElementById('projectSearch').value || '').toLowerCase();
+    var status = document.getElementById('filterProjectStatus').value;
+    var count = 0;
+    
+    document.querySelectorAll('#projectTable tbody tr').forEach(function(row) {
+        var title = row.dataset.title || '';
+        var sup = row.dataset.supervisor || '';
+        var rowStatus = row.dataset.status || '';
+        
+        var matchSearch = !search || title.includes(search) || sup.includes(search);
+        var matchStatus = status === 'all' || rowStatus === status;
+        
+        if (matchSearch && matchStatus) { row.style.display = ''; count++; }
+        else { row.style.display = 'none'; }
+    });
+    
+    document.getElementById('projectCount').textContent = count;
+}
+
+function quickFilterProject(status) {
+    document.getElementById('filterProjectStatus').value = status === 'all' ? 'all' : status;
+    filterProjects();
+}
+
+function resetProjectFilters() {
+    document.getElementById('projectSearch').value = '';
+    document.getElementById('filterProjectStatus').value = 'all';
+    filterProjects();
+}
+
+function openEditProjectModal(project) {
+    document.getElementById('edit_project_id').value = project.fyp_projectid;
+    document.getElementById('edit_project_title').value = project.fyp_projecttitle || '';
+    document.getElementById('edit_project_type').value = project.fyp_projecttype || 'Application';
+    document.getElementById('edit_project_status').value = project.fyp_projectstatus || 'Available';
+    document.getElementById('edit_project_category').value = project.fyp_projectcat || '';
+    document.getElementById('edit_project_description').value = project.fyp_projectdesc || '';
+    document.getElementById('edit_supervisor_id').value = project.fyp_supervisorid || '';
+    document.getElementById('edit_max_students').value = project.fyp_maxstudent || 2;
+    openModal('editProjectModal');
+}
+
+function confirmDeleteProject(projectId, projectTitle) {
+    document.getElementById('delete_project_id').value = projectId;
+    document.getElementById('delete_project_title').textContent = projectTitle;
+    openModal('deleteProjectModal');
+}
+</script>
 
 <?php // ==================== OTHER PAGES ====================
 elseif ($current_page === 'rubrics'): ?>
@@ -712,7 +970,7 @@ elseif ($current_page === 'rubrics'): ?>
 <div class="card">
     <div class="card-header">
         <h3><i class="fas fa-bullhorn"></i> Announcements</h3>
-        <button class="btn btn-primary" onclick="openModal('addAnnouncementModal')"><i class="fas fa-plus"></i> New Announcement</button>
+        <button class="btn btn-primary" onclick="openModal('createAnnouncementModal')"><i class="fas fa-plus"></i> New Announcement</button>
     </div>
     <div class="card-body">
         <?php if (empty($announcements)): ?>
@@ -727,10 +985,7 @@ elseif ($current_page === 'rubrics'): ?>
                         <td><?= htmlspecialchars($ann['fyp_receiver']); ?></td>
                         <td><?= date('M j, Y', strtotime($ann['fyp_datecreated'])); ?></td>
                         <td>
-                            <form method="POST" style="display:inline;">
-                                <input type="hidden" name="announcement_id" value="<?= $ann['fyp_announcementid'] ?? $ann['announcementid'] ?? $ann['id']; ?>">
-                                <button type="submit" name="delete_announcement" class="btn btn-danger btn-sm"><i class="fas fa-trash"></i></button>
-                            </form>
+                            <button class="btn btn-danger btn-sm" onclick="confirmUnsend(<?= $ann['fyp_annouceid']; ?>, '<?= htmlspecialchars($ann['fyp_subject'], ENT_QUOTES); ?>')"><i class="fas fa-trash"></i></button>
                         </td>
                     </tr>
                     <?php endforeach; ?>
@@ -744,10 +999,3 @@ elseif ($current_page === 'rubrics'): ?>
 <div class="card"><div class="card-header"><h3><i class="fas fa-cog"></i> Settings</h3></div><div class="card-body"><p>System settings coming soon...</p></div></div>
 
 <?php endif; ?>
-
-    </div><!-- End content -->
-</div><!-- End main-content -->
-
-<?php include("coordinator_scripts.php"); ?>
-</body>
-</html>
