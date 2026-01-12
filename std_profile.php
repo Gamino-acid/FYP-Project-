@@ -408,7 +408,7 @@ $menu_items = [
                         </div>
                         <div class="form-group">
                             <label>Student Full ID (Internal):</label>
-                            <input type="text" name="stud_fullid" value="<?php echo htmlspecialchars($stud_data['fyp_studfullid']); ?>" readonly>
+                            <input type="text" name="stud_fullid" value="<?php echo htmlspecialchars($stud_data['fyp_studid']); ?>" readonly>
                         </div>
                         <div class="row-group">
                             <div class="col-group form-group">
@@ -445,10 +445,6 @@ $menu_items = [
                                     ?>
                                 </select>
                             </div>
-                        </div>
-                        <div class="form-group">
-                            <label>Tutorial Group:</label>
-                            <input type="number" name="tut_group" value="<?php echo htmlspecialchars($stud_data['fyp_tutgroup']); ?>" readonly>
                         </div>
                         <div class="form-group">
                             <label>Email Address:</label>

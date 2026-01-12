@@ -1,8 +1,7 @@
 <?php
 // ====================================================
-// supervisor_announcement.php - 发布公告页面 (Targeted)
+// Coordinator_announcement.php - 发布公告 (Fixed Identity)
 // ====================================================
-date_default_timezone_set('Asia/Kuala_Lumpur');
 include("connect.php");
 
 // 1. 基础验证
@@ -10,71 +9,54 @@ $auth_user_id = $_GET['auth_user_id'] ?? null;
 // 手动设置当前页面为 post_announcement 以高亮菜单
 $current_page = 'post_announcement'; 
 
-// 安全检查
-if (!$auth_user_id) { 
-    echo "<script>alert('Session Error. Please Login.'); window.location.href='login.php';</script>";
-    exit; 
-}
+if (!$auth_user_id) { header("location: login.php"); exit; }
 
-// 2. 获取导师信息 & 负责的项目列表 (Active Projects)
-$user_name = "Supervisor"; 
+// 2. 获取 Coordinator 信息 (关键修改：从 coordinator 表获取)
+$user_name = "Coordinator"; 
 $user_avatar = "image/user.png"; 
-$sv_name_for_post = "Supervisor";
-$sv_id = 0;
-$my_staff_id = ""; // 【新增】初始化变量
-$my_active_targets = []; 
+$coor_id = 0;
+$my_active_targets = []; // Coordinator 可以给全校发，也可以给特定项目发
 
 if (isset($conn)) {
-    $sql_sv = "SELECT * FROM supervisor WHERE fyp_userid = ?";
-    if ($stmt = $conn->prepare($sql_sv)) {
+    // 获取用户基本名
+    $sql_user = "SELECT fyp_username FROM `USER` WHERE fyp_userid = ?";
+    if ($stmt = $conn->prepare($sql_user)) {
+        $stmt->bind_param("i", $auth_user_id); $stmt->execute();
+        $res = $stmt->get_result(); if ($row = $res->fetch_assoc()) $user_name = $row['fyp_username'];
+        $stmt->close();
+    }
+    
+    // 获取 COORDINATOR 详细资料 (而非 Supervisor)
+    $sql_coor = "SELECT * FROM coordinator WHERE fyp_userid = ?";
+    if ($stmt = $conn->prepare($sql_coor)) {
         $stmt->bind_param("i", $auth_user_id); $stmt->execute();
         $res = $stmt->get_result();
         if ($res->num_rows > 0) {
             $row = $res->fetch_assoc();
-            $sv_id = $row['fyp_supervisorid'];
-            
-            // 【关键修复】获取 Staff ID
-            $my_staff_id = $row['fyp_staffid']; 
-
-            if (!empty($row['fyp_name'])) {
-                $user_name = $row['fyp_name'];
-                $sv_name_for_post = $row['fyp_name']; 
-            }
+            $coor_id = $row['fyp_coordinatorid'];
+            if (!empty($row['fyp_name'])) $user_name = $row['fyp_name'];
             if (!empty($row['fyp_profileimg'])) $user_avatar = $row['fyp_profileimg'];
         }
         $stmt->close();
     }
 
-   // ----------------------------------------------------
-// 获取该导师负责的所有 Active Projects (用于特定发送)
-// ----------------------------------------------------
-// 我们获取 Project ID, Title, Type 和 学生名单
-// 【修改】不再依赖 sv_id (int)，改用 my_staff_id (string)
-if (!empty($my_staff_id)) { 
-    
-    // 【修改】核心逻辑：通过 project 表的 staffid 来过滤
+    // 获取所有 Active Projects (Coordinator 可以给任何项目发公告)
+    // 这里我们列出所有 Active 的项目供选择
     $sql_targets = "SELECT p.fyp_projecttitle, p.fyp_projecttype, 
                            GROUP_CONCAT(s.fyp_studname SEPARATOR ', ') as students
                     FROM fyp_registration r
                     JOIN project p ON r.fyp_projectid = p.fyp_projectid
                     JOIN student s ON r.fyp_studid = s.fyp_studid
-                    WHERE p.fyp_staffid = ?  -- 这里改为 Staff ID
                     GROUP BY r.fyp_projectid";
     
-    if ($stmt_t = $conn->prepare($sql_targets)) {
-        // 【修改】Staff ID 是字符串，所以用 "s"，绑定变量 $my_staff_id
-        $stmt_t->bind_param("s", $my_staff_id); 
-        $stmt_t->execute();
-        $res_t = $stmt_t->get_result();
+    $res_t = $conn->query($sql_targets);
+    if ($res_t) {
         while ($row_t = $res_t->fetch_assoc()) {
-            // 格式化显示名称
             $type_tag = ($row_t['fyp_projecttype'] == 'Group') ? '[Group]' : '[Indiv]';
-            $label = $type_tag . " " . substr($row_t['fyp_projecttitle'], 0, 30) . "... (" . $row_t['students'] . ")";
-            
+            $label = $type_tag . " " . substr($row_t['fyp_projecttitle'], 0, 30) . "...";
             $value = "Project: " . $row_t['fyp_projecttitle']; 
             $my_active_targets[] = ['label' => $label, 'value' => $value];
         }
-        $stmt_t->close();
     }
 }
 
@@ -87,7 +69,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $receiver_type = $_POST['receiver_type'];
     $date_now = date('Y-m-d H:i:s');
     
-    // 确定最终的 receiver 字符串
     $final_receiver = "";
     if ($receiver_type == 'specific') {
         $final_receiver = $_POST['specific_target']; 
@@ -95,54 +76,57 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $final_receiver = $receiver_type; 
     }
 
-    // 【修改】列名改为 fyp_staffid，插入的值是 $my_staff_id
-    $sql_insert = "INSERT INTO announcement (fyp_subject, fyp_description, fyp_receiver, fyp_datecreated, fyp_staffid) VALUES (?, ?, ?, ?, ?)";
+    // 存入数据库
+    // 注意：我们将 Coordinator 的名字存入 fyp_supervisorid 字段
+    // 这样学生端显示时，如果 ID 不是数字，就会直接显示这个名字
+    $sender_identity = $user_name; 
+
+    $sql_insert = "INSERT INTO announcement (fyp_subject, fyp_description, fyp_receiver, fyp_datecreated, fyp_supervisorid) VALUES (?, ?, ?, ?, ?)";
     
     if ($stmt = $conn->prepare($sql_insert)) {
-        // 【修改】绑定参数: 5个字符串 (s,s,s,s,s)，最后一个是 Staff ID
-        $stmt->bind_param("sssss", $subject, $description, $final_receiver, $date_now, $my_staff_id);
+        $stmt->bind_param("sssss", $subject, $description, $final_receiver, $date_now, $sender_identity);
         
         if ($stmt->execute()) {
-            echo "<script>alert('Announcement posted successfully to: $final_receiver'); window.location.href='Supervisor_mainpage.php?auth_user_id=" . $auth_user_id . "';</script>";
+            echo "<script>alert('Announcement posted successfully!'); window.location.href='Coordinator_mainpage.php?auth_user_id=" . $auth_user_id . "';</script>";
         } else {
-            echo "<script>alert('Error posting announcement: " . $stmt->error . "');</script>";
+            echo "<script>alert('Error: " . addslashes($stmt->error) . "');</script>";
         }
         $stmt->close();
     } else {
-        echo "<script>alert('Database Error: " . $conn->error . "');</script>";
+        echo "<script>alert('DB Prepare Error: " . $conn->error . "');</script>";
     }
 }
-}
 
-// 4. 菜单定义 (保持一致)
+// 4. 菜单定义
 $menu_items = [
-    'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Supervisor_mainpage.php?page=dashboard'],
-    'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'supervisor_profile.php'],
-    'students'  => [
-        'name' => 'My Students', 
-        'icon' => 'fa-users',
+    'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Coordinator_mainpage.php?page=dashboard'],
+    'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'Coordinator_profile.php'],
+    
+    'management' => [
+        'name' => 'User Management',
+        'icon' => 'fa-users-cog',
         'sub_items' => [
-            'project_requests' => ['name' => 'Project Requests', 'icon' => 'fa-envelope-open-text', 'link' => 'supervisor_projectreq.php'],
-            'student_list'     => ['name' => 'Student List', 'icon' => 'fa-list', 'link' => 'Supervisor_mainpage.php?page=student_list'],
+            'manage_students' => ['name' => 'Student List', 'icon' => 'fa-user-graduate', 'link' => 'Coordinator_mainpage.php?page=manage_students'],
+            'manage_supervisors' => ['name' => 'Supervisor List', 'icon' => 'fa-chalkboard-teacher', 'link' => 'Coordinator_mainpage.php?page=manage_supervisors'],
         ]
     ],
-    'fyp_project' => [
-        'name' => 'FYP Project',
+    'project_mgmt' => [
+        'name' => 'Project Management',
         'icon' => 'fa-project-diagram',
         'sub_items' => [
-            'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'supervisor_purpose.php'],
-            'my_projects'     => ['name' => 'My Projects', 'icon' => 'fa-folder-open', 'link' => 'Supervisor_mainpage.php?page=my_projects'],
+            'project_list' => ['name' => 'All Projects & Groups', 'icon' => 'fa-list-alt', 'link' => 'Coordinator_project_list.php'],
+            'pairing_list' => ['name' => 'Pairing List', 'icon' => 'fa-link', 'link' => 'Coordinator_mainpage.php?page=pairing_list'],
         ]
     ],
+    
     'announcement' => [
         'name' => 'Announcement',
         'icon' => 'fa-bullhorn',
         'sub_items' => [
-            'post_announcement' => ['name' => 'Post Announcement', 'icon' => 'fa-pen-square', 'link' => 'supervisor_announcement.php'],
-            'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Supervisor_mainpage.php?page=view_announcements'],
+            'post_announcement' => ['name' => 'Post Announcement', 'icon' => 'fa-pen-square', 'link' => 'Coordinator_announcement.php'], 
+            'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Coordinator_mainpage.php?page=view_announcements'],
         ]
     ],
-    'schedule'  => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'Supervisor_mainpage.php?page=schedule'],
 ];
 ?>
 <!DOCTYPE html>
@@ -177,8 +161,7 @@ $menu_items = [
         .menu-link:hover { background-color: var(--secondary-color); color: var(--primary-color); }
         .menu-link.active { background-color: #e3effd; color: var(--primary-color); border-left-color: var(--primary-color); }
         .menu-icon { width: 24px; margin-right: 10px; text-align: center; }
-        .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: none; }
-        .menu-item.has-active-child .submenu, .menu-item:hover .submenu { display: block; }
+        .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: block; }
         .submenu .menu-link { padding-left: 58px; font-size: 14px; padding-top: 10px; padding-bottom: 10px; }
 
         .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; }
@@ -209,7 +192,7 @@ $menu_items = [
         <div class="topbar-right">
             <div class="user-profile-summary">
                 <span class="user-name-display"><?php echo htmlspecialchars($user_name); ?></span>
-                <span class="user-role-badge">Lecturer</span>
+                <span class="user-role-badge">Coordinator</span>
             </div>
             <div class="user-avatar-circle"><img src="<?php echo $user_avatar; ?>" alt="User Avatar"></div>
             <a href="login.php" class="logout-btn"><i class="fa fa-sign-out-alt"></i> Logout</a>
@@ -263,8 +246,8 @@ $menu_items = [
         <main class="main-content">
             <div class="form-card">
                 <div class="page-header">
-                    <h2><i class="fa fa-bullhorn"></i> Post New Announcement</h2>
-                    <p>Share updates, deadlines, or important information with your students.</p>
+                    <h2><i class="fa fa-bullhorn"></i> Post New Announcement (Coordinator)</h2>
+                    <p>Share important information with students and supervisors.</p>
                 </div>
                 
                 <form action="" method="POST">
@@ -277,8 +260,9 @@ $menu_items = [
                     <div class="form-group">
                         <label for="receiver_type">Receiver <span style="color:red">*</span></label>
                         <select id="receiver_type" name="receiver_type" class="form-control" onchange="toggleSpecificTarget(this.value)">
-                            <option value="My Supervisees">All My Supervisees</option>
-                            <option value="specific">Specific Project / Team</option>
+                            <option value="All Students">All Students (System Wide)</option>
+                            <option value="All Supervisors">All Supervisors</option>
+                            <option value="specific">Specific Project Group (Any)</option>
                         </select>
                         
                         <!-- 二级联动菜单：Specific Target -->
@@ -286,7 +270,7 @@ $menu_items = [
                             <label for="specific_target" style="font-size:13px; color:#555;">Select Project / Team:</label>
                             <select id="specific_target" name="specific_target" class="form-control">
                                 <?php if(empty($my_active_targets)): ?>
-                                    <option value="" disabled>No active projects found under your supervision.</option>
+                                    <option value="" disabled>No active projects found.</option>
                                 <?php else: ?>
                                     <?php foreach ($my_active_targets as $tgt): ?>
                                         <option value="<?php echo htmlspecialchars($tgt['value']); ?>">

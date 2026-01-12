@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// supervisor_projectreq.php - Request Management (Sidebar Updated)
+// supervisor_projectreq.php - Request Management (Fixed)
 // ====================================================
 include("connect.php");
 
@@ -11,168 +11,144 @@ $current_page = 'project_requests';
 
 if (!$auth_user_id) { header("location: login.php"); exit; }
 
-// 2. Get Supervisor Data
-$sv_data = [];
-$user_name = 'Supervisor';
-$user_avatar = "image/user.png"; // Default avatar
-$sv_id = null; 
+// ----------------------------------------------------
+// 2. 获取 Supervisor 资料 (获取 Staff ID)
+// ----------------------------------------------------
+$user_name = "Supervisor"; 
+$user_avatar = "image/user.png"; 
+$my_staff_id = ""; 
 
 if (isset($conn)) {
-    $sql_user = "SELECT fyp_username FROM `USER` WHERE fyp_userid = ?";
-    if ($stmt = $conn->prepare($sql_user)) { 
-        $stmt->bind_param("i", $auth_user_id); 
-        $stmt->execute(); 
-        $res=$stmt->get_result(); 
-        if($row=$res->fetch_assoc()) $user_name=$row['fyp_username']; 
-        $stmt->close(); 
+    $stmt = $conn->prepare("SELECT fyp_staffid, fyp_name, fyp_profileimg FROM supervisor WHERE fyp_userid = ?");
+    $stmt->bind_param("i", $auth_user_id); 
+    $stmt->execute(); 
+    $res = $stmt->get_result();
+    if ($row = $res->fetch_assoc()) { 
+        $my_staff_id = $row['fyp_staffid']; 
+        $user_name = $row['fyp_name']; 
+        if(!empty($row['fyp_profileimg'])) $user_avatar = $row['fyp_profileimg']; 
     }
-    
-    $sql_sv = "SELECT * FROM supervisor WHERE fyp_userid = ?";
-    if ($stmt = $conn->prepare($sql_sv)) { 
-        $stmt->bind_param("i", $auth_user_id); 
-        $stmt->execute(); 
-        $res=$stmt->get_result(); 
-        if($res->num_rows > 0) { 
-            $sv_data = $res->fetch_assoc(); 
-            $sv_id = $sv_data['fyp_supervisorid'];
-            if(!empty($sv_data['fyp_name'])) $user_name=$sv_data['fyp_name'];
-            if(!empty($sv_data['fyp_profileimg'])) $user_avatar=$sv_data['fyp_profileimg'];
-        }
-        $stmt->close(); 
-    }
+    $stmt->close();
 }
 
-// 3. Logic Processing (Approve/Reject)
-if (isset($_GET['action']) && isset($_GET['req_id']) && $sv_id) {
-    $req_id = $_GET['req_id'];
-    $action = $_GET['action']; // 'Approve' or 'Reject'
+// ----------------------------------------------------
+// 3. 处理 Approve / Reject 逻辑
+// ----------------------------------------------------
+if (isset($_GET['action']) && isset($_GET['req_id']) && !empty($my_staff_id)) {
+    $req_id = $_GET['req_id']; 
+    $action = $_GET['action'];
 
     if ($action == 'Reject') {
         $conn->query("UPDATE project_request SET fyp_requeststatus = 'Reject' WHERE fyp_requestid = $req_id");
-        echo "<script>alert('Request Rejected.'); window.location.href='supervisor_projectreq.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
+        echo "<script>alert('Request Rejected.'); window.location.href='Supervisor_projectreq.php?auth_user_id=$auth_user_id';</script>";
     } 
     elseif ($action == 'Approve') {
-        // Quota Check
-        $limit = 0;
-        $current_count = 0;
+        // --- Quota Check (Active Load) ---
+        $limit = 0; 
+        $current_active = 0;
         
-        $q_sql = "SELECT fyp_numofstudent FROM quota WHERE fyp_supervisorid = '$sv_id' LIMIT 1";
-        $q_res = $conn->query($q_sql);
-        if ($q_row = $q_res->fetch_assoc()) {
-            $limit = intval($q_row['fyp_numofstudent']);
-        }
+        // 1. 查配额上限
+        $q_res = $conn->query("SELECT fyp_numofstudent FROM quota WHERE fyp_staffid = '$my_staff_id'");
+        if ($q_row = $q_res->fetch_assoc()) $limit = intval($q_row['fyp_numofstudent']);
 
-        $c_sql = "SELECT COUNT(*) as cnt FROM project_request WHERE fyp_supervisorid = '$sv_id' AND fyp_requeststatus = 'Approve'";
+        // 2. 查当前活跃人数 (Active Load)
+        // 排除 Hidden 的学生
+        $c_sql = "SELECT COUNT(*) as cnt 
+                  FROM fyp_registration 
+                  WHERE fyp_staffid = '$my_staff_id' 
+                  AND (fyp_archive_status = 'Active' OR fyp_archive_status IS NULL)";
+
         $c_res = $conn->query($c_sql);
         if ($c_row = $c_res->fetch_assoc()) {
-            $current_count = intval($c_row['cnt']);
+            $current_active = intval($c_row['cnt']);
         }
-
-        if ($current_count >= $limit) {
-            echo "<script>alert('Cannot Approve: Quota Limit Exceeded! (Current: $current_count / Max: $limit)'); window.location.href='supervisor_projectreq.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
+        
+        // 3. 比较
+        if ($current_active >= $limit) {
+            echo "<script>alert('Cannot Approve: Quota Limit Exceeded ($current_active/$limit)! Please archive old students in Student List first.'); window.location.href='Supervisor_projectreq.php?auth_user_id=$auth_user_id';</script>";
         } else {
             // Register Logic
             $req_sql = "SELECT fyp_studid, fyp_projectid FROM project_request WHERE fyp_requestid = $req_id LIMIT 1";
             $req_res = $conn->query($req_sql);
             
             if ($req_row = $req_res->fetch_assoc()) {
-                $target_stud_id = $req_row['fyp_studid'];
-                $target_proj_id = $req_row['fyp_projectid'];
-                $date_now = date('Y-m-d H:i:s');
-
-                $students_to_register = [$target_stud_id];
-
-                $g_chk = $conn->query("SELECT group_id FROM student_group WHERE leader_id = '$target_stud_id' LIMIT 1");
-                if ($grp = $g_chk->fetch_assoc()) {
+                $sid = $req_row['fyp_studid']; 
+                $pid = $req_row['fyp_projectid'];
+                
+                $students_to_register = [$sid];
+                // Check if Group
+                $grp = $conn->query("SELECT group_id FROM student_group WHERE leader_id = '$sid'")->fetch_assoc();
+                if ($grp) {
                     $gid = $grp['group_id'];
                     $m_res = $conn->query("SELECT invitee_id FROM group_request WHERE group_id = '$gid' AND request_status = 'Accepted'");
-                    while ($m = $m_res->fetch_assoc()) {
-                        $students_to_register[] = $m['invitee_id'];
-                    }
+                    while ($m = $m_res->fetch_assoc()) { $students_to_register[] = $m['invitee_id']; }
                 }
 
-                $success_count = 0;
-                $ins_reg = $conn->prepare("INSERT INTO fyp_registration (fyp_studid, fyp_projectid, fyp_supervisorid, fyp_datecreated) VALUES (?, ?, ?, ?)");
-                
-                foreach ($students_to_register as $sid) {
-                    $dup_chk = $conn->query("SELECT fyp_regid FROM fyp_registration WHERE fyp_studid = '$sid'");
-                    if ($dup_chk->num_rows == 0) {
-                        $ins_reg->bind_param("siis", $sid, $target_proj_id, $sv_id, $date_now);
-                        if ($ins_reg->execute()) {
-                            $success_count++;
-                        }
-                    }
+                foreach ($students_to_register as $student_id) {
+                    $conn->query("INSERT INTO fyp_registration (fyp_studid, fyp_projectid, fyp_staffid, fyp_datecreated, fyp_archive_status) VALUES ('$student_id', '$pid', '$my_staff_id', NOW(), 'Active')");
                 }
-                $ins_reg->close();
 
                 $conn->query("UPDATE project_request SET fyp_requeststatus = 'Approve' WHERE fyp_requestid = $req_id");
-                $conn->query("UPDATE project SET fyp_projectstatus = 'Taken' WHERE fyp_projectid = $target_proj_id");
+                $conn->query("UPDATE project SET fyp_projectstatus = 'Taken' WHERE fyp_projectid = $pid");
 
-                echo "<script>alert('Request Approved! Project is now TAKEN. $success_count student(s) registered.'); window.location.href='supervisor_projectreq.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
-            } else {
-                echo "<script>alert('Request data not found.');</script>";
+                echo "<script>alert('Approved! Project Taken.'); window.location.href='Supervisor_projectreq.php?auth_user_id=$auth_user_id';</script>";
             }
         }
     }
 }
 
 // ----------------------------------------------------
-// 4. Fetch Requests Data (With Filters & Sorting)
+// 4. 获取 Request 列表
 // ----------------------------------------------------
 $requests = [];
+$filter_status = $_GET['filter_status'] ?? 'Pending'; 
+$sort_order = $_GET['sort_order'] ?? 'DESC';
 
-// 获取筛选参数
-$filter_status = $_GET['filter_status'] ?? 'Pending'; // 默认显示 Pending
-$sort_order = $_GET['sort_order'] ?? 'DESC'; // 默认倒序 (最新在前)
+if (!empty($my_staff_id)) {
+    // 【修复点】将 g.name 改为 g.group_name (或者是 g.fyp_groupname)
+    // 如果报错 Unknown column 'g.group_name'，请尝试改为 g.fyp_groupname
+    $sql = "SELECT r.*, 
+                   s.fyp_studname, 
+                   s.fyp_studid, 
+                   p.fyp_projecttitle,
+                   g.group_name as group_name, g.group_id
+            FROM project_request r 
+            JOIN student s ON r.fyp_studid = s.fyp_studid 
+            JOIN project p ON r.fyp_projectid = p.fyp_projectid 
+            LEFT JOIN student_group g ON s.fyp_studid = g.leader_id
+            WHERE r.fyp_staffid = '$my_staff_id'"; 
 
-if ($sv_id) {
-    $sql_req = "SELECT r.*, s.fyp_studname, s.fyp_studfullid, p.fyp_projecttitle, p.fyp_projecttype 
-                FROM project_request r
-                JOIN student s ON r.fyp_studid = s.fyp_studid
-                JOIN project p ON r.fyp_projectid = p.fyp_projectid
-                WHERE r.fyp_supervisorid = '$sv_id'";
-    
-    // 应用状态筛选
     if ($filter_status != 'All') {
-        $sql_req .= " AND r.fyp_requeststatus = '" . $conn->real_escape_string($filter_status) . "'";
+        $sql .= " AND r.fyp_requeststatus = '" . $conn->real_escape_string($filter_status) . "'";
     }
 
-    // 应用排序
     $sort_dir = ($sort_order == 'ASC') ? 'ASC' : 'DESC';
-    $sql_req .= " ORDER BY r.fyp_datecreated $sort_dir";
+    $sql .= " ORDER BY r.fyp_datecreated $sort_dir";
 
-    $res_req = $conn->query($sql_req);
-    
-    if ($res_req) {
-        while($row = $res_req->fetch_assoc()){
-            // Group Logic (Keep existing)
-            $row['group_details'] = null; 
-            if ($row['fyp_projecttype'] == 'Group') {
-                $leader_id = $row['fyp_studid'];
-                $g_sql = "SELECT group_id, group_name FROM student_group WHERE leader_id = '$leader_id' LIMIT 1";
-                $g_res = $conn->query($g_sql);
-                if ($g_info = $g_res->fetch_assoc()) {
-                    $row['group_details'] = [
-                        'name' => $g_info['group_name'],
-                        'members' => []
-                    ];
-                    $gid = $g_info['group_id'];
-                    $m_sql = "SELECT s.fyp_studname, s.fyp_studfullid 
-                              FROM group_request gr 
-                              JOIN student s ON gr.invitee_id = s.fyp_studid 
-                              WHERE gr.group_id = '$gid' AND gr.request_status = 'Accepted'";
-                    $m_res = $conn->query($m_sql);
-                    while($mem = $m_res->fetch_assoc()){
-                        $row['group_details']['members'][] = $mem;
-                    }
+    $res = $conn->query($sql);
+    if ($res) {
+        while ($row = $res->fetch_assoc()) {
+            // 获取组员信息
+            $row['group_details'] = [];
+            if (!empty($row['group_id'])) {
+                $gid = $row['group_id'];
+                $mem_sql = "SELECT s.fyp_studname, s.fyp_studid as fyp_studfullid 
+                            FROM group_request gr 
+                            JOIN student s ON gr.invitee_id = s.fyp_studid 
+                            WHERE gr.group_id = '$gid' AND gr.request_status = 'Accepted'";
+                $mem_res = $conn->query($mem_sql);
+                $members = [];
+                while ($m = $mem_res->fetch_assoc()) {
+                    $members[] = $m;
                 }
+                $row['group_details'] = ['name' => $row['group_name'], 'members' => $members];
             }
             $requests[] = $row;
         }
     }
 }
 
-// 4. 菜单定义 (Updated Sidebar Structure)
+// 5. 菜单定义
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Supervisor_mainpage.php?page=dashboard'],
     'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'supervisor_profile.php'],
@@ -180,8 +156,8 @@ $menu_items = [
         'name' => 'My Students', 
         'icon' => 'fa-users',
         'sub_items' => [
-            'project_requests' => ['name' => 'Project Requests', 'icon' => 'fa-envelope-open-text', 'link' => 'supervisor_projectreq.php'],
-            'student_list'     => ['name' => 'Student List', 'icon' => 'fa-list', 'link' => 'Supervisor_mainpage.php?page=student_list'],
+            'project_requests' => ['name' => 'Project Requests', 'icon' => 'fa-envelope-open-text', 'link' => 'Supervisor_projectreq.php'],
+            'student_list'     => ['name' => 'Student List', 'icon' => 'fa-list', 'link' => 'Supervisor_student_list.php'],
         ]
     ],
     'fyp_project' => [
@@ -221,7 +197,6 @@ $menu_items = [
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <style>
-        /* 复用 mainpage 的 CSS */
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap');
         :root { --primary-color: #0056b3; --primary-hover: #004494; --secondary-color: #f4f4f9; --text-color: #333; --border-color: #e0e0e0; --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); --gradient-start: #eef2f7; --gradient-end: #ffffff; --sidebar-width: 260px; --student-accent: #007bff; }
         body { font-family: 'Poppins', sans-serif; margin: 0; background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end)); color: var(--text-color); min-height: 100vh; display: flex; flex-direction: column; }
@@ -244,10 +219,8 @@ $menu_items = [
         .menu-link.active { background-color: #e3effd; color: var(--primary-color); border-left-color: var(--primary-color); }
         .menu-icon { width: 24px; margin-right: 10px; text-align: center; }
         
-        /* --- Sidebar Expanded Styles --- */
         .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: block; }
         .submenu .menu-link { padding-left: 58px; font-size: 14px; padding-top: 10px; padding-bottom: 10px; }
-        /* ------------------------------- */
 
         .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; }
         .welcome-card { background: #fff; padding: 30px; border-radius: 12px; box-shadow: var(--card-shadow); border-left: 5px solid var(--primary-color); }
@@ -273,7 +246,6 @@ $menu_items = [
         .group-name-title { font-weight:600; color:#0056b3; font-size:14px; margin-bottom:5px; }
         .group-mem-list { margin:0; padding-left:20px; font-size:13px; color:#555; }
         
-        /* Filter Bar Styles */
         .filter-card { background: #fff; padding: 15px 20px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #e0e0e0; display: flex; gap: 15px; align-items: flex-end; }
         .filter-group { flex: 1; }
         .filter-group label { display: block; font-size: 12px; color: #666; margin-bottom: 5px; font-weight: 600; }
@@ -285,7 +257,34 @@ $menu_items = [
 </head>
 <body>
 
-    <header class="topbar">
+<?php if (!empty($my_staff_id)): 
+    // 调试数据获取
+    $debug_limit = 0; $debug_active = 0;
+    
+    // 1. Quota
+    $q = $conn->query("SELECT fyp_numofstudent FROM quota WHERE fyp_staffid = '$my_staff_id'");
+    if($r = $q->fetch_assoc()) $debug_limit = intval($r['fyp_numofstudent']);
+    
+    // 2. Active Count (Exclude Hidden)
+    $c = $conn->query("SELECT COUNT(*) as cnt FROM fyp_registration WHERE fyp_staffid = '$my_staff_id' AND (fyp_archive_status = 'Active' OR fyp_archive_status IS NULL)");
+    if($r = $c->fetch_assoc()) $debug_active = intval($r['cnt']);
+?>
+    <div style='background:#333; color:#fff; padding:15px; text-align:center; font-family:monospace; font-size:16px;'>
+        🔍 <strong>Quota Debugger (Active Only)</strong> | 
+        Staff ID: <span style='color:yellow'><?php echo $my_staff_id; ?></span> | 
+        Active Students: <span style='color:cyan'><?php echo $debug_active; ?></span> | 
+        Max Limit: <span style='color:lime'><?php echo $debug_limit; ?></span> |
+        
+        <?php if ($debug_limit == 0): ?>
+            <span style='color:red; margin-left:10px;'>⚠ 注意: Limit 为 0</span>
+        <?php elseif ($debug_active >= $debug_limit): ?>
+            <span style='color:red; margin-left:10px;'>⛔ 已满员 (FULL)</span>
+        <?php else: ?>
+            <span style='color:green; margin-left:10px;'>✅ 还有空位</span>
+        <?php endif; ?>
+    </div>
+<?php endif; ?>
+<header class="topbar">
         <div class="logo"> FYP System</div>
         <div class="topbar-right">
             <div class="user-profile-summary">
@@ -346,7 +345,6 @@ $menu_items = [
                 <p style="color: #666; margin: 0;">Manage student project supervision requests.</p>
             </div>
 
-            <!-- FILTER BAR -->
             <form method="GET" action="" class="filter-card">
                 <input type="hidden" name="auth_user_id" value="<?php echo htmlspecialchars($auth_user_id); ?>">
                 
@@ -375,7 +373,6 @@ $menu_items = [
                 <?php foreach ($requests as $req): 
                     $status = $req['fyp_requeststatus'];
                     if (empty($status)) $status = 'Pending';
-                    
                     $badgeClass = 'status-pending';
                     if ($status == 'Approve') $badgeClass = 'status-approve';
                     if ($status == 'Reject') $badgeClass = 'status-reject';
@@ -383,10 +380,9 @@ $menu_items = [
                     <div class="req-card">
                         <div class="req-info" style="flex:1;">
                             <span class="req-status <?php echo $badgeClass; ?>"><?php echo $status; ?></span>
-                            <h3><?php echo htmlspecialchars($req['fyp_studname']); ?> <small style="font-size:14px; color:#999;">(<?php echo htmlspecialchars($req['fyp_studfullid']); ?>)</small></h3>
+                            <h3><?php echo htmlspecialchars($req['fyp_studname']); ?> <small style="font-size:14px; color:#999;">(<?php echo htmlspecialchars($req['fyp_studid']); ?>)</small></h3>
                             <p><strong>Project:</strong> <?php echo htmlspecialchars($req['fyp_projecttitle']); ?></p>
                             
-                            <!-- Group Details Section -->
                             <?php if (!empty($req['group_details'])): ?>
                                 <div class="group-info-box">
                                     <div class="group-name-title"><i class="fa fa-users"></i> Team: <?php echo htmlspecialchars($req['group_details']['name']); ?></div>

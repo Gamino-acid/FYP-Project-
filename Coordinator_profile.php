@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// supervisor_profile.php - 导师个人资料页面 (Sidebar Updated)
+// Coordinator_profile.php - 协调员个人资料 (包含专业领域和研究兴趣)
 // ====================================================
 
 include("connect.php");
@@ -10,21 +10,34 @@ $auth_user_id = $_GET['auth_user_id'] ?? null;
 // 手动设置当前页面为 profile 以高亮菜单
 $current_page = 'profile'; 
 
-if (!$auth_user_id) { header("location: login.php"); exit; }
+if (!$auth_user_id) { 
+    echo "<script>window.location.href='login.php';</script>";
+    exit; 
+}
 
 // 2. 逻辑处理 (POST) - 更新资料
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_profile'])) {
     
-    // 更新联系方式
+    // A. 更新所有个人信息 (包括新字段)
+    $full_name = $_POST['full_name'];
+    $email = $_POST['email'];
+    $room_no = $_POST['room_no'];
     $contact = $_POST['contact'];
-    $sql_update = "UPDATE supervisor SET fyp_contactno = ? WHERE fyp_userid = ?";
+    $specialization = $_POST['specialization']; // 新增
+    $area_interest = $_POST['area_interest'];   // 新增
+
+    // SQL Update Statement
+    // 注意：请确保数据库 coordinator 表已添加 fyp_specialization 和 fyp_areaofinterest 字段
+    $sql_update = "UPDATE coordinator SET fyp_name = ?, fyp_email = ?, fyp_roomno = ?, fyp_contactno = ?, fyp_specialization = ?, fyp_areaofinterest = ? WHERE fyp_userid = ?";
+    
     if ($stmt = $conn->prepare($sql_update)) {
-        $stmt->bind_param("si", $contact, $auth_user_id);
+        // 绑定参数: ssssss i (6个字符串, 1个整数)
+        $stmt->bind_param("ssssssi", $full_name, $email, $room_no, $contact, $specialization, $area_interest, $auth_user_id);
         $stmt->execute();
         $stmt->close();
     }
 
-    // 更新头像 (Base64)
+    // B. 更新头像 (Base64)
     if (!empty($_FILES["profile_img"]["name"])) {
         $tmp_name = $_FILES["profile_img"]["tmp_name"];
         if (getimagesize($tmp_name) !== false) {
@@ -32,7 +45,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_profile'])) {
             $file_ext = pathinfo($_FILES["profile_img"]["name"], PATHINFO_EXTENSION);
             $base64_image = 'data:image/' . $file_ext . ';base64,' . base64_encode($image_content);
             
-            $sql_img = "UPDATE supervisor SET fyp_profileimg = ? WHERE fyp_userid = ?";
+            $sql_img = "UPDATE coordinator SET fyp_profileimg = ? WHERE fyp_userid = ?";
             if ($stmt_img = $conn->prepare($sql_img)) {
                 $stmt_img->bind_param("si", $base64_image, $auth_user_id);
                 $stmt_img->execute();
@@ -43,12 +56,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_profile'])) {
         }
     }
     // 刷新页面显示更新
-    echo "<script>alert('Profile updated successfully!'); window.location.href='supervisor_profile.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
+    echo "<script>alert('Profile updated successfully!'); window.location.href='Coordinator_profile.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
 }
 
-// 3. 获取导师数据 (GET)
-$sv_data = [];
-$user_name = 'Supervisor';
+// 3. 获取协调员数据 (GET)
+$coor_data = [];
+$user_name = 'Coordinator';
 $user_avatar = 'image/user.png';
 
 if (isset($conn)) {
@@ -62,62 +75,61 @@ if (isset($conn)) {
         $stmt->close(); 
     }
     
-    // 查 SUPERVISOR 表
-    $sql_sv = "SELECT * FROM supervisor WHERE fyp_userid = ?";
-    if ($stmt = $conn->prepare($sql_sv)) { 
+    // 查 COORDINATOR 表
+    $sql_coor = "SELECT * FROM coordinator WHERE fyp_userid = ?";
+    if ($stmt = $conn->prepare($sql_coor)) { 
         $stmt->bind_param("i", $auth_user_id); 
         $stmt->execute(); 
         $res=$stmt->get_result(); 
         if($res->num_rows > 0) { 
-            $sv_data = $res->fetch_assoc(); 
-            if(!empty($sv_data['fyp_name'])) $user_name=$sv_data['fyp_name'];
-            if(!empty($sv_data['fyp_profileimg'])) $user_avatar=$sv_data['fyp_profileimg'];
+            $coor_data = $res->fetch_assoc(); 
+            if(!empty($coor_data['fyp_name'])) $user_name=$coor_data['fyp_name'];
+            if(!empty($coor_data['fyp_profileimg'])) $user_avatar=$coor_data['fyp_profileimg'];
         } else {
              // 默认空数据防止报错
-             $sv_data = ['fyp_supervisorid'=>'', 'fyp_name'=>$user_name, 'fyp_staffid'=>'', 'fyp_roomno'=>'', 'fyp_email'=>'', 'fyp_contactno'=>'', 'fyp_specialization'=>'', 'fyp_areaofinterest'=>''];
+             $coor_data = [
+                 'fyp_coordinatorid'=>'', 'fyp_name'=>$user_name, 'fyp_staffid'=>'', 
+                 'fyp_roomno'=>'', 'fyp_email'=>'', 'fyp_contactno'=>'',
+                 'fyp_specialization'=>'', 'fyp_areaofinterest'=>'' // 防止未定义索引警告
+             ];
         }
         $stmt->close(); 
     }
 }
 
-// 4. 菜单定义 (Updated Sidebar Structure)
+// 4. 定义菜单 (Coordinator Specific Menu)
 $menu_items = [
-    'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Supervisor_mainpage.php?page=dashboard'],
-    'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'supervisor_profile.php'],
-    'students'  => [
-        'name' => 'My Students', 
-        'icon' => 'fa-users',
+    'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Coordinator_mainpage.php?page=dashboard'],
+    'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'Coordinator_profile.php'],
+    
+    // --- Coordinator 管理功能 ---
+    'management' => [
+        'name' => 'User Management',
+        'icon' => 'fa-users-cog',
         'sub_items' => [
-            'project_requests' => ['name' => 'Project Requests', 'icon' => 'fa-envelope-open-text', 'link' => 'supervisor_projectreq.php'],
-            'student_list'     => ['name' => 'Student List', 'icon' => 'fa-list', 'link' => 'Supervisor_mainpage.php?page=student_list'],
+            // 两个链接都指向同一个管理页面，通过 tab 参数区分默认显示
+            'manage_students' => ['name' => 'Student List', 'icon' => 'fa-user-graduate', 'link' => 'Coordinator_manage_users.php?tab=student'],
+            'manage_supervisors' => ['name' => 'Supervisor List', 'icon' => 'fa-chalkboard-teacher', 'link' => 'Coordinator_manage_users.php?tab=supervisor'],
         ]
     ],
-    'fyp_project' => [
-        'name' => 'FYP Project',
+    'project_mgmt' => [
+        'name' => 'Project Management',
         'icon' => 'fa-project-diagram',
         'sub_items' => [
-            'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'supervisor_purpose.php'],
-            'my_projects'     => ['name' => 'My Projects', 'icon' => 'fa-folder-open', 'link' => 'Supervisor_mainpage.php?page=my_projects'],
-            'propose_assignment' => ['name' => 'Propose Assignment', 'icon' => 'fa-tasks', 'link' => 'supervisor_assignment_purpose.php'],
-            'all_project' => ['name' => 'All Project', 'icon' => 'fa-tasks', 'link' => 'supervisor_project_list.php']
+            'pairing_list' => ['name' => 'Pairing List', 'icon' => 'fa-link', 'link' => 'Coordinator_mainpage.php?page=pairing_list'],
+            'project_archive' => ['name' => 'Project Archive', 'icon' => 'fa-archive', 'link' => 'Coordinator_mainpage.php?page=project_archive'],
         ]
     ],
-    'grading' => [
-        'name' => 'Assessment',
-        'icon' => 'fa-marker',
-        'sub_items' => [
-            'grade_assignment' => ['name' => 'Grade Assignments', 'icon' => 'fa-check-square', 'link' => 'Supervisor_assignment_grade.php'],
-        ]
-    ],
+    // ----------------------------
+    
     'announcement' => [
         'name' => 'Announcement',
         'icon' => 'fa-bullhorn',
         'sub_items' => [
-            'post_announcement' => ['name' => 'Post Announcement', 'icon' => 'fa-pen-square', 'link' => 'supervisor_announcement.php'],
-            'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Supervisor_mainpage.php?page=view_announcements'],
+            'post_announcement' => ['name' => 'Post Announcement', 'icon' => 'fa-pen-square', 'link' => 'Coordinator_announcement.php'], 
+            'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Coordinator_mainpage.php?page=view_announcements'],
         ]
     ],
-    'schedule'  => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'supervisor_meeting.php'],
 ];
 ?>
 
@@ -126,7 +138,7 @@ $menu_items = [
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Profile - Supervisor</title>
+    <title>My Profile - Coordinator</title>
     <link rel="icon" type="image/png" href="<?php echo $user_avatar; ?>">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
@@ -198,7 +210,7 @@ $menu_items = [
         <div class="topbar-right">
             <div class="user-profile-summary">
                 <span class="user-name-display"><?php echo htmlspecialchars($user_name); ?></span>
-                <span class="user-role-badge">Supervisor</span>
+                <span class="user-role-badge">Coordinator</span>
             </div>
             <div class="user-avatar-circle"><img src="<?php echo $user_avatar; ?>" alt="User Avatar"></div>
             <a href="login.php" class="logout-btn"><i class="fa fa-sign-out-alt"></i> Logout</a>
@@ -252,7 +264,7 @@ $menu_items = [
         <main class="main-content">
             <div class="welcome-card">
                 <h1 class="page-title">My Profile</h1>
-                <p style="color: #666; margin: 0;">Manage your personal information and contact details.</p>
+                <p style="color: #666; margin: 0;">Manage your personal information.</p>
             </div>
 
             <!-- PROFILE FORM -->
@@ -264,7 +276,7 @@ $menu_items = [
                         </div>
                         <label style="font-size: 0.9em; font-weight: 500; margin-bottom: 5px;">Change Photo:</label>
                         <input type="file" name="profile_img" accept="image/*" style="font-size: 0.8em; max-width: 100%;">
-                        <div class="student-id-display"><?php echo htmlspecialchars($sv_data['fyp_staffid']); ?></div>
+                        <div class="student-id-display"><?php echo htmlspecialchars($coor_data['fyp_staffid']); ?></div>
                         <div style="font-size: 0.8em; color: #888; text-align: center;">(Staff ID)</div>
                     </div>
 
@@ -272,32 +284,33 @@ $menu_items = [
                         <h3 class="form-section-title">Personal Details</h3>
                         <div class="form-group">
                             <label>Full Name:</label>
-                            <input type="text" value="<?php echo htmlspecialchars($sv_data['fyp_name']); ?>" readonly>
+                            <input type="text" name="full_name" value="<?php echo htmlspecialchars($coor_data['fyp_name']); ?>" required>
                         </div>
                         <div class="form-group">
                             <label>Email Address:</label>
-                            <input type="email" value="<?php echo htmlspecialchars($sv_data['fyp_email']); ?>" readonly>
+                            <input type="email" name="email" value="<?php echo htmlspecialchars($coor_data['fyp_email']); ?>" required>
                         </div>
                         
                         <div class="row-group">
                             <div class="col-group form-group">
                                 <label>Room Number:</label>
-                                <input type="text" value="<?php echo htmlspecialchars($sv_data['fyp_roomno']); ?>" readonly>
+                                <input type="text" name="room_no" value="<?php echo htmlspecialchars($coor_data['fyp_roomno']); ?>" required>
                             </div>
                             <div class="col-group form-group">
-                                <label style="color: var(--primary-color); font-weight: 600;">Contact Number (Editable):</label>
-                                <input type="text" name="contact" value="<?php echo htmlspecialchars($sv_data['fyp_contactno']); ?>" required style="border-color: var(--primary-color);">
+                                <label style="color: var(--primary-color); font-weight: 600;">Contact Number:</label>
+                                <input type="text" name="contact" value="<?php echo htmlspecialchars($coor_data['fyp_contactno']); ?>" required style="border-color: var(--primary-color);">
                             </div>
                         </div>
 
+                        <!-- NEW FIELDS -->
                         <div class="form-group">
                             <label>Specialization:</label>
-                            <textarea readonly rows="2"><?php echo htmlspecialchars($sv_data['fyp_specialization']); ?></textarea>
+                            <textarea name="specialization" class="form-control" rows="2" placeholder="e.g. Artificial Intelligence, Data Science"><?php echo htmlspecialchars($coor_data['fyp_specialization'] ?? ''); ?></textarea>
                         </div>
 
                         <div class="form-group">
                             <label>Area of Interest:</label>
-                            <textarea readonly rows="2"><?php echo htmlspecialchars($sv_data['fyp_areaofinterest']); ?></textarea>
+                            <textarea name="area_interest" class="form-control" rows="2" placeholder="e.g. Machine Learning applications in healthcare"><?php echo htmlspecialchars($coor_data['fyp_areaofinterest'] ?? ''); ?></textarea>
                         </div>
 
                         <button type="submit" name="update_profile" class="save-btn"><i class="fa fa-save"></i> Save Changes</button>

@@ -91,25 +91,57 @@ if ($current_stud_id) {
         $applicant_id_to_check = $my_group['leader_id'];
     }
 
-    $req_sql = "SELECT pr.*, p.fyp_projecttitle, p.fyp_projecttype, s.fyp_name as sv_name 
-                FROM project_request pr 
-                LEFT JOIN project p ON pr.fyp_projectid = p.fyp_projectid 
-                LEFT JOIN supervisor s ON pr.fyp_supervisorid = s.fyp_supervisorid
-                WHERE pr.fyp_studid = ? 
-                ORDER BY pr.fyp_datecreated DESC LIMIT 1";
+    // 核心修改：同时 LEFT JOIN supervisor 和 coordinator 表
+// 使用 COALESCE(s.fyp_name, c.fyp_name) 来获取名字：如果 supervisor 表没名字，就去 coordinator 表找
+// =============================================================
+// 核心查询：通过 Project 表的 Staff ID 来查找 Coordinator/Supervisor
+// =============================================================
 
-    if ($stmt = $conn->prepare($req_sql)) {
-        $stmt->bind_param("s", $applicant_id_to_check);
-        $stmt->execute();
+$req_sql = "SELECT pr.*, 
+                   p.fyp_projecttitle, 
+                   p.fyp_projecttype, 
+                   -- 如果 Supervisor 表有名字就用 Supervisor 的，否则用 Coordinator 的
+                   COALESCE(s.fyp_name, c.fyp_name) as sv_name, 
+                   COALESCE(s.fyp_email, c.fyp_email) as sv_email
+            FROM project_request pr 
+            
+            -- 1. 先连接 Project 表 (为了拿到 fyp_staffid)
+            LEFT JOIN project p ON pr.fyp_projectid = p.fyp_projectid 
+            
+            -- 2. 用 Project 表里的 Staff ID 去匹配 Supervisor 表
+            LEFT JOIN supervisor s ON p.fyp_staffid = s.fyp_staffid
+            
+            -- 3. 用 Project 表里的 Staff ID 去匹配 Coordinator 表
+            LEFT JOIN coordinator c ON p.fyp_staffid = c.fyp_staffid
+            
+            WHERE pr.fyp_studid = ? 
+            ORDER BY pr.fyp_datecreated DESC LIMIT 1";
+
+// =============================================================
+// 执行查询 (带错误检查)
+// =============================================================
+
+if ($stmt = $conn->prepare($req_sql)) {
+    // 假设 studid 是字符串 (String)，所以这里用 "s"
+    $stmt->bind_param("s", $applicant_id_to_check);
+    
+    if ($stmt->execute()) {
         $res = $stmt->get_result();
         if ($row = $res->fetch_assoc()) {
             $my_project_request = $row;
-            if ($row['fyp_requeststatus'] == 'Pending' || $row['fyp_requeststatus'] == 'Approve') {
+            
+            // 检查状态 (涵盖所有可能的写法)
+            $status = $row['fyp_requeststatus'];
+            if ($status == 'Pending' || $status == 'Approve' || $status == 'Approved') {
                 $is_team_locked = true;
             }
         }
-        $stmt->close();
+    } else {
+        // 执行出错
+        die("SQL Execute Error: " . $stmt->error);
     }
+    $stmt->close();
+}
 }
 
 // ====================================================
@@ -125,7 +157,7 @@ if (isset($_GET['action']) && $_GET['action'] == 'search_students') {
     $keyword = "%" . $keyword . "%";
     
     // 增加 AND s.fyp_academicid = ? 条件
-    $sql = "SELECT s.fyp_studid, s.fyp_studname, s.fyp_studfullid 
+    $sql = "SELECT s.fyp_studid, s.fyp_studname, s.fyp_studid
             FROM STUDENT s
             LEFT JOIN student_group g ON s.fyp_studid = g.leader_id
             WHERE s.fyp_studname LIKE ? 
@@ -145,7 +177,7 @@ if (isset($_GET['action']) && $_GET['action'] == 'search_students') {
             $result[] = [
                 'studid' => $row['fyp_studid'], 
                 'name' => $row['fyp_studname'],
-                'fullid' => $row['fyp_studfullid']
+                'id' => $row['fyp_studid']
             ];
         }
     }
@@ -757,7 +789,7 @@ $menu_items = [
                             data.forEach(stud => {
                                 const div = document.createElement('div');
                                 div.className = 'search-item';
-                                div.innerHTML = `${stud.name} <small>(${stud.fullid || stud.studid})</small>`;
+                                div.innerHTML = `${stud.name} <small>(${stud.id || stud.studid})</small>`;
                                 div.onclick = () => selectStudent(stud);
                                 searchBox.appendChild(div);
                             });

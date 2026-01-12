@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// Student_mainpage.php - Main Dashboard (Full Height Announcement Feed)
+// Student_mainpage.php - Main Dashboard (With Pagination)
 // ====================================================
 include("connect.php");
 
@@ -68,18 +68,20 @@ $dashboard_data = [
 ];
 
 // 初始化过滤变量
-$my_sv_id = null;         // 我的导师ID
-$my_sv_name = "";         // 我的导师名字
-$my_project_title = "";   // 我的项目标题
+$my_sv_staffid = null;    // 存储 Staff ID
+$my_sv_name = "";         // 导师/Coordinator 名字
+$my_project_title = "";   // 项目标题
 
 if (!empty($stud_data['fyp_studid'])) {
     $my_id = $stud_data['fyp_studid'];
 
     // 1. 检查 fyp_registration (优先：已注册项目)
-    $sql_reg = "SELECT r.*, s.fyp_name, s.fyp_supervisorid, p.fyp_projecttitle
+    $sql_reg = "SELECT r.*, p.fyp_projecttitle, p.fyp_staffid,
+                       COALESCE(s.fyp_name, c.fyp_name) as sv_name
                 FROM fyp_registration r 
-                JOIN supervisor s ON r.fyp_supervisorid = s.fyp_supervisorid 
                 JOIN project p ON r.fyp_projectid = p.fyp_projectid
+                LEFT JOIN supervisor s ON p.fyp_staffid = s.fyp_staffid
+                LEFT JOIN coordinator c ON p.fyp_staffid = c.fyp_staffid
                 WHERE r.fyp_studid = ? LIMIT 1";
     
     $is_registered = false;
@@ -90,10 +92,10 @@ if (!empty($stud_data['fyp_studid'])) {
         if ($row_reg = $res_reg->fetch_assoc()) {
             $is_registered = true;
             $dashboard_data['project_status'] = 'Active (Registered)';
-            $dashboard_data['supervisor_name'] = $row_reg['fyp_name'];
+            $dashboard_data['supervisor_name'] = $row_reg['sv_name']; 
             $dashboard_data['next_deadline'] = 'Check Schedule'; 
             
-            $my_sv_id = $row_reg['fyp_supervisorid'];
+            $my_sv_staffid = $row_reg['fyp_staffid']; 
             $my_project_title = trim($row_reg['fyp_projecttitle']);
         }
         $stmt->close();
@@ -115,10 +117,12 @@ if (!empty($stud_data['fyp_studid'])) {
             $stmt_m->close();
         }
 
-        $sql_req = "SELECT pr.fyp_requeststatus, s.fyp_name, s.fyp_supervisorid, p.fyp_projecttitle, p.fyp_contactpersonname
+        $sql_req = "SELECT pr.fyp_requeststatus, p.fyp_projecttitle, p.fyp_staffid,
+                           COALESCE(s.fyp_name, c.fyp_name) as sv_name
                     FROM project_request pr 
-                    LEFT JOIN supervisor s ON pr.fyp_supervisorid = s.fyp_supervisorid 
                     LEFT JOIN project p ON pr.fyp_projectid = p.fyp_projectid
+                    LEFT JOIN supervisor s ON p.fyp_staffid = s.fyp_staffid
+                    LEFT JOIN coordinator c ON p.fyp_staffid = c.fyp_staffid
                     WHERE pr.fyp_studid = ? 
                     ORDER BY pr.fyp_datecreated DESC LIMIT 1";
         
@@ -128,20 +132,20 @@ if (!empty($stud_data['fyp_studid'])) {
             $res_r = $stmt_r->get_result();
             if ($row_r = $res_r->fetch_assoc()) {
                 $status = $row_r['fyp_requeststatus'];
-                $current_sv_name = !empty($row_r['fyp_name']) ? $row_r['fyp_name'] : $row_r['fyp_contactpersonname'];
+                $current_sv_name = $row_r['sv_name'];
                 
                 if ($status == 'Pending') {
                     $dashboard_data['project_status'] = 'Pending Approval';
                     $dashboard_data['supervisor_name'] = $current_sv_name . " (Pending)";
                     
-                    $my_sv_id = $row_r['fyp_supervisorid'];
+                    $my_sv_staffid = $row_r['fyp_staffid'];
                     $my_sv_name = $current_sv_name;
                     $my_project_title = trim($row_r['fyp_projecttitle']);
 
                 } elseif ($status == 'Reject') {
                     $dashboard_data['project_status'] = 'Application Rejected';
                     $dashboard_data['supervisor_name'] = 'Please apply again';
-                    $my_sv_id = null;
+                    $my_sv_staffid = null;
                     $my_project_title = "";
                 }
             }
@@ -151,46 +155,66 @@ if (!empty($stud_data['fyp_studid'])) {
 }
 
 // ----------------------------------------------------
-// 3.3 获取并过滤公告 (Dashboard Only)
+// 3.3 获取并过滤公告 (Dashboard Only) - 带分页
 // ----------------------------------------------------
 $announcements = [];
+$display_announcements = []; // 当前页要显示的公告
+$total_pages = 0;
+$current_ann_page = 1;
+
 if ($current_page == 'dashboard') {
-    $sql_ann = "SELECT a.*, s.fyp_name as sender_name, s.fyp_supervisorid as sv_real_id, s.fyp_profileimg
+    
+    // SQL: 按照 Staff ID 连接
+    $sql_ann = "SELECT a.*, 
+                       s.fyp_name as sv_name, s.fyp_profileimg as sv_img,
+                       c.fyp_name as co_name, c.fyp_profileimg as co_img
                 FROM announcement a 
-                LEFT JOIN supervisor s ON a.fyp_supervisorid = s.fyp_supervisorid 
+                LEFT JOIN supervisor s ON a.fyp_staffid = s.fyp_staffid 
+                LEFT JOIN coordinator c ON a.fyp_staffid = c.fyp_staffid 
                 ORDER BY a.fyp_datecreated DESC";
+
     $res = $conn->query($sql_ann);
     if ($res) {
         while ($row = $res->fetch_assoc()) {
             
-            $display_name = "Supervisor"; 
-            if (!empty($row['sender_name'])) {
-                $display_name = $row['sender_name'];
-            } elseif (!empty($row['fyp_supervisorid']) && !is_numeric($row['fyp_supervisorid'])) {
-                $display_name = $row['fyp_supervisorid'];
+            // 1. 智能判断角色 & 名字头像
+            $display_name = "Unknown";
+            $profile_img = "";
+
+            if (!empty($row['co_name'])) {
+                $display_name = $row['co_name'];
+                $profile_img = $row['co_img'];
+            } 
+            elseif (!empty($row['sv_name'])) {
+                $display_name = $row['sv_name'];
+                $profile_img = $row['sv_img'];
+            } 
+            else {
+                $display_name = $row['fyp_staffid']; 
             }
+
             $row['final_display_name'] = $display_name;
+            $row['fyp_profileimg'] = $profile_img;
             
+            // 2. 过滤逻辑 (Who can see this?)
             $should_show = false;
             $receiver = trim($row['fyp_receiver']); 
-            
-            $sender_sv_id = $row['sv_real_id'] ? $row['sv_real_id'] : $row['fyp_supervisorid'];
-            $sender_sv_name = $display_name;
+            $sender_staff_id = trim($row['fyp_staffid']); 
 
+            // Case A: 发给所有学生
             if (strcasecmp($receiver, 'All Students') == 0) {
                 $should_show = true;
             } 
+            // Case B: 发给 "我的学生"
             elseif (strcasecmp($receiver, 'My Supervisees') == 0) {
-                if ($my_sv_id && $sender_sv_id == $my_sv_id && $my_sv_id != 0) {
-                    $should_show = true;
-                }
-                elseif ($my_sv_name && strcasecmp($sender_sv_name, $my_sv_name) == 0) {
+                if (!empty($my_sv_staffid) && strcasecmp($sender_staff_id, $my_sv_staffid) == 0) {
                     $should_show = true;
                 }
             } 
+            // Case C: 发给特定项目
             elseif (strpos($receiver, 'Project: ') === 0) {
                 $target_project = trim(substr($receiver, 9)); 
-                if ($my_project_title && strcasecmp($target_project, $my_project_title) == 0) {
+                if (!empty($my_project_title) && strcasecmp($target_project, $my_project_title) == 0) {
                     $should_show = true;
                 }
             }
@@ -200,31 +224,85 @@ if ($current_page == 'dashboard') {
             }
         }
     }
+    
+    // ==========================================
+    // 分页逻辑 (Pagination Logic)
+    // ==========================================
+    $total_announcements = count($announcements);
+    $items_per_page = 5; // 每页显示 5 条
+    $total_pages = ceil($total_announcements / $items_per_page);
+    
+    // 获取当前页码 (默认为 1)
+    $current_ann_page = isset($_GET['ann_page']) ? (int)$_GET['ann_page'] : 1;
+    if ($current_ann_page < 1) $current_ann_page = 1;
+    if ($current_ann_page > $total_pages && $total_pages > 0) $current_ann_page = $total_pages;
+
+    // 计算切片
+    $offset = ($current_ann_page - 1) * $items_per_page;
+    $display_announcements = array_slice($announcements, $offset, $items_per_page);
 }
 
-// 3.4 获取预约信息
-$supervisor_data = null; $available_schedules = []; $my_appointments = []; $pairing_data = null;
+// ----------------------------------------------------
+// 3.4 获取预约信息 (Appointments)
+// ----------------------------------------------------
+$supervisor_data = null; 
+$available_schedules = []; 
+$my_appointments = []; 
+$pairing_data = null;
+
 if ($current_page == 'appointments' && !empty($stud_data['fyp_projectid'])) {
     $proj_id = $stud_data['fyp_projectid'];
-    $res_pair = $conn->query("SELECT * FROM pairing WHERE fyp_projectid = $proj_id LIMIT 1");
-    if ($res_pair->num_rows > 0) {
-        $pairing_data = $res_pair->fetch_assoc();
-        $sv_id = $pairing_data['fyp_supervisorid'];
+    
+    // 获取项目详情，拿到 fyp_staffid
+    $sql_proj = "SELECT fyp_staffid FROM project WHERE fyp_projectid = '$proj_id' LIMIT 1";
+    $res_proj = $conn->query($sql_proj);
+    
+    if ($res_proj->num_rows > 0) {
+        $proj_row = $res_proj->fetch_assoc();
+        $target_staff_id = $proj_row['fyp_staffid']; 
         
-        $res_sv = $conn->query("SELECT * FROM supervisor WHERE fyp_supervisorid = '$sv_id' LIMIT 1");
-        if ($res_sv->num_rows > 0) $supervisor_data = $res_sv->fetch_assoc();
+        // 查导师/Coordinator信息
+        $res_sv = $conn->query("SELECT *, 'Supervisor' as role FROM supervisor WHERE fyp_staffid = '$target_staff_id' LIMIT 1");
+        if ($res_sv->num_rows > 0) {
+            $supervisor_data = $res_sv->fetch_assoc();
+        } else {
+            $res_co = $conn->query("SELECT *, 'Coordinator' as role FROM coordinator WHERE fyp_staffid = '$target_staff_id' LIMIT 1");
+            if ($res_co->num_rows > 0) {
+                $supervisor_data = $res_co->fetch_assoc();
+            }
+        }
         
-        $sql_sch = "SELECT s.* FROM schedule s 
-                    WHERE s.fyp_supervisorid = '$sv_id' 
-                    AND s.fyp_date >= CURDATE() 
-                    AND s.fyp_scheduleid NOT IN (SELECT fyp_scheduleid FROM appointment WHERE fyp_status IN ('Pending', 'Approved')) 
-                    ORDER BY s.fyp_date ASC";
-        $res_sch = $conn->query($sql_sch);
-        while ($row = $res_sch->fetch_assoc()) $available_schedules[] = $row;
+        // 确保 Pairing ID 存在 (用于预约)
+        $sql_pair = "SELECT * FROM pairing WHERE fyp_projectid = '$proj_id' LIMIT 1";
+        $res_pair = $conn->query($sql_pair);
+        if ($res_pair->num_rows > 0) {
+            $pairing_data = $res_pair->fetch_assoc();
+        }
+
+        // 获取该 Staff ID 的 Schedule
+        if (!empty($target_staff_id)) {
+            $sql_sch = "SELECT s.* FROM schedule s 
+                        WHERE s.fyp_supervisorid = '$target_staff_id' 
+                        AND s.fyp_date >= CURDATE() 
+                        AND s.fyp_scheduleid NOT IN (SELECT fyp_scheduleid FROM appointment WHERE fyp_status IN ('Pending', 'Approved')) 
+                        ORDER BY s.fyp_date ASC";
+            $res_sch = $conn->query($sql_sch);
+            while ($row = $res_sch->fetch_assoc()) {
+                $available_schedules[] = $row;
+            }
+        }
     }
+    
+    // 获取我的预约历史
     $my_sid = $stud_data['fyp_studid'];
-    $res_app = $conn->query("SELECT a.*, s.fyp_date, s.fyp_fromtime, s.fyp_totime, s.fyp_day FROM appointment a JOIN schedule s ON a.fyp_scheduleid = s.fyp_scheduleid WHERE a.fyp_studid = '$my_sid' ORDER BY s.fyp_date DESC");
-    while ($row = $res_app->fetch_assoc()) $my_appointments[] = $row;
+    $res_app = $conn->query("SELECT a.*, s.fyp_date, s.fyp_fromtime, s.fyp_totime, s.fyp_day 
+                             FROM appointment a 
+                             JOIN schedule s ON a.fyp_scheduleid = s.fyp_scheduleid 
+                             WHERE a.fyp_studid = '$my_sid' 
+                             ORDER BY s.fyp_date DESC");
+    while ($row = $res_app->fetch_assoc()) {
+        $my_appointments[] = $row;
+    }
 }
 
 // 4. 定义菜单
@@ -287,10 +365,8 @@ $menu_items = [
         .info-card:hover { transform: translateY(-3px); }
         .info-card h3 { margin: 0 0 15px 0; color: var(--student-accent); font-size: 16px; font-weight: 600; }
         
-        /* Announcement Styles - FULL HEIGHT FIX */
-        .announcement-feed { 
-            /* Removed fixed height and overflow to allow full page scrolling */
-        } 
+        /* Announcement Styles */
+        .announcement-feed { } 
         
         .ann-card { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 15px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); border-left: 5px solid #6264A7; transition: transform 0.2s; position: relative; }
         .ann-card:hover { transform: translateX(3px); }
@@ -303,6 +379,13 @@ $menu_items = [
         .ann-date { font-size: 12px; color: #999; display: flex; align-items: center; gap: 5px; }
         .ann-subject { font-size: 18px; font-weight: 600; color: #2c2c2c; margin-bottom: 8px; }
         .ann-body { color: #555; line-height: 1.6; font-size: 14px; white-space: pre-wrap; }
+
+        /* Pagination Styles */
+        .pagination-container { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee; }
+        .page-btn { text-decoration: none; color: #555; background: #fff; border: 1px solid #ddd; padding: 8px 15px; border-radius: 6px; font-size: 13px; font-weight: 500; transition: all 0.2s; display: flex; align-items: center; gap: 5px; }
+        .page-btn:hover:not(.disabled) { background: #f0f0f0; color: var(--primary-color); border-color: var(--primary-color); }
+        .page-btn.disabled { color: #ccc; border-color: #eee; cursor: not-allowed; background: #f9f9f9; }
+        .page-info { font-size: 13px; color: #888; }
 
         /* Appointment Styles */
         .supervisor-profile-card { background: #fff; padding: 25px; border-radius: 12px; box-shadow: var(--card-shadow); display: flex; align-items: center; gap: 20px; margin-bottom: 30px; border-left: 5px solid #28a745; }
@@ -431,14 +514,14 @@ $menu_items = [
 
                 <h3 class="section-header" style="margin-top: 40px; margin-bottom: 20px;">Latest Announcements</h3>
                 <div class="announcement-feed">
-                    <?php if (count($announcements) > 0): ?>
-                        <?php foreach ($announcements as $ann): ?>
+                    <?php if (count($display_announcements) > 0): ?>
+                        <?php foreach ($display_announcements as $ann): ?>
                             <div class="ann-card">
                                 <div class="ann-header">
                                     <div class="ann-sender-info">
                                         <div class="ann-avatar">
                                             <?php 
-                                            // 检查是否有头像图片，如果有则显示图片，否则显示名字首字母
+                                            // 检查是否有头像图片
                                             if (!empty($ann['fyp_profileimg'])) {
                                                 echo "<img src='" . $ann['fyp_profileimg'] . "' alt='SV'>";
                                             } else {
@@ -447,7 +530,7 @@ $menu_items = [
                                             ?>
                                         </div>
                                         <div>
-                                            <div class="ann-sender-name"><?php echo htmlspecialchars($ann['final_display_name']); ?> <span class="ann-role">Supervisor</span></div>
+                                            <div class="ann-sender-name"><?php echo htmlspecialchars($ann['final_display_name']); ?> </div>
                                             <div style="font-size: 11px; color: #888;">To: <?php echo htmlspecialchars($ann['fyp_receiver']); ?></div>
                                         </div>
                                     </div>
@@ -457,6 +540,29 @@ $menu_items = [
                                 <div class="ann-body"><?php echo nl2br(htmlspecialchars($ann['fyp_description'])); ?></div>
                             </div>
                         <?php endforeach; ?>
+                        
+                        <?php if ($total_pages > 1): ?>
+                            <div class="pagination-container">
+                                <?php if ($current_ann_page > 1): ?>
+                                    <a href="?page=dashboard&auth_user_id=<?php echo $auth_user_id; ?>&ann_page=<?php echo $current_ann_page - 1; ?>" class="page-btn">
+                                        <i class="fa fa-chevron-left"></i> Previous
+                                    </a>
+                                <?php else: ?>
+                                    <span class="page-btn disabled"><i class="fa fa-chevron-left"></i> Previous</span>
+                                <?php endif; ?>
+
+                                <span class="page-info">Page <?php echo $current_ann_page; ?> of <?php echo $total_pages; ?></span>
+
+                                <?php if ($current_ann_page < $total_pages): ?>
+                                    <a href="?page=dashboard&auth_user_id=<?php echo $auth_user_id; ?>&ann_page=<?php echo $current_ann_page + 1; ?>" class="page-btn">
+                                        Next <i class="fa fa-chevron-right"></i>
+                                    </a>
+                                <?php else: ?>
+                                    <span class="page-btn disabled">Next <i class="fa fa-chevron-right"></i></span>
+                                <?php endif; ?>
+                            </div>
+                        <?php endif; ?>
+
                     <?php else: ?>
                         <div class="empty-state">
                             <i class="fa fa-bullhorn" style="font-size: 48px; margin-bottom: 20px; opacity: 0.3;"></i>
@@ -546,7 +652,6 @@ $menu_items = [
                     <?php endif; ?>
                 <?php endif; ?>
 
-            <!-- NEW SECTION -->
             <?php elseif ($current_page == 'presentation'): ?>
                 <div style="background: #fff; padding: 40px; border-radius: 12px; box-shadow: var(--card-shadow); text-align: center;">
                     <i class="fa fa-chalkboard-teacher" style="font-size: 48px; color: #6c757d; margin-bottom: 20px;"></i>
@@ -556,8 +661,6 @@ $menu_items = [
                         <i class="fa fa-info-circle"></i> Please wait for coordinator announcement.
                     </div>
                 </div>
-            <!-- END NEW SECTION -->
-
             <?php else: ?>
                 <div style="background: #fff; padding: 30px; border-radius: 12px; box-shadow: var(--card-shadow); text-align: center;">
                     <i class="fa fa-wrench" style="font-size: 32px; color: #ddd; margin-bottom: 15px;"></i>

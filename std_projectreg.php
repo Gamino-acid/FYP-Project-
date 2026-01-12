@@ -112,7 +112,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_project_confi
     if ($has_active_application) {
         echo "<script>alert('You already have an active project application ($active_app_status).'); window.history.back();</script>"; exit;
     }
-
+    
+    date_default_timezone_set('Asia/Kuala_Lumpur');
     $proj_id = $_POST['project_id'];
     $date_now = date('Y-m-d H:i:s');
 
@@ -122,7 +123,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_project_confi
     }
 
     // A. 再次获取项目详情
-    $chk_proj_sql = "SELECT fyp_projecttype, fyp_supervisorid, fyp_projectstatus FROM PROJECT WHERE fyp_projectid = ?";
+    $chk_proj_sql = "SELECT fyp_projecttype, fyp_staffid, fyp_projectstatus FROM PROJECT WHERE fyp_projectid = ?";
     $stmt_p = $conn->prepare($chk_proj_sql);
     $stmt_p->bind_param("i", $proj_id);
     $stmt_p->execute();
@@ -134,7 +135,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_project_confi
         echo "<script>alert('Project not found.'); window.history.back();</script>"; exit;
     }
     
-    $target_sv_id = $proj_info['fyp_supervisorid'];
+    $target_sv_id = $proj_info['fyp_staffid'];
     $proj_type = $proj_info['fyp_projecttype'];
     $proj_status = $proj_info['fyp_projectstatus'];
 
@@ -167,7 +168,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_project_confi
     }
 
     // C. 插入数据库
-    $sql_ins = "INSERT INTO project_request (fyp_studid, fyp_supervisorid, fyp_projectid, fyp_requeststatus, fyp_datecreated) VALUES (?, ?, ?, 'Pending', ?)";
+    $sql_ins = "INSERT INTO project_request (fyp_studid, fyp_staffid, fyp_projectid, fyp_requeststatus, fyp_datecreated) VALUES (?, ?, ?, 'Pending', ?)";
     if ($stmt = $conn->prepare($sql_ins)) {
         $stmt->bind_param("ssis", $my_stud_id, $target_sv_id, $proj_id, $date_now);
         if ($stmt->execute()) {
@@ -193,7 +194,7 @@ $search_sv = $_GET['search_sv'] ?? '';
 // [核心改动] 强制只显示学生所属 Academic ID 的项目
 $sql = "SELECT p.*, s.fyp_name as sv_name, s.fyp_email as sv_email, s.fyp_contactno as sv_phone 
         FROM PROJECT p 
-        LEFT JOIN supervisor s ON p.fyp_supervisorid = s.fyp_supervisorid 
+        LEFT JOIN supervisor s ON p.fyp_staffid = s.fyp_staffid 
         WHERE 1=1";
 
 // [强制条件]

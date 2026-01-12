@@ -1,13 +1,13 @@
 <?php
 // ====================================================
-// supervisor_purpose.php - 提议新项目页面 (Added Academic Year Selection)
+// Coordinator_purpose.php - 提议项目 (Coordinator Staff ID Version)
 // ====================================================
 
 include("connect.php");
 
 // 1. 基础验证
 $auth_user_id = $_GET['auth_user_id'] ?? null;
-$current_page = 'propose_project'; 
+$current_page = 'propose_project'; // 用于菜单高亮
 
 // 安全检查
 if (!$auth_user_id) { 
@@ -15,7 +15,7 @@ if (!$auth_user_id) {
     exit; 
 }
 
-// 2. 获取学术年列表 (New Feature)
+// 2. 获取学术年列表
 $academic_years = [];
 if (isset($conn)) {
     $sql_acd = "SELECT * FROM academic_year ORDER BY fyp_acdyear DESC, fyp_intake ASC";
@@ -28,32 +28,31 @@ if (isset($conn)) {
 }
 
 // ====================================================
-// 3. 表单提交处理逻辑 (Staff ID 版)
+// 3. 表单提交处理逻辑 (仅修改此处以使用 Staff ID)
 // ====================================================
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     
-    // A. 实时获取导师 Staff ID 和 信息
-    $real_staff_id = ""; // 【修改】改为字符串变量
-    $real_sv_name = "Unknown Supervisor";
-    $real_sv_contact = "";
+    // A. 实时获取 Coordinator 的 Staff ID (而不是 Supervisor ID)
+    $real_staff_id = "";
+    $real_contact_name = "Unknown";
+    $real_contact_info = "";
     
-    // 【修改】查询 fyp_staffid
-    $sql_fetch_sv = "SELECT fyp_staffid, fyp_name, fyp_email, fyp_contactno FROM supervisor WHERE fyp_userid = ?";
-    if ($stmt_fetch = $conn->prepare($sql_fetch_sv)) {
-        $stmt_fetch->bind_param("i", $auth_user_id);
+    // 【修改点 1】从 coordinator 表读取 fyp_staffid
+    $sql_fetch_coor = "SELECT fyp_staffid, fyp_name, fyp_email, fyp_contactno FROM coordinator WHERE fyp_userid = ?";
+    if ($stmt_fetch = $conn->prepare($sql_fetch_coor)) {
+        $stmt_fetch->bind_param("i", $auth_user_id); // userid 是 int
         $stmt_fetch->execute();
         $res_fetch = $stmt_fetch->get_result();
-        if ($row_sv = $res_fetch->fetch_assoc()) {
-            $real_staff_id   = $row_sv['fyp_staffid']; // 【修改】获取 Staff ID
-            $real_sv_name    = $row_sv['fyp_name'];
-            $real_sv_contact = !empty($row_sv['fyp_email']) ? $row_sv['fyp_email'] : $row_sv['fyp_contactno'];
+        if ($row_c = $res_fetch->fetch_assoc()) {
+            $real_staff_id   = $row_c['fyp_staffid']; 
+            $real_contact_name = $row_c['fyp_name'];
+            $real_contact_info = !empty($row_c['fyp_email']) ? $row_c['fyp_email'] : $row_c['fyp_contactno'];
         }
         $stmt_fetch->close();
     }
 
-    // 【修改】检查 Staff ID 是否为空
     if (empty($real_staff_id)) {
-        echo "<script>alert('Error: Staff ID not found. Please contact admin to update your profile.');</script>";
+        echo "<script>alert('Error: Staff ID not found. Please ensure your Coordinator profile has a Staff ID.');</script>";
     } else {
         // B. 获取表单数据
         $p_title = $_POST['project_title'];
@@ -61,13 +60,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $p_desc = $_POST['project_description'];
         $p_req = $_POST['requirements'];
         $p_type = $_POST['project_type']; 
-        $p_academic_id = $_POST['academic_id']; 
+        $p_academic_id = $_POST['academic_id'];
         
         $p_course_req = 'FIST'; 
         $p_status = 'Open'; 
 
         // C. 插入数据库 (存入 fyp_staffid)
-        // 【修改】列名改为 fyp_staffid
+        // 【修改点 2】列名改为 fyp_staffid
         $sql_insert = "INSERT INTO project (
             fyp_staffid,
             fyp_academicid,
@@ -84,11 +83,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())";
 
         if ($stmt_insert = $conn->prepare($sql_insert)) {
-            // 【修改】参数绑定类型
-            // 第一个参数是 Staff ID (String)，所以是 's'
-            // 第二个参数是 Academic ID (Int)，所以是 'i'
-            // 后面9个都是 String
-            // 总共: s i s s s s s s s s s
+            // 【修改点 3】绑定参数类型：Staff ID 是 String ('s')，不再是 int ('i')
+            // s i s s s s s s s s s
             $stmt_insert->bind_param("sisssssssss", 
                 $real_staff_id,
                 $p_academic_id, 
@@ -99,12 +95,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $p_status, 
                 $p_req, 
                 $p_course_req,
-                $real_sv_contact, 
-                $real_sv_name
+                $real_contact_info, 
+                $real_contact_name
             );
 
             if ($stmt_insert->execute()) {
-                echo "<script>alert('Project proposed successfully!'); window.location.href='Supervisor_mainpage.php?page=my_projects&auth_user_id=" . $auth_user_id . "';</script>";
+                // 成功后跳转回 Coordinator Dashboard
+                echo "<script>alert('Project proposed successfully!'); window.location.href='Coordinator_mainpage.php?page=dashboard&auth_user_id=" . $auth_user_id . "';</script>";
             } else {
                 echo "<script>alert('Database Error: " . $stmt_insert->error . "');</script>";
             }
@@ -115,14 +112,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     }
 }
 
-// 4. 获取用户信息用于显示 Topbar
-$user_name = "Supervisor"; 
+// 4. 获取用户信息用于显示 Topbar (改为从 coordinator 表读取，确保头像一致)
+$user_name = "Coordinator"; 
 $user_avatar = "image/user.png"; 
 
 if (isset($conn)) {
-    $sql_sv = "SELECT fyp_name, fyp_profileimg FROM supervisor WHERE fyp_userid = ?";
-    if ($stmt = $conn->prepare($sql_sv)) {
-        $stmt->bind_param("i", $auth_user_id); $stmt->execute();
+    // 这里为了 UI 一致性，确保读取的是 Coordinator 的头像
+    $sql_ui = "SELECT fyp_name, fyp_profileimg FROM coordinator WHERE fyp_userid = ?";
+    if ($stmt = $conn->prepare($sql_ui)) {
+        $stmt->bind_param("i", $auth_user_id); 
+        $stmt->execute();
         $res = $stmt->get_result();
         if ($row = $res->fetch_assoc()) {
             if (!empty($row['fyp_name'])) $user_name = $row['fyp_name'];
@@ -132,43 +131,28 @@ if (isset($conn)) {
     }
 }
 
-// 5. 菜单定义
+// 5. Coordinator 专属菜单定义 (完全保留原样)
 $menu_items = [
-    'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Supervisor_mainpage.php?page=dashboard'],
-    'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'supervisor_profile.php'],
-    'students'  => [
-        'name' => 'My Students', 
-        'icon' => 'fa-users',
+    'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Coordinator_mainpage.php?page=dashboard'],
+    'profile'   => ['name' => 'Profile', 'icon' => 'fa-user', 'link' => 'Coordinator_profile.php'], 
+    'project_mgmt' => [
+        'name' => 'Project Mgmt', 'icon' => 'fa-tasks',
         'sub_items' => [
-            'project_requests' => ['name' => 'Project Requests', 'icon' => 'fa-envelope-open-text', 'link' => 'supervisor_projectreq.php'],
-            'student_list'     => ['name' => 'Student List', 'icon' => 'fa-list', 'link' => 'Supervisor_mainpage.php?page=student_list'],
+            'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'Coordinator_purpose.php'],
+            'project_requests' => ['name' => 'Project Requests', 'icon' => 'fa-envelope-open-text', 'link' => 'Coordinator_projectreq.php'],
+            'allocation' => ['name' => 'Auto Allocation', 'icon' => 'fa-bullseye', 'link' => 'Coordinator_mainpage.php?page=allocation'], 
         ]
     ],
-    'fyp_project' => [
-        'name' => 'FYP Project',
-        'icon' => 'fa-project-diagram',
+    'assessment' => [
+        'name' => 'Assessment', 'icon' => 'fa-clipboard-check',
         'sub_items' => [
-            'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'supervisor_purpose.php'],
-            'my_projects'     => ['name' => 'My Projects', 'icon' => 'fa-folder-open', 'link' => 'Supervisor_mainpage.php?page=my_projects'],
-            'propose_assignment' => ['name' => 'Propose Assignment', 'icon' => 'fa-tasks', 'link' => 'supervisor_assignment_purpose.php']
+            'propose_assignment' => ['name' => 'Create Assignment', 'icon' => 'fa-plus', 'link' => 'Coordinator_assignment_purpose.php'],
+            'grade_assignment' => ['name' => 'Grade Assignments', 'icon' => 'fa-check-square', 'link' => 'Coordinator_assignment_grade.php'], 
         ]
     ],
-    'grading' => [
-        'name' => 'Assessment',
-        'icon' => 'fa-marker',
-        'sub_items' => [
-            'grade_assignment' => ['name' => 'Grade Assignments', 'icon' => 'fa-check-square', 'link' => 'Supervisor_assignment_grade.php'],
-        ]
-    ],
-    'announcement' => [
-        'name' => 'Announcement',
-        'icon' => 'fa-bullhorn',
-        'sub_items' => [
-            'post_announcement' => ['name' => 'Post Announcement', 'icon' => 'fa-pen-square', 'link' => 'supervisor_announcement.php'],
-            'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Supervisor_mainpage.php?page=view_announcements'],
-        ]
-    ],
-    'schedule'  => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'supervisor_meeting.php'],
+    'announcements' => ['name' => 'Announcements', 'icon' => 'fa-bullhorn', 'sub_items' => ['post_announcement' => ['name' => 'Post New', 'icon' => 'fa-pen', 'link' => 'Coordinator_announcement.php']]],
+    'schedule' => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'Coordinator_meeting.php'], 
+    'data_io' => ['name' => 'Data Management', 'icon' => 'fa-database', 'link' => 'Coordinator_mainpage.php?page=data_io'],
 ];
 ?>
 <!DOCTYPE html>
@@ -176,11 +160,11 @@ $menu_items = [
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Propose New Project - Supervisor</title>
+    <title>Propose Project - Coordinator</title>
     <link rel="icon" type="image/png" href="<?php echo $user_avatar; ?>">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        /* 复用 mainpage 的 CSS */
+        /* Shared Style from Supervisor_purpose.php */
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap');
         :root { --primary-color: #0056b3; --primary-hover: #004494; --secondary-color: #f4f4f9; --text-color: #333; --border-color: #e0e0e0; --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); --gradient-start: #eef2f7; --gradient-end: #ffffff; --sidebar-width: 260px; }
         body { font-family: 'Poppins', sans-serif; margin: 0; background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end)); color: var(--text-color); min-height: 100vh; display: flex; flex-direction: column; }
@@ -210,7 +194,7 @@ $menu_items = [
 
         .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; }
         
-        /* 页面特定样式 */
+        /* Form Specifics */
         .form-card { background: #fff; padding: 30px; border-radius: 12px; box-shadow: var(--card-shadow); }
         .page-header { border-bottom: 2px solid #eee; padding-bottom: 15px; margin-bottom: 25px; }
         .page-header h2 { margin: 0; color: var(--primary-color); }
@@ -237,7 +221,7 @@ $menu_items = [
         <div class="topbar-right">
             <div class="user-profile-summary">
                 <span class="user-name-display"><?php echo htmlspecialchars($user_name); ?></span>
-                <span class="user-role-badge">Lecturer</span>
+                <span class="user-role-badge">Coordinator</span>
             </div>
             <div class="user-avatar-circle"><img src="<?php echo $user_avatar; ?>" alt="User Avatar"></div>
             <a href="login.php" class="logout-btn"><i class="fa fa-sign-out-alt"></i> Logout</a>
@@ -249,13 +233,20 @@ $menu_items = [
             <ul class="menu-list">
                 <?php foreach ($menu_items as $key => $item): ?>
                     <?php 
+                        // Logic to determine active state including sub-menus
                         $isActive = ($key == $current_page);
                         $hasActiveChild = false;
                         if (isset($item['sub_items'])) {
                             foreach ($item['sub_items'] as $sub_key => $sub) {
-                                if ($sub_key == $current_page) { $hasActiveChild = true; break; }
+                                if ($sub_key == $current_page) { 
+                                    $hasActiveChild = true; 
+                                    // If sub-item is active, the parent 'project_mgmt' should be highlighted too
+                                    if ($key == 'project_mgmt') $isActive = true; 
+                                    break; 
+                                }
                             }
                         }
+                        
                         $linkUrl = isset($item['link']) ? $item['link'] : "#";
                         if ($linkUrl !== "#") {
                              $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?';
@@ -291,17 +282,16 @@ $menu_items = [
             <div class="form-card">
                 <div class="page-header">
                     <h2><i class="fa fa-plus-circle"></i> Propose New Project</h2>
-                    <p>Create a new project for students to apply. Your contact details will be attached automatically.</p>
+                    <p>Create a new project for students. As a Coordinator, you can also propose projects where you act as the Supervisor.</p>
                 </div>
 
                 <div class="info-note">
                     <i class="fa fa-info-circle"></i> 
                     <strong>Project Status:</strong> All new projects are set to "<strong>Open</strong>" by default. 
                     <br>
-                    <strong>Contact Info:</strong> Your name and email (<?php echo htmlspecialchars($user_name); ?>) will be automatically linked to this project upon submission.
+                    <strong>Contact Info:</strong> Your name (<?php echo htmlspecialchars($user_name); ?>) will be automatically listed as the contact person.
                 </div>
                 
-                <!-- Action 为空表示提交给自己 -->
                 <form action="" method="POST">
                     
                     <div class="form-group">
@@ -328,7 +318,6 @@ $menu_items = [
                         <div class="form-group">
                             <label for="project_domain">Domain / Category <span style="color:red">*</span></label>
                             <select id="project_domain" name="project_domain" class="form-control">
-                                <!-- 值被缩短以适应 varchar(16) 限制 -->
                                 <option value="Software Eng.">Software Engineering</option>
                                 <option value="Networking">Networking</option>
                                 <option value="AI">Artificial Intelligence</option>
@@ -350,7 +339,6 @@ $menu_items = [
                         
                         <div class="form-group">
                             <label for="course_req">Course Requirement</label>
-                            <!-- 锁定为 FIST 并设置为只读 -->
                             <input type="text" id="course_req" name="course_req" class="form-control" value="FIST" readonly style="background-color: #e9ecef; cursor: not-allowed;">
                         </div>
                     </div>

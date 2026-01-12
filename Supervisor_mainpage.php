@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// Supervisor_mainpage.php - 导师主页 (Sidebar Expanded)
+// Supervisor_mainpage.php - 导师主页 (Quota & Display Fixed)
 // ====================================================
 
 include("connect.php");
@@ -16,7 +16,8 @@ if (!$auth_user_id) { header("location: login.php"); exit; }
 $sv_data = [];
 $user_name = "Supervisor"; 
 $user_avatar = "image/user.png"; 
-$sv_id = 0; // 初始化 Supervisor ID
+$sv_id = 0; 
+$my_staff_id = ""; // 初始化为空
 
 if (isset($conn)) {
     // 获取 USER 表名字
@@ -34,7 +35,11 @@ if (isset($conn)) {
         $res = $stmt->get_result();
         if ($res->num_rows > 0) {
             $sv_data = $res->fetch_assoc();
-            $sv_id = $sv_data['fyp_supervisorid']; // 获取关键 ID
+            $sv_id = $sv_data['fyp_supervisorid']; 
+            
+            // 获取 Staff ID
+            $my_staff_id = $sv_data['fyp_staffid']; 
+            
             if (!empty($sv_data['fyp_name'])) $user_name = $sv_data['fyp_name'];
             if (!empty($sv_data['fyp_profileimg'])) $user_avatar = $sv_data['fyp_profileimg'];
         }
@@ -42,52 +47,65 @@ if (isset($conn)) {
     }
 }
 
-// ----------------------------------------------------
-// 3. DASHBOARD 统计逻辑
-// ----------------------------------------------------
+// ====================================================
+// 3. DASHBOARD 统计逻辑 (核心修改区域)
+// ====================================================
+
 $stats = [
     'total_students' => 0,
     'pending_req' => 0,
     'quota_used' => 0,
-    'quota_limit' => 3 // 默认默认值
+    'quota_limit' => 3 
 ];
 $active_projects_list = [];
 
-if ($sv_id > 0) {
-    // A. 获取 Quota 上限 (从 quota 表)
-    $q_sql = "SELECT fyp_numofstudent FROM quota WHERE fyp_supervisorid = '$sv_id'";
+// 确保 Staff ID 存在才执行
+if (!empty($my_staff_id)) {
+
+    // A. 获取 Quota 上限
+    $q_sql = "SELECT fyp_numofstudent FROM quota WHERE fyp_staffid = '$my_staff_id'";
     $q_res = $conn->query($q_sql);
     if ($q_res && $q_row = $q_res->fetch_assoc()) {
         $stats['quota_limit'] = intval($q_row['fyp_numofstudent']);
     }
 
-    // B. 获取 Pending Requests 数量
-    $p_sql = "SELECT COUNT(*) as cnt FROM project_request WHERE fyp_supervisorid = '$sv_id' AND fyp_requeststatus = 'Pending'";
+    // B. 获取 Pending Requests 数量 (这个保持不变，Pending 的必须处理)
+    $p_sql = "SELECT COUNT(*) as cnt 
+              FROM project_request pr
+              JOIN project p ON pr.fyp_projectid = p.fyp_projectid
+              WHERE p.fyp_staffid = '$my_staff_id' 
+              AND pr.fyp_requeststatus = 'Pending'";
+              
     $p_res = $conn->query($p_sql);
     if ($p_res && $p_row = $p_res->fetch_assoc()) {
         $stats['pending_req'] = $p_row['cnt'];
     }
 
-    // C. 获取 Active Projects (已注册的项目) & 计算 Used Quota & Total Students
-    // 逻辑：Used Quota = 唯一 Project ID 的数量 (Group算1个, Individual算1个)
-    // 逻辑：Total Students = 学生总人数
-    
-    // 联合查询：Project, Registration, Student
-    $act_sql = "SELECT r.fyp_projectid, p.fyp_projecttitle, p.fyp_projecttype, 
+    // C. 获取 Active Projects (已注册的项目) & 统计
+    // 【关键修改】这里增加了过滤条件：只查询状态为 Active 的学生
+    // 效果 1: 被 Hide 的项目不会出现在列表里。
+    // 效果 2: 被 Hide 的项目不会被算进 quota_used。
+    $act_sql = "SELECT r.fyp_projectid, 
+                       p.fyp_projecttitle, 
+                       p.fyp_projecttype, 
+                       ay.fyp_acdyear, 
+                       ay.fyp_intake,
                        GROUP_CONCAT(s.fyp_studname SEPARATOR ', ') as student_names,
                        COUNT(r.fyp_studid) as stud_count
                 FROM fyp_registration r
                 JOIN project p ON r.fyp_projectid = p.fyp_projectid
                 JOIN student s ON r.fyp_studid = s.fyp_studid
-                WHERE r.fyp_supervisorid = '$sv_id'
+                LEFT JOIN academic_year ay ON p.fyp_academicid = ay.fyp_academicid
+                WHERE p.fyp_staffid = '$my_staff_id'
+                AND (r.fyp_archive_status = 'Active' OR r.fyp_archive_status IS NULL) -- <--- 过滤掉 Hidden
                 GROUP BY r.fyp_projectid";
     
     $act_res = $conn->query($act_sql);
     if ($act_res) {
         while ($row = $act_res->fetch_assoc()) {
-            $stats['quota_used']++; // 每有一个 active project，占用 1 个 quota
-            $stats['total_students'] += $row['stud_count']; // 累加学生人数
-            $active_projects_list[] = $row; // 存入列表用于展示
+            $stats['quota_used']++;  // 只有 Active 的项目才会让计数器 +1
+            $stats['total_students'] += $row['stud_count']; 
+            $active_projects_list[] = $row; 
         }
     }
 }
@@ -101,7 +119,7 @@ $menu_items = [
         'icon' => 'fa-users',
         'sub_items' => [
             'project_requests' => ['name' => 'Project Requests', 'icon' => 'fa-envelope-open-text', 'link' => 'supervisor_projectreq.php'],
-            'student_list'     => ['name' => 'Student List', 'icon' => 'fa-list', 'link' => '?page=student_list'],
+            'student_list'     => ['name' => 'Student List', 'icon' => 'fa-list', 'link' => 'Supervisor_student_list.php'],
         ]
     ],
     'fyp_project' => [
@@ -110,10 +128,10 @@ $menu_items = [
         'sub_items' => [
             'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'supervisor_purpose.php'],
             'my_projects'     => ['name' => 'My Projects', 'icon' => 'fa-folder-open', 'link' => '?page=my_projects'],
-            'propose_assignment' => ['name' => 'Propose Assignment', 'icon' => 'fa-tasks','link' => 'supervisor_assignment_purpose.php']
+            'propose_assignment' => ['name' => 'Propose Assignment', 'icon' => 'fa-tasks','link' => 'supervisor_assignment_purpose.php'],
+             'all_project' => ['name' => 'All Project', 'icon' => 'fa-tasks', 'link' => 'supervisor_project_list.php']
         ]
     ],
-    // --- Grading Menu Included ---
     'grading' => [
         'name' => 'Assessment',
         'icon' => 'fa-marker',
@@ -121,16 +139,14 @@ $menu_items = [
             'grade_assignment' => ['name' => 'Grade Assignments', 'icon' => 'fa-check-square', 'link' => 'Supervisor_assignment_grade.php'],
         ]
     ],
-    // -----------------------------
     'announcement' => [
         'name' => 'Announcement',
         'icon' => 'fa-bullhorn',
         'sub_items' => [
             'post_announcement' => ['name' => 'Post Announcement', 'icon' => 'fa-pen-square', 'link' => 'supervisor_announcement.php'],
-            'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => '?page=view_announcements'], // Placeholder
+            'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => '?page=view_announcements'],
         ]
     ],
-    // --- UPDATED: Schedule now links to supervisor_meeting.php ---
     'schedule'  => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'supervisor_meeting.php'],
 ];
 ?>
@@ -164,10 +180,8 @@ $menu_items = [
         .menu-link.active { background-color: #e3effd; color: var(--primary-color); border-left-color: var(--primary-color); }
         .menu-icon { width: 24px; margin-right: 10px; text-align: center; }
         
-        /* --- CHANGED: Submenu Always Visible --- */
         .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: block; }
         .submenu .menu-link { padding-left: 58px; font-size: 14px; padding-top: 10px; padding-bottom: 10px; }
-        /* -------------------------------------- */
         
         .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; }
         .welcome-card { background: #fff; padding: 30px; border-radius: 12px; box-shadow: var(--card-shadow); border-left: 5px solid var(--primary-color); }
@@ -211,7 +225,6 @@ $menu_items = [
                     <?php 
                         $isActive = ($key == $current_page);
                         $hasActiveChild = false;
-                        // 检查子菜单是否激活
                         if (isset($item['sub_items'])) {
                             foreach ($item['sub_items'] as $sub_key => $sub) {
                                 if ($sub_key == $current_page) { $hasActiveChild = true; break; }
@@ -257,19 +270,16 @@ $menu_items = [
             
             <?php if ($current_page == 'dashboard'): ?>
                 <div class="info-cards-grid">
-                    <!-- 1. Total Students Count -->
                     <div class="info-card">
                         <h3><i class="fa fa-users"></i> Total Students</h3>
                         <p><?php echo $stats['total_students']; ?> Students</p>
                     </div>
                     
-                    <!-- 2. Pending Requests Count -->
                     <div class="info-card" style="border-left-color: #d93025;">
                         <h3><i class="fa fa-clock"></i> Pending Requests</h3>
                         <p><?php echo $stats['pending_req']; ?> Requests</p>
                     </div>
                     
-                    <!-- 3. Quota Usage (Based on Groups/Projects) -->
                     <div class="info-card" style="border-left-color: #28a745;">
                         <h3><i class="fa fa-clipboard-check"></i> Project Quota</h3>
                         <p><?php echo $stats['quota_used']; ?> / <?php echo $stats['quota_limit']; ?> Groups</p>
@@ -284,6 +294,7 @@ $menu_items = [
                             <tr>
                                 <th>Project Title</th>
                                 <th>Type</th>
+                                <th>Academic Year</th> 
                                 <th>Students</th>
                                 <th>Size</th>
                             </tr>
@@ -293,6 +304,12 @@ $menu_items = [
                                 <tr>
                                     <td><strong><?php echo htmlspecialchars($proj['fyp_projecttitle']); ?></strong></td>
                                     <td><span class="type-badge type-<?php echo $proj['fyp_projecttype']; ?>"><?php echo $proj['fyp_projecttype']; ?></span></td>
+                                    
+                                    <td>
+                                        <?php echo htmlspecialchars($proj['fyp_acdyear']); ?> 
+                                        <span style="font-size:12px; color:#888;">(<?php echo htmlspecialchars($proj['fyp_intake']); ?>)</span>
+                                    </td>
+                                    
                                     <td><?php echo htmlspecialchars($proj['student_names']); ?></td>
                                     <td><?php echo $proj['stud_count']; ?> Student(s)</td>
                                 </tr>
