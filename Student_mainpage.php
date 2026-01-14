@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// Student_mainpage.php - Main Dashboard (With Pagination)
+// Student_mainpage.php - Dashboard (Fixed ArgumentCountError)
 // ====================================================
 include("connect.php");
 
@@ -59,7 +59,7 @@ if (isset($conn)) {
 }
 
 // ----------------------------------------------------
-// 3.2 获取 Dashboard 实时状态 & 关键过滤参数
+// 3.2 获取 Dashboard 实时状态 & Next Deadline
 // ----------------------------------------------------
 $dashboard_data = [
     'project_status' => 'Not Registered', 
@@ -68,9 +68,9 @@ $dashboard_data = [
 ];
 
 // 初始化过滤变量
-$my_sv_staffid = null;    // 存储 Staff ID
-$my_sv_name = "";         // 导师/Coordinator 名字
-$my_project_title = "";   // 项目标题
+$my_sv_staffid = null;    
+$my_sv_name = "";         
+$my_project_title = "";   
 
 if (!empty($stud_data['fyp_studid'])) {
     $my_id = $stud_data['fyp_studid'];
@@ -93,17 +93,58 @@ if (!empty($stud_data['fyp_studid'])) {
             $is_registered = true;
             $dashboard_data['project_status'] = 'Active (Registered)';
             $dashboard_data['supervisor_name'] = $row_reg['sv_name']; 
-            $dashboard_data['next_deadline'] = 'Check Schedule'; 
             
             $my_sv_staffid = $row_reg['fyp_staffid']; 
             $my_project_title = trim($row_reg['fyp_projecttitle']);
+
+            // ========== [核心修复] 获取 Next Deadline (Assignments) ==========
+            $my_group_status = $stud_data['fyp_group'] ?? 'Individual';
+            $my_group_id = 0;
+
+            // 获取 Group ID (如果适用)
+            if ($my_group_status == 'Group') {
+                $chk_ldr = $conn->query("SELECT group_id FROM student_group WHERE leader_id = '$my_id' LIMIT 1");
+                if ($r = $chk_ldr->fetch_assoc()) { $my_group_id = $r['group_id']; }
+                else {
+                    $chk_mem = $conn->query("SELECT group_id FROM group_request WHERE invitee_id = '$my_id' AND request_status = 'Accepted' LIMIT 1");
+                    if ($r = $chk_mem->fetch_assoc()) { $my_group_id = $r['group_id']; }
+                }
+            }
+
+            // 查询 Assignment 表 (使用 fyp_staffid)
+            $sql_dl = "SELECT fyp_deadline FROM assignment 
+                       WHERE fyp_staffid = ? 
+                       AND fyp_status = 'Active' 
+                       AND fyp_deadline >= NOW()
+                       AND (
+                           (fyp_assignment_type = 'Individual' AND ? = 'Individual' AND (fyp_target_id = 'ALL' OR fyp_target_id = ?))
+                           OR
+                           (fyp_assignment_type = 'Group' AND ? = 'Group' AND (fyp_target_id = 'ALL' OR fyp_target_id = ?))
+                       )
+                       ORDER BY fyp_deadline ASC LIMIT 1";
+            
+            if ($stmt_dl = $conn->prepare($sql_dl)) {
+                // 【修复】参数绑定类型：改为 "ssssi" (5个字符，对应5个变量)
+                // s: staffid, s: group_status, s: studid, s: group_status, i: groupid
+                $stmt_dl->bind_param("ssssi", $my_sv_staffid, $my_group_status, $my_id, $my_group_status, $my_group_id);
+                $stmt_dl->execute();
+                $res_dl = $stmt_dl->get_result();
+                if ($row_dl = $res_dl->fetch_assoc()) {
+                    $dashboard_data['next_deadline'] = date('M d, Y', strtotime($row_dl['fyp_deadline']));
+                } else {
+                    $dashboard_data['next_deadline'] = 'No upcoming tasks';
+                }
+                $stmt_dl->close();
+            }
+            // =================================================================
         }
         $stmt->close();
     }
 
-    // 2. 如果没注册，检查申请状态 (Pending/Reject)
+    // 2. 如果没注册，检查申请状态
     if (!$is_registered) {
         $applicant_id = $my_id;
+        // 检查是否是组员
         $sql_mem = "SELECT g.leader_id FROM group_request gr 
                     JOIN student_group g ON gr.group_id = g.group_id 
                     WHERE gr.invitee_id = ? AND gr.request_status = 'Accepted'";
@@ -158,7 +199,7 @@ if (!empty($stud_data['fyp_studid'])) {
 // 3.3 获取并过滤公告 (Dashboard Only) - 带分页
 // ----------------------------------------------------
 $announcements = [];
-$display_announcements = []; // 当前页要显示的公告
+$display_announcements = []; 
 $total_pages = 0;
 $current_ann_page = 1;
 
@@ -177,7 +218,6 @@ if ($current_page == 'dashboard') {
     if ($res) {
         while ($row = $res->fetch_assoc()) {
             
-            // 1. 智能判断角色 & 名字头像
             $display_name = "Unknown";
             $profile_img = "";
 
@@ -196,22 +236,19 @@ if ($current_page == 'dashboard') {
             $row['final_display_name'] = $display_name;
             $row['fyp_profileimg'] = $profile_img;
             
-            // 2. 过滤逻辑 (Who can see this?)
+            // 过滤逻辑
             $should_show = false;
             $receiver = trim($row['fyp_receiver']); 
             $sender_staff_id = trim($row['fyp_staffid']); 
 
-            // Case A: 发给所有学生
             if (strcasecmp($receiver, 'All Students') == 0) {
                 $should_show = true;
             } 
-            // Case B: 发给 "我的学生"
             elseif (strcasecmp($receiver, 'My Supervisees') == 0) {
                 if (!empty($my_sv_staffid) && strcasecmp($sender_staff_id, $my_sv_staffid) == 0) {
                     $should_show = true;
                 }
             } 
-            // Case C: 发给特定项目
             elseif (strpos($receiver, 'Project: ') === 0) {
                 $target_project = trim(substr($receiver, 9)); 
                 if (!empty($my_project_title) && strcasecmp($target_project, $my_project_title) == 0) {
@@ -225,19 +262,15 @@ if ($current_page == 'dashboard') {
         }
     }
     
-    // ==========================================
-    // 分页逻辑 (Pagination Logic)
-    // ==========================================
+    // 分页
     $total_announcements = count($announcements);
-    $items_per_page = 5; // 每页显示 5 条
+    $items_per_page = 5; 
     $total_pages = ceil($total_announcements / $items_per_page);
     
-    // 获取当前页码 (默认为 1)
     $current_ann_page = isset($_GET['ann_page']) ? (int)$_GET['ann_page'] : 1;
     if ($current_ann_page < 1) $current_ann_page = 1;
     if ($current_ann_page > $total_pages && $total_pages > 0) $current_ann_page = $total_pages;
 
-    // 计算切片
     $offset = ($current_ann_page - 1) * $items_per_page;
     $display_announcements = array_slice($announcements, $offset, $items_per_page);
 }
@@ -281,8 +314,14 @@ if ($current_page == 'appointments' && !empty($stud_data['fyp_projectid'])) {
 
         // 获取该 Staff ID 的 Schedule
         if (!empty($target_staff_id)) {
+            // 注意：这里 schedule 表如果还是 fyp_supervisorid 可能会有兼容问题
+            // 假设 schedule 表还没改，我们这里还是得用 supervisor ID 查 schedule 
+            // 如果 schedule 表也改成了 staffid，请修改下面的 WHERE s.fyp_supervisorid 为 s.fyp_staffid
+            // 目前先保持 supervisorid 不动
+            $sv_id_for_schedule = $supervisor_data['fyp_supervisorid'] ?? 0;
+            
             $sql_sch = "SELECT s.* FROM schedule s 
-                        WHERE s.fyp_supervisorid = '$target_staff_id' 
+                        WHERE s.fyp_supervisorid = '$sv_id_for_schedule' 
                         AND s.fyp_date >= CURDATE() 
                         AND s.fyp_scheduleid NOT IN (SELECT fyp_scheduleid FROM appointment WHERE fyp_status IN ('Pending', 'Approved')) 
                         ORDER BY s.fyp_date ASC";

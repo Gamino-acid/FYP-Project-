@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// std_projectreg.php - 学生申请项目 (Academic Year Filter Added)
+// std_projectreg.php - 学生申请项目 (分页版 2x3 Grid)
 // ====================================================
 include("connect.php");
 
@@ -8,14 +8,14 @@ include("connect.php");
 $auth_user_id = $_GET['auth_user_id'] ?? null;
 if (!$auth_user_id) { header("location: login.php"); exit; }
 
-// 2. 获取当前学生信息 (包括 fyp_group 状态 和 Academic ID)
+// 2. 获取当前学生信息
 $stud_data = [];
 $my_stud_id = '';
-$my_group_status = 'Individual'; // 默认为 Individual
+$my_group_status = 'Individual'; 
 $user_name = 'Student';
-$is_leader = false; // 默认为 false
-$my_group_id = 0; // 存储 Group ID
-$my_academic_id = 0; // [新增] 存储学生的 Academic ID
+$is_leader = false; 
+$my_group_id = 0; 
+$my_academic_id = 0; 
 
 if (isset($conn)) {
     // 获取 USER 表名字
@@ -39,17 +39,15 @@ if (isset($conn)) {
             $my_stud_id = $row['fyp_studid'];
             if(!empty($row['fyp_studname'])) $user_name=$row['fyp_studname'];
             if(!empty($row['fyp_group'])) $my_group_status = $row['fyp_group']; 
-            // [新增] 获取学生的 Academic ID
             if(!empty($row['fyp_academicid'])) $my_academic_id = $row['fyp_academicid'];
         } 
         $stmt->close(); 
     }
 
-    // 【新增】如果状态是 Group，检查是否为 Leader，或者获取 Leader ID
-    $target_applicant_id = $my_stud_id; // 默认检查自己
+    // 检查 Group Leader 状态
+    $target_applicant_id = $my_stud_id; 
 
     if ($my_group_status == 'Group') {
-        // 先查我是不是 Leader
         $chk_leader = "SELECT group_id FROM student_group WHERE leader_id = '$my_stud_id'";
         $res_l = $conn->query($chk_leader);
         if ($res_l && $res_l->num_rows > 0) {
@@ -57,27 +55,24 @@ if (isset($conn)) {
             $grp = $res_l->fetch_assoc();
             $my_group_id = $grp['group_id'];
         } else {
-            // 如果不是 Leader，那我是 Member，我得找出我的 Leader 是谁
-            // 因为申请记录是挂在 Leader 头上的
             $find_leader_sql = "SELECT g.leader_id 
                                 FROM group_request gr 
                                 JOIN student_group g ON gr.group_id = g.group_id 
                                 WHERE gr.invitee_id = '$my_stud_id' AND gr.request_status = 'Accepted' LIMIT 1";
             $res_fl = $conn->query($find_leader_sql);
             if ($row_fl = $res_fl->fetch_assoc()) {
-                $target_applicant_id = $row_fl['leader_id']; // 这里的 ID 换成 Leader 的
+                $target_applicant_id = $row_fl['leader_id'];
             }
         }
     }
 }
 
 // ----------------------------------------------------
-// 【全局检查】是否已经有 Pending 或 Approved 的申请
+// 全局检查：是否有 Active 申请
 // ----------------------------------------------------
 $has_active_application = false;
 $active_app_status = '';
 
-// 检查 project_request 表 (Pending/Approve)
 $chk_app_sql = "SELECT fyp_requeststatus FROM project_request 
                 WHERE fyp_studid = '$target_applicant_id' 
                 AND (fyp_requeststatus = 'Pending' OR fyp_requeststatus = 'Approve') 
@@ -90,7 +85,7 @@ if ($res_app && $res_app->num_rows > 0) {
 }
 
 // ----------------------------------------------------
-// 【拒绝检查】获取该学生（或团队）被拒绝过的 Project ID 列表
+// 拒绝名单检查
 // ----------------------------------------------------
 $rejected_project_ids = [];
 $chk_rej_sql = "SELECT fyp_projectid FROM project_request 
@@ -108,7 +103,6 @@ if ($res_rej) {
 // ----------------------------------------------------
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_project_confirm'])) {
     
-    // 如果已经有申请了，后端再次拦截
     if ($has_active_application) {
         echo "<script>alert('You already have an active project application ($active_app_status).'); window.history.back();</script>"; exit;
     }
@@ -117,12 +111,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_project_confi
     $proj_id = $_POST['project_id'];
     $date_now = date('Y-m-d H:i:s');
 
-    // 如果该项目之前被拒绝过，拦截
     if (in_array($proj_id, $rejected_project_ids)) {
         echo "<script>alert('You cannot re-apply to a project that has already rejected you.'); window.history.back();</script>"; exit;
     }
 
-    // A. 再次获取项目详情
     $chk_proj_sql = "SELECT fyp_projecttype, fyp_staffid, fyp_projectstatus FROM PROJECT WHERE fyp_projectid = ?";
     $stmt_p = $conn->prepare($chk_proj_sql);
     $stmt_p->bind_param("i", $proj_id);
@@ -139,7 +131,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_project_confi
     $proj_type = $proj_info['fyp_projecttype'];
     $proj_status = $proj_info['fyp_projectstatus'];
 
-    // B. 验证逻辑
     if ($proj_status == 'Taken') {
         echo "<script>alert('Sorry, this project is already TAKEN.'); window.history.back();</script>"; exit;
     }
@@ -167,7 +158,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_project_confi
         }
     }
 
-    // C. 插入数据库
     $sql_ins = "INSERT INTO project_request (fyp_studid, fyp_staffid, fyp_projectid, fyp_requeststatus, fyp_datecreated) VALUES (?, ?, ?, 'Pending', ?)";
     if ($stmt = $conn->prepare($sql_ins)) {
         $stmt->bind_param("ssis", $my_stud_id, $target_sv_id, $proj_id, $date_now);
@@ -181,36 +171,33 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_project_confi
 }
 
 // ----------------------------------------------------
-// 4. 获取项目列表 (含搜索和过滤功能 + [新增] 年级过滤)
+// 4. 获取项目列表 (查询 & 筛选)
 // ----------------------------------------------------
-$available_projects = [];
+$all_projects = []; // 存储所有符合条件的项目
 
-// 获取 GET 参数
 $filter_status = $_GET['filter_status'] ?? '';
 $search_title = $_GET['search_title'] ?? '';
 $search_sv = $_GET['search_sv'] ?? '';
 
-// 构建 SQL
-// [核心改动] 强制只显示学生所属 Academic ID 的项目
 $sql = "SELECT p.*, s.fyp_name as sv_name, s.fyp_email as sv_email, s.fyp_contactno as sv_phone 
         FROM PROJECT p 
         LEFT JOIN supervisor s ON p.fyp_staffid = s.fyp_staffid 
         WHERE 1=1";
 
-// [强制条件]
+// 强制条件
 if ($my_academic_id > 0) {
     $sql .= " AND p.fyp_academicid = '$my_academic_id'";
 }
+// 只显示 Active
+$sql .= " AND (p.fyp_archive_status = 'Active' OR p.fyp_archive_status IS NULL)";
 
-// 动态添加筛选栏条件
+// 筛选条件
 if (!empty($filter_status)) {
     $sql .= " AND p.fyp_projectstatus = '" . $conn->real_escape_string($filter_status) . "'";
 }
-
 if (!empty($search_title)) {
     $sql .= " AND p.fyp_projecttitle LIKE '%" . $conn->real_escape_string($search_title) . "%'";
 }
-
 if (!empty($search_sv)) {
     $sv_term = $conn->real_escape_string($search_sv);
     $sql .= " AND (s.fyp_name LIKE '%$sv_term%' OR p.fyp_contactpersonname LIKE '%$sv_term%')";
@@ -221,11 +208,27 @@ $sql .= " ORDER BY p.fyp_datecreated DESC";
 $res = $conn->query($sql);
 if ($res) {
     while ($row = $res->fetch_assoc()) {
-        $available_projects[] = $row;
+        $all_projects[] = $row;
     }
 }
 
-// 5. 菜单定义
+// ----------------------------------------------------
+// 5. 分页逻辑 (Pagination Logic)
+// ----------------------------------------------------
+$items_per_page = 6; // 每页 6 个 (2列 x 3行)
+$total_items = count($all_projects);
+$total_pages = ceil($total_items / $items_per_page);
+
+// 获取当前页码
+$current_page_num = isset($_GET['page_num']) ? (int)$_GET['page_num'] : 1;
+if ($current_page_num < 1) $current_page_num = 1;
+if ($current_page_num > $total_pages && $total_pages > 0) $current_page_num = $total_pages;
+
+// 切割数组
+$offset = ($current_page_num - 1) * $items_per_page;
+$display_projects = array_slice($all_projects, $offset, $items_per_page);
+
+// 6. 菜单定义
 $current_page = 'group_setup';
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Student_mainpage.php?page=dashboard'],
@@ -236,7 +239,8 @@ $menu_items = [
         'sub_items' => [
             'group_setup' => ['name' => 'Project Registration', 'icon' => 'fa-users', 'link' => 'std_projectreg.php'], 
             'team_invitations' => ['name' => 'Request & Team Status', 'icon' => 'fa-tasks', 'link' => 'std_request_status.php'],
-            'proposals' => ['name' => 'Proposal Submission', 'icon' => 'fa-file-alt', 'link' => 'Student_mainpage.php?page=proposals'],
+            'assignment' => ['name' => 'Assignment', 'icon' => 'fa-file-alt', 'link' => 'student_assignment.php'],
+            'doc_submission' => ['name' => 'Document Upload', 'icon' => 'fa-cloud-upload-alt', 'link' => '?page=doc_submission'],
         ]
     ],
     'grades' => ['name' => 'My Grades', 'icon' => 'fa-star', 'link' => 'Student_mainpage.php?page=grades'],
@@ -260,7 +264,7 @@ $menu_items = [
         .sidebar { width: var(--sidebar-width); background: #fff; border-radius: 12px; box-shadow: var(--card-shadow); padding: 20px 0; flex-shrink: 0; }
         .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; }
         
-        /* Topbar & Sidebar Styles (Reuse) */
+        /* Topbar & Sidebar Styles */
         .topbar { display: flex; justify-content: space-between; align-items: center; padding: 15px 40px; background-color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); z-index: 100; position: sticky; top: 0; }
         .logo { font-size: 22px; font-weight: 600; color: var(--primary-color); display: flex; align-items: center; gap: 10px; }
         .topbar-right { display: flex; align-items: center; gap: 20px; }
@@ -269,7 +273,6 @@ $menu_items = [
         .user-avatar-circle img { width: 100%; height: 100%; object-fit: cover; }
         .logout-btn { color: #d93025; text-decoration: none; font-size: 14px; font-weight: 500; }
         
-        /* Menu Styles */
         .menu-list { list-style: none; padding: 0; margin: 0; }
         .menu-item { margin-bottom: 5px; }
         .menu-link { display: flex; align-items: center; padding: 12px 25px; text-decoration: none; color: #555; font-weight: 500; font-size: 15px; border-left: 4px solid transparent; transition: all 0.3s; }
@@ -286,7 +289,7 @@ $menu_items = [
         .my-status-box { text-align: right; }
         .status-pill { background: #e3effd; color: var(--primary-color); padding: 5px 15px; border-radius: 20px; font-weight: 600; font-size: 13px; display: inline-block; margin-top: 5px; }
 
-        /* Filter Bar Styles */
+        /* Filter Bar */
         .filter-card { background: #fff; padding: 20px; border-radius: 12px; box-shadow: var(--card-shadow); margin-bottom: 5px; display: flex; gap: 15px; flex-wrap: wrap; align-items: flex-end; }
         .filter-group { flex: 1; min-width: 150px; }
         .filter-group label { display: block; font-size: 12px; font-weight: 600; color: #666; margin-bottom: 5px; }
@@ -296,11 +299,16 @@ $menu_items = [
         .btn-reset { background-color: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; height: 40px; box-sizing: border-box; }
         .btn-reset:hover { background-color: #5a6268; }
 
-        .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 25px; margin-top: 20px; }
+        /* GRID SYSTEM: 2 Columns */
+        .project-grid { 
+            display: grid; 
+            grid-template-columns: repeat(2, 1fr); /* 强制 2 列 */
+            gap: 25px; 
+            margin-top: 20px; 
+        }
+        
         .project-card { background: #fff; border-radius: 12px; padding: 25px; box-shadow: var(--card-shadow); display: flex; flex-direction: column; transition: transform 0.3s; border-top: 4px solid #ddd; position: relative; }
         .project-card:hover { transform: translateY(-5px); box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
-        
-        /* Dynamic Border Colors based on Type */
         .card-Group { border-top-color: #7b1fa2; }
         .card-Individual { border-top-color: #0288d1; }
 
@@ -323,29 +331,35 @@ $menu_items = [
 
         .btn-view { background: #fff; border: 1px solid var(--primary-color); color: var(--primary-color); padding: 10px; border-radius: 6px; width: 100%; cursor: pointer; font-weight: 500; transition: all 0.2s; }
         .btn-view:hover { background: var(--primary-color); color: #fff; }
-
-        /* Disable style for mismatch */
         .project-card.disabled { opacity: 0.6; }
         .project-card.disabled .btn-view { border-color: #ccc; color: #999; cursor: not-allowed; background: #f9f9f9; }
         .project-card.disabled:hover { transform: none; }
+
+        /* Pagination Styles */
+        .pagination-container { display: flex; justify-content: space-between; align-items: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; }
+        .page-btn { text-decoration: none; color: #555; background: #fff; border: 1px solid #ddd; padding: 8px 15px; border-radius: 6px; font-size: 14px; font-weight: 500; transition: all 0.2s; display: flex; align-items: center; gap: 5px; }
+        .page-btn:hover:not(.disabled) { background: #f0f0f0; color: var(--primary-color); border-color: var(--primary-color); }
+        .page-btn.disabled { color: #ccc; border-color: #eee; cursor: not-allowed; background: #f9f9f9; pointer-events: none; }
+        .page-info { font-size: 14px; color: #666; font-weight: 500; }
 
         /* Modal Styles */
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; }
         .modal-overlay.show { display: flex; }
         .modal-box { background: #fff; width: 90%; max-width: 700px; border-radius: 12px; padding: 30px; position: relative; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 50px rgba(0,0,0,0.2); }
         .close-modal { position: absolute; top: 20px; right: 20px; font-size: 24px; cursor: pointer; color: #999; }
-        
         .m-section { margin-bottom: 20px; }
         .m-label { font-size: 12px; color: #888; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; margin-bottom: 5px; }
         .m-value { font-size: 15px; color: #333; line-height: 1.6; }
         .m-title { font-size: 22px; font-weight: 600; color: var(--primary-color); margin-bottom: 5px; }
-
         .sv-card-mini { background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #eee; display: flex; gap: 15px; align-items: center; }
-        
         .btn-confirm { background: var(--primary-color); color: white; border: none; padding: 12px 30px; border-radius: 6px; font-size: 16px; font-weight: 600; cursor: pointer; width: 100%; margin-top: 10px; }
         .btn-confirm:hover { background: var(--primary-hover); }
 
-        @media (max-width: 900px) { .layout-container { flex-direction: column; } .sidebar { width: 100%; } }
+        @media (max-width: 900px) { 
+            .layout-container { flex-direction: column; } 
+            .sidebar { width: 100%; } 
+            .project-grid { grid-template-columns: 1fr; } /* 移动端改为 1 列 */
+        }
     </style>
 </head>
 <body>
@@ -365,12 +379,6 @@ $menu_items = [
                 <?php foreach ($menu_items as $key => $item): ?>
                     <?php 
                         $isActive = ($key == $current_page);
-                        $hasActiveChild = false;
-                        if (isset($item['sub_items'])) {
-                            foreach ($item['sub_items'] as $sub_key => $sub) {
-                                if ($sub_key == $current_page) { $hasActiveChild = true; break; }
-                            }
-                        }
                         $linkUrl = isset($item['link']) ? $item['link'] : "#";
                         if (strpos($linkUrl, '.php') !== false) {
                              $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?';
@@ -426,7 +434,6 @@ $menu_items = [
                 </div>
             <?php endif; ?>
             
-            <!-- FILTER BAR -->
             <form method="GET" action="" class="filter-card">
                 <input type="hidden" name="auth_user_id" value="<?php echo htmlspecialchars($auth_user_id); ?>">
                 
@@ -454,26 +461,17 @@ $menu_items = [
             </form>
 
             <div class="project-grid">
-                <?php if (count($available_projects) > 0): ?>
-                    <?php foreach ($available_projects as $proj): ?>
+                <?php if (count($display_projects) > 0): ?>
+                    <?php foreach ($display_projects as $proj): ?>
                         <?php 
                             // 逻辑检查
                             $isTaken = ($proj['fyp_projectstatus'] == 'Taken');
                             $isMismatch = ($my_group_status != $proj['fyp_projecttype']);
-                            
-                            // 1. Group Member Restriction
                             $isMemberRestrict = ($my_group_status == 'Group' && !$is_leader && $proj['fyp_projecttype'] == 'Group');
-
-                            // 2. Global "Already Applied" Restriction
                             $isAlreadyApplied = $has_active_application;
-
-                            // 3. Specific Project Rejection Restriction
                             $isRejected = in_array($proj['fyp_projectid'], $rejected_project_ids);
-
-                            // Total Disabled Flag
                             $isDisabled = $isTaken || $isMismatch || $isMemberRestrict || $isAlreadyApplied || $isRejected;
                             
-                            // Button Text Logic
                             $btnText = "View & Apply";
                             if ($isTaken) $btnText = "Taken";
                             else if ($isRejected) $btnText = "Application Rejected"; 
@@ -502,7 +500,6 @@ $menu_items = [
                                 </div>
                             </div>
 
-                            <!-- 如果 Disabled，onclick 设为空 或 移除 -->
                             <button type="button" class="btn-view" 
                                 <?php if (!$isDisabled): ?>
                                     onclick="openModal(<?php echo htmlspecialchars(json_encode($proj)); ?>)" 
@@ -513,13 +510,49 @@ $menu_items = [
                         </div>
                     <?php endforeach; ?>
                 <?php else: ?>
-                    <div style="text-align:center; padding:40px; color:#999; grid-column: 1/-1;">No projects match your criteria (Year Filter Applied).</div>
+                    <div style="text-align:center; padding:40px; color:#999; grid-column: 1/-1;">No projects match your criteria.</div>
                 <?php endif; ?>
             </div>
+
+            <?php if ($total_pages > 1): ?>
+                <div class="pagination-container">
+                    <?php 
+                        // 构建基础 URL 参数
+                        $queryParams = $_GET;
+                        // 当前页 - 1
+                        $prevPage = $current_page_num - 1;
+                        $queryParams['page_num'] = $prevPage;
+                        $prevLink = '?' . http_build_query($queryParams);
+                        
+                        // 当前页 + 1
+                        $nextPage = $current_page_num + 1;
+                        $queryParams['page_num'] = $nextPage;
+                        $nextLink = '?' . http_build_query($queryParams);
+                    ?>
+
+                    <?php if ($current_page_num > 1): ?>
+                        <a href="<?php echo $prevLink; ?>" class="page-btn">
+                            <i class="fa fa-chevron-left"></i> Previous
+                        </a>
+                    <?php else: ?>
+                        <span class="page-btn disabled"><i class="fa fa-chevron-left"></i> Previous</span>
+                    <?php endif; ?>
+
+                    <span class="page-info">Page <?php echo $current_page_num; ?> of <?php echo $total_pages; ?></span>
+
+                    <?php if ($current_page_num < $total_pages): ?>
+                        <a href="<?php echo $nextLink; ?>" class="page-btn">
+                            Next <i class="fa fa-chevron-right"></i>
+                        </a>
+                    <?php else: ?>
+                        <span class="page-btn disabled">Next <i class="fa fa-chevron-right"></i></span>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
+
         </main>
     </div>
 
-    <!-- Modal -->
     <div id="detailModal" class="modal-overlay">
         <div class="modal-box">
             <span class="close-modal" onclick="closeModal()">&times;</span>
@@ -579,7 +612,6 @@ $menu_items = [
             document.getElementById('mCat').innerText = proj.fyp_projectcat;
             document.getElementById('mType').innerText = proj.fyp_projecttype;
             
-            // Status Styling
             const stEl = document.getElementById('mStatus');
             stEl.innerText = proj.fyp_projectstatus;
             stEl.className = 'p-status st-' + proj.fyp_projectstatus;
@@ -588,10 +620,8 @@ $menu_items = [
             document.getElementById('mReq').innerText = proj.fyp_requirement || 'None specified';
             document.getElementById('mCourse').innerText = proj.fyp_coursereq || 'Open to all';
 
-            // SV Info
-            // 优先使用 join 出来的 sv_name, 否则用 contactpersonname
             const svName = proj.sv_name || proj.fyp_contactpersonname || 'Unknown';
-            const svEmail = proj.sv_email || proj.fyp_contactperson || 'N/A'; // contactperson field usually stores email in your prev code
+            const svEmail = proj.sv_email || proj.fyp_contactperson || 'N/A';
             const svPhone = proj.sv_phone || 'N/A';
 
             document.getElementById('mSvName').innerText = svName;

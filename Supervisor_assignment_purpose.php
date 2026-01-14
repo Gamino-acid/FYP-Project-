@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// supervisor_assignment_purpose.php - 发布新作业 (带预设权重 & 目标选择)
+// supervisor_assignment_purpose.php - 发布新作业 (Staff ID 版)
 // ====================================================
 
 include("connect.php");
@@ -17,7 +17,7 @@ if (!$auth_user_id) {
 // 2. 获取导师信息 & 获取名下学生列表
 $user_name = "Supervisor"; 
 $user_avatar = "image/user.png"; 
-$sv_id = 0;
+$my_staff_id = ""; // 【修改】使用 Staff ID
 $my_groups = [];      
 $my_individuals = []; 
 
@@ -30,14 +30,16 @@ if (isset($conn)) {
         $stmt->close();
     }
     
-    // 获取 SUPERVISOR ID
+    // 获取 SUPERVISOR 资料 (含 Staff ID)
     $sql_sv = "SELECT * FROM supervisor WHERE fyp_userid = ?";
     if ($stmt = $conn->prepare($sql_sv)) {
         $stmt->bind_param("i", $auth_user_id); $stmt->execute();
         $res = $stmt->get_result();
         if ($res->num_rows > 0) {
             $sv_data = $res->fetch_assoc();
-            $sv_id = $sv_data['fyp_supervisorid'];
+            // 【修改】获取 Staff ID
+            $my_staff_id = $sv_data['fyp_staffid'];
+            
             if (!empty($sv_data['fyp_name'])) $user_name = $sv_data['fyp_name'];
             if (!empty($sv_data['fyp_profileimg'])) $user_avatar = $sv_data['fyp_profileimg'];
         }
@@ -45,14 +47,17 @@ if (isset($conn)) {
     }
 
     // 获取 Active Students (用于下拉菜单)
-    if ($sv_id > 0) {
+    // 【修改】使用 fyp_staffid 查询注册表
+    if (!empty($my_staff_id)) {
+        // 注意：这里假设 fyp_registration 表里已经是 fyp_staffid 了 (我们之前改过)
         $sql_my_students = "SELECT s.fyp_studid, s.fyp_studname, s.fyp_group 
                             FROM fyp_registration r
                             JOIN student s ON r.fyp_studid = s.fyp_studid
-                            WHERE r.fyp_supervisorid = ?";
+                            WHERE r.fyp_staffid = ? 
+                            AND (r.fyp_archive_status = 'Active' OR r.fyp_archive_status IS NULL)"; // 加上 Active 过滤更保险
                             
         if ($stmt = $conn->prepare($sql_my_students)) {
-            $stmt->bind_param("i", $sv_id);
+            $stmt->bind_param("s", $my_staff_id); // 绑定字符串
             $stmt->execute();
             $res = $stmt->get_result();
             
@@ -66,6 +71,7 @@ if (isset($conn)) {
                     if ($g_row = $g_res->fetch_assoc()) {
                         $my_groups[$g_row['group_id']] = $g_row['group_name'];
                     } else {
+                        // 如果不是 Leader，尝试找他是 member 的组
                         $m_sql = "SELECT g.group_id, g.group_name 
                                   FROM group_request gr 
                                   JOIN student_group g ON gr.group_id = g.group_id
@@ -87,32 +93,37 @@ if (isset($conn)) {
 // ====================================================
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     
-    if ($sv_id == 0) {
-        echo "<script>alert('Error: Supervisor Profile not found.');</script>";
+    if (empty($my_staff_id)) {
+        echo "<script>alert('Error: Staff ID not found.');</script>";
     } else {
         $a_title = $_POST['assignment_title'];
         $a_desc = $_POST['assignment_description'];
         $a_deadline = $_POST['deadline'];
         $a_type = $_POST['assignment_type']; 
         $target_id = $_POST['target_selection']; 
-        $weightage = $_POST['weightage']; // 新增：权重
+        $weightage = $_POST['weightage']; 
 
         $final_target = ($target_id == 'all_groups' || $target_id == 'all_individuals') ? 'ALL' : $target_id;
         $a_status = 'Active';
         $date_now = date('Y-m-d H:i:s');
 
-        // SQL: 包含 fyp_weightage
-        $sql_insert = "INSERT INTO assignment (fyp_supervisorid, fyp_title, fyp_description, fyp_deadline, fyp_weightage, fyp_assignment_type, fyp_status, fyp_datecreated, fyp_target_id) 
+        // SQL: 【修改】插入 fyp_staffid
+        $sql_insert = "INSERT INTO assignment (fyp_staffid, fyp_title, fyp_description, fyp_deadline, fyp_weightage, fyp_assignment_type, fyp_status, fyp_datecreated, fyp_target_id) 
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         if ($stmt_insert = $conn->prepare($sql_insert)) {
-            // 参数绑定: i = int, s = string (共9个参数, weightage 是 int)
-            $stmt_insert->bind_param("isssissss", 
-                $sv_id,
+            // 参数绑定: 
+            // StaffID 是 String -> 's'
+            // Weightage 是 Int -> 'i'
+            // 其他都是 String -> 's'
+            // 顺序: StaffID(s), Title(s), Desc(s), Deadline(s), Weight(i), Type(s), Status(s), Date(s), Target(s)
+            // 总共: ssssissss
+            $stmt_insert->bind_param("ssssissss", 
+                $my_staff_id,
                 $a_title, 
                 $a_desc, 
                 $a_deadline,
-                $weightage, // 绑定权重
+                $weightage, 
                 $a_type, 
                 $a_status, 
                 $date_now,
@@ -140,7 +151,7 @@ $menu_items = [
         'icon' => 'fa-users',
         'sub_items' => [
             'project_requests' => ['name' => 'Project Requests', 'icon' => 'fa-envelope-open-text', 'link' => 'supervisor_projectreq.php'],
-            'student_list'     => ['name' => 'Student List', 'icon' => 'fa-list', 'link' => 'Supervisor_mainpage.php?page=student_list'],
+            'student_list'     => ['name' => 'Student List', 'icon' => 'fa-list', 'link' => 'Supervisor_student_list.php'],
         ]
     ],
     'fyp_project' => [
@@ -156,7 +167,7 @@ $menu_items = [
         'name' => 'Assessment',
         'icon' => 'fa-marker',
         'sub_items' => [
-            'grade_assignment' => ['name' => 'Grade Assignments', 'icon' => 'fa-check-square', 'link' => 'supervisor_assessment.php'],
+            'grade_assignment' => ['name' => 'Grade Assignments', 'icon' => 'fa-check-square', 'link' => 'Supervisor_assignment_grade.php'],
         ]
     ],
     'announcement' => [
@@ -203,8 +214,7 @@ $menu_items = [
         .menu-link:hover { background-color: var(--secondary-color); color: var(--primary-color); }
         .menu-link.active { background-color: #e3effd; color: var(--primary-color); border-left-color: var(--primary-color); }
         .menu-icon { width: 24px; margin-right: 10px; text-align: center; }
-        .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: none; }
-        .menu-item.has-active-child .submenu, .menu-item:hover .submenu { display: block; }
+        .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: block; }
         .submenu .menu-link { padding-left: 58px; font-size: 14px; padding-top: 10px; padding-bottom: 10px; }
 
         .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; }
@@ -238,7 +248,7 @@ $menu_items = [
         <div class="topbar-right">
             <div class="user-profile-summary">
                 <span class="user-name-display"><?php echo htmlspecialchars($user_name); ?></span>
-                <span class="user-role-badge">Supervisor</span>
+                <span class="user-role-badge">Lecturer</span>
             </div>
             <div class="user-avatar-circle"><img src="<?php echo $user_avatar; ?>" alt="User Avatar"></div>
             <a href="login.php" class="logout-btn"><i class="fa fa-sign-out-alt"></i> Logout</a>
@@ -303,7 +313,6 @@ $menu_items = [
                 
                 <form action="" method="POST">
                     
-                    <!-- NEW: Assessment Category -->
                     <div class="form-group">
                         <label for="assessment_category">Assessment Category <span style="color:red">*</span></label>
                         <select id="assessment_category" class="form-control" onchange="autoFillWeightage(this.value)">
@@ -342,12 +351,10 @@ $menu_items = [
                         <input type="datetime-local" id="deadline" name="deadline" class="form-control" required>
                     </div>
                     
-                    <!-- 动态目标选择器 -->
                     <div id="target_container" class="target-select-container">
                         <label for="target_selection" style="font-size:13px; font-weight:600; color:#555; margin-bottom:5px; display:block;">Select Specific Target <span style="color:red">*</span></label>
                         <select id="target_selection" name="target_selection" class="form-control">
-                            <!-- Options will be populated by JS -->
-                        </select>
+                            </select>
                     </div>
 
                     <div class="form-group" style="margin-top:20px;">
@@ -384,7 +391,7 @@ $menu_items = [
                 wInput.style.backgroundColor = '#e9ecef';
                 wInput.value = weight;
                 
-                // Auto-suggest title if empty or default
+                // Auto-suggest title
                 if (titleKey === 'Proposal') tInput.value = "Project Proposal Submission";
                 else if (titleKey === 'Interim') tInput.value = "Interim / Progress Report";
                 else if (titleKey === 'Final') tInput.value = "Final Report Submission";

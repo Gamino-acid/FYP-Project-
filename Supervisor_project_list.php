@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// Supervisor_project_list.php - 导师项目管理 (查看 & 编辑)
+// Supervisor_project_list.php - 导师项目管理 (Staff ID 版)
 // ====================================================
 include("connect.php");
 
@@ -14,22 +14,26 @@ if (!$auth_user_id) { header("location: login.php"); exit; }
 // 2. 获取导师信息
 $user_name = "Supervisor"; 
 $user_avatar = "image/user.png"; 
-$sv_id = 0;
+$my_staff_id = ""; // 【修改】使用 Staff ID
 
 if (isset($conn)) {
+    // USER 表
     $sql_user = "SELECT fyp_username FROM `USER` WHERE fyp_userid = ?";
     if ($stmt = $conn->prepare($sql_user)) {
         $stmt->bind_param("i", $auth_user_id); $stmt->execute();
         $res = $stmt->get_result(); if ($row = $res->fetch_assoc()) $user_name = $row['fyp_username'];
         $stmt->close();
     }
+    // SUPERVISOR 表
     $sql_sv = "SELECT * FROM supervisor WHERE fyp_userid = ?";
     if ($stmt = $conn->prepare($sql_sv)) {
         $stmt->bind_param("i", $auth_user_id); $stmt->execute();
         $res = $stmt->get_result();
         if ($res->num_rows > 0) {
             $row = $res->fetch_assoc();
-            $sv_id = $row['fyp_supervisorid'];
+            // 【修改】获取 Staff ID
+            $my_staff_id = $row['fyp_staffid'];
+            
             if (!empty($row['fyp_name'])) $user_name = $row['fyp_name'];
             if (!empty($row['fyp_profileimg'])) $user_avatar = $row['fyp_profileimg'];
         }
@@ -38,7 +42,7 @@ if (isset($conn)) {
 }
 
 // ====================================================
-// 3. 处理编辑提交 (POST)
+// 3. 处理编辑提交 (UPDATE) - 使用 Staff ID
 // ====================================================
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_project'])) {
     $pid = $_POST['project_id'];
@@ -49,7 +53,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_project'])) {
     $desc = $_POST['description'];
     $req = $_POST['requirement'];
     
-    // 更新数据库
+    // 【修改】验证条件改为 fyp_staffid
     $sql_upd = "UPDATE project SET 
                 fyp_projecttitle = ?, 
                 fyp_projectcat = ?, 
@@ -57,24 +61,30 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_project'])) {
                 fyp_projectstatus = ?, 
                 fyp_description = ?, 
                 fyp_requirement = ? 
-                WHERE fyp_projectid = ? AND fyp_supervisorid = ?";
+                WHERE fyp_projectid = ? AND fyp_staffid = ?";
                 
     if ($stmt = $conn->prepare($sql_upd)) {
-        $stmt->bind_param("ssssssii", $title, $cat, $type, $status, $desc, $req, $pid, $sv_id);
+        // 参数绑定: 
+        // 前6个是更新值(String)
+        // 第7个是 ProjectID(Int)
+        // 第8个是 StaffID(String) -> 注意这里是 's'
+        // 总共: ssssssis
+        $stmt->bind_param("ssssssis", $title, $cat, $type, $status, $desc, $req, $pid, $my_staff_id);
+        
         if ($stmt->execute()) {
             echo "<script>alert('Project details updated successfully!'); window.location.href='Supervisor_project_list.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
         } else {
-            echo "<script>alert('Error updating project.');</script>";
+            echo "<script>alert('Error updating project: " . $stmt->error . "');</script>";
         }
         $stmt->close();
     }
 }
 
 // ====================================================
-// 4. 获取数据 (筛选 & 列表)
+// 4. 获取数据 (筛选 & 列表) - 使用 Staff ID
 // ====================================================
 
-// A. 获取所有可用的 Academic Years (用于 Filter 下拉框)
+// A. 获取所有可用的 Academic Years
 $academic_options = [];
 $acd_sql = "SELECT * FROM academic_year ORDER BY fyp_acdyear DESC";
 $res_acd = $conn->query($acd_sql);
@@ -91,11 +101,13 @@ $filter_academic = $_GET['filter_academic'] ?? 'All';
 $my_projects = [];
 $stats = ['total' => 0, 'open' => 0, 'taken' => 0];
 
-if ($sv_id > 0) {
+// 【修改】判断 Staff ID 是否存在
+if (!empty($my_staff_id)) {
+    // 【修改】WHERE 条件改为 p.fyp_staffid
     $sql_proj = "SELECT p.*, a.fyp_acdyear, a.fyp_intake 
                  FROM project p 
                  LEFT JOIN academic_year a ON p.fyp_academicid = a.fyp_academicid
-                 WHERE p.fyp_supervisorid = '$sv_id'";
+                 WHERE p.fyp_staffid = '$my_staff_id'";
     
     // 应用筛选
     if ($filter_academic != 'All') {
@@ -126,7 +138,7 @@ $menu_items = [
         'icon' => 'fa-users',
         'sub_items' => [
             'project_requests' => ['name' => 'Project Requests', 'icon' => 'fa-envelope-open-text', 'link' => 'supervisor_projectreq.php'],
-            'student_list'     => ['name' => 'Student List', 'icon' => 'fa-list', 'link' => 'Supervisor_mainpage.php?page=student_list'],
+            'student_list'     => ['name' => 'Student List', 'icon' => 'fa-list', 'link' => 'Supervisor_student_list.php'],
         ]
     ],
     'fyp_project' => [
@@ -298,7 +310,6 @@ $menu_items = [
                 <p style="color: #666; margin: 0;">Manage and update your published FYP projects.</p>
             </div>
 
-            <!-- Stats -->
             <div class="stats-grid">
                 <div class="stat-box">
                     <div class="stat-num"><?php echo $stats['total']; ?></div>
@@ -314,7 +325,6 @@ $menu_items = [
                 </div>
             </div>
 
-            <!-- Filter -->
             <form method="GET" class="filter-bar">
                 <input type="hidden" name="auth_user_id" value="<?php echo htmlspecialchars($auth_user_id); ?>">
                 <span class="filter-label">Filter by Session:</span>
@@ -329,7 +339,6 @@ $menu_items = [
                 <button type="submit" class="btn-filter">Apply Filter</button>
             </form>
 
-            <!-- Project List -->
             <?php if (empty($my_projects)): ?>
                 <div class="empty-state">
                     <p>No projects found. Try changing the filter or propose a new project.</p>
@@ -363,7 +372,6 @@ $menu_items = [
         </main>
     </div>
 
-    <!-- Edit Modal -->
     <div id="editModal" class="modal-overlay">
         <div class="modal-box">
             <div class="modal-header">

@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// student_appointment_meeting.php - 预约导师会议 (UI Updated + Cancelled Status)
+// student_appointment_meeting.php - 预约导师会议 (统一使用 fyp_staffid 版)
 // ====================================================
 include("connect.php");
 
@@ -45,14 +45,14 @@ $my_supervisor = null;
 $sv_id = 0;
 
 if ($current_stud_id) {
-    // 从注册表中查找已批准的导师
-    $sql_reg = "SELECT fyp_supervisorid FROM fyp_registration WHERE fyp_studid = ? LIMIT 1";
+    // 从注册表中查找已批准的导师，使用 fyp_staffid
+    $sql_reg = "SELECT fyp_staffid FROM fyp_registration WHERE fyp_studid = ? LIMIT 1";
     if ($stmt = $conn->prepare($sql_reg)) {
         $stmt->bind_param("s", $current_stud_id);
         $stmt->execute();
         $res = $stmt->get_result();
         if ($row = $res->fetch_assoc()) {
-            $sv_id = $row['fyp_supervisorid'];
+            $sv_id = $row['fyp_staffid'];
         }
         $stmt->close();
     }
@@ -60,7 +60,8 @@ if ($current_stud_id) {
 
 // 如果找到了导师 ID，获取导师详细资料
 if ($sv_id > 0) {
-    $sql_sv = "SELECT * FROM supervisor WHERE fyp_supervisorid = ?";
+    // 【修正点】：查询导师信息也统一使用 fyp_staffid
+    $sql_sv = "SELECT * FROM supervisor WHERE fyp_staffid = ?";
     if ($stmt = $conn->prepare($sql_sv)) {
         $stmt->bind_param("i", $sv_id);
         $stmt->execute();
@@ -77,8 +78,10 @@ if ($sv_id > 0) {
 // ====================================================
 $available_slots = [];
 if ($sv_id > 0) {
+    // 【修正点】：查询 schedule_meeting 表，使用 fyp_staffid
+    // 之前报错 Unknown column 'fyp_supervisorid' 就是因为这里
     $sql_sch = "SELECT * FROM schedule_meeting 
-                WHERE fyp_supervisorid = ? 
+                WHERE fyp_staffid = ? 
                 AND fyp_status = 'Available' 
                 AND fyp_date >= CURDATE() 
                 ORDER BY fyp_date ASC, fyp_fromtime ASC";
@@ -103,9 +106,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['confirm_booking'])) {
     $target_schedule_id = $_POST['schedule_id'];
     $reason = $_POST['reason'] ?? ''; // 获取咨询原因
     
-    // 插入 appointment_meeting 表
-    // 注意：请确保您已在数据库执行了 ALTER TABLE appointment_meeting ADD COLUMN fyp_reason TEXT...
-    $sql_book = "INSERT INTO appointment_meeting (fyp_studid, fyp_scheduleid, fyp_supervisorid, fyp_status, fyp_reason, fyp_datecreated) 
+    // 【修正点】：插入 appointment_meeting 表，使用 fyp_staffid
+    $sql_book = "INSERT INTO appointment_meeting (fyp_studid, fyp_scheduleid, fyp_staffid, fyp_status, fyp_reason, fyp_datecreated) 
                  VALUES (?, ?, ?, 'Pending', ?, NOW())";
                  
     if ($stmt = $conn->prepare($sql_book)) {
@@ -127,6 +129,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['confirm_booking'])) {
 // ====================================================
 $my_history = [];
 if ($current_stud_id) {
+    // 这里的查询主要是基于 studid 和 scheduleid，不需要改动 staffid
     $sql_hist = "SELECT am.*, sm.fyp_date, sm.fyp_day, sm.fyp_fromtime, sm.fyp_totime, sm.fyp_location 
                  FROM appointment_meeting am
                  JOIN schedule_meeting sm ON am.fyp_scheduleid = sm.fyp_scheduleid
@@ -313,7 +316,6 @@ $menu_items = [
     </header>
 
     <div class="layout-container">
-        <!-- SIDEBAR -->
         <aside class="sidebar">
             <ul class="menu-list">
                 <?php foreach ($menu_items as $key => $item): ?>
@@ -363,7 +365,6 @@ $menu_items = [
                 <p style="color:#666; margin:0;">Select a date from the calendar to see available slots.</p>
             </div>
 
-            <!-- 1. 显示导师信息 -->
             <?php if ($my_supervisor): ?>
                 <div class="supervisor-profile-card">
                     <div class="sv-avatar">
@@ -379,7 +380,6 @@ $menu_items = [
                     </div>
                 </div>
 
-                <!-- 2. 日历视图 -->
                 <div class="calendar-wrapper">
                     <div class="calendar-header">
                         <button type="button" class="calendar-nav-btn" onclick="prevMonth()"><i class="fa fa-chevron-left"></i></button>
@@ -388,21 +388,17 @@ $menu_items = [
                     </div>
                     
                     <div class="calendar-grid" id="calendarDays">
-                        <!-- Days will be injected by JS -->
-                    </div>
+                        </div>
                 </div>
 
-                <!-- 3. 选中日期的可用时间段 -->
                 <div id="selectedSlotsContainer" class="selected-date-slots">
                     <h3 style="margin:0; font-size:18px; color:#333; border-bottom:1px solid #eee; padding-bottom:10px;">
                         Available Times for <span id="selectedDateText" style="color:var(--primary-color);"></span>
                     </h3>
                     <div id="slotsList" class="slots-list-grid">
-                        <!-- Time slots will be injected here -->
-                    </div>
+                        </div>
                 </div>
 
-                <!-- 4. 我的预约历史 -->
                 <div class="section-header" style="margin-top: 40px;">My Appointments</div>
                 
                 <?php if (count($my_history) > 0): ?>
@@ -455,7 +451,6 @@ $menu_items = [
         </main>
     </div>
 
-    <!-- Booking Confirmation Modal -->
     <div id="confirmationModal" class="modal-overlay">
         <div class="modal-box">
             <div class="modal-icon"><i class="fa fa-question-circle"></i></div>

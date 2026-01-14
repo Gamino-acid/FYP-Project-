@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// student_assignment.php - 学生查看作业列表 (Split View & No Marks)
+// student_assignment.php - 学生端 (Staff ID 版 + 隐藏内部状态)
 // ====================================================
 include("connect.php");
 
@@ -40,33 +40,31 @@ if (isset($conn)) {
 }
 
 // ----------------------------------------------------
-// 3. 获取上下文信息 (Supervisor & Group ID)
+// 3. 获取上下文信息 (Staff ID & Group ID)
 // ----------------------------------------------------
-$sv_id = 0;
+$sv_staff_id = ""; 
 $my_group_id = 0;
 
 if ($current_stud_id) {
-    // A. 获取 Supervisor ID (从注册表)
-    $sql_reg = "SELECT fyp_supervisorid FROM fyp_registration WHERE fyp_studid = ? LIMIT 1";
+    // A. 获取 Supervisor Staff ID
+    $sql_reg = "SELECT fyp_staffid FROM fyp_registration WHERE fyp_studid = ? LIMIT 1";
     if ($stmt = $conn->prepare($sql_reg)) {
         $stmt->bind_param("s", $current_stud_id);
         $stmt->execute();
         $res = $stmt->get_result();
         if ($row = $res->fetch_assoc()) {
-            $sv_id = $row['fyp_supervisorid'];
+            $sv_staff_id = $row['fyp_staffid']; 
         }
         $stmt->close();
     }
 
-    // B. 获取 Group ID (如果是 Group 模式)
+    // B. 获取 Group ID
     if ($my_group_status == 'Group') {
-        // 检查是否为 Leader
         $sql_l = "SELECT group_id FROM student_group WHERE leader_id = '$current_stud_id' LIMIT 1";
         $res_l = $conn->query($sql_l);
         if ($res_l && $row_l = $res_l->fetch_assoc()) {
             $my_group_id = $row_l['group_id'];
         } else {
-            // 检查是否为 Member
             $sql_m = "SELECT group_id FROM group_request WHERE invitee_id = '$current_stud_id' AND request_status = 'Accepted' LIMIT 1";
             $res_m = $conn->query($sql_m);
             if ($res_m && $row_m = $res_m->fetch_assoc()) {
@@ -77,19 +75,19 @@ if ($current_stud_id) {
 }
 
 // ----------------------------------------------------
-// 4. 获取作业列表 (Split Logic)
+// 4. 获取作业列表
 // ----------------------------------------------------
 $pending_assignments = [];
 $completed_assignments = [];
 
-if ($sv_id > 0) {
+if (!empty($sv_staff_id)) {
     
     $sql_ass = "SELECT a.*, 
                        s.fyp_submission_status, 
                        s.fyp_submission_date 
                 FROM assignment a
                 LEFT JOIN assignment_submission s ON (a.fyp_assignmentid = s.fyp_assignmentid AND s.fyp_studid = ?)
-                WHERE a.fyp_supervisorid = ? 
+                WHERE a.fyp_staffid = ? 
                 AND a.fyp_status = 'Active'
                 AND (
                     (a.fyp_assignment_type = 'Individual' AND ? = 'Individual' AND (a.fyp_target_id = 'ALL' OR a.fyp_target_id = ?))
@@ -99,9 +97,9 @@ if ($sv_id > 0) {
                 ORDER BY a.fyp_deadline ASC";
 
     if ($stmt = $conn->prepare($sql_ass)) {
-        $stmt->bind_param("sisisi", 
+        $stmt->bind_param("sssisi", 
             $current_stud_id, 
-            $sv_id, 
+            $sv_staff_id, 
             $my_group_status, 
             $current_stud_id, 
             $my_group_status, 
@@ -110,24 +108,25 @@ if ($sv_id > 0) {
         $stmt->execute();
         $res = $stmt->get_result();
         while ($row = $res->fetch_assoc()) {
-            // 设置默认状态
+            // 默认状态
             if (empty($row['fyp_submission_status'])) {
                 $row['fyp_submission_status'] = 'Not Turned In';
             }
             
-            // 检查迟交逻辑
+            // 检查迟交 (PHP动态判断)
             $row['is_late'] = false;
-            if ($row['fyp_submission_status'] == 'Not Turned In' && strtotime($row['fyp_deadline']) < time()) {
+            // 只有当还没交的时候才算 Missing
+            if (($row['fyp_submission_status'] == 'Not Turned In' || $row['fyp_submission_status'] == 'Viewed') && strtotime($row['fyp_deadline']) < time()) {
                  $row['is_late'] = true; 
-                 $row['fyp_submission_status'] = 'Missing'; 
+                 $row['fyp_submission_status'] = 'Missing'; // 强制覆盖状态为 Missing
             }
             
             // 分类
             $status = $row['fyp_submission_status'];
+            // 注意：Missing 也是 Pending 的一种
             if ($status == 'Not Turned In' || $status == 'Viewed' || $status == 'Need Revision' || $status == 'Missing') {
                 $pending_assignments[] = $row;
             } else {
-                // Turned In, Late Turned In, Resubmitted, Graded
                 $completed_assignments[] = $row;
             }
         }
@@ -151,14 +150,6 @@ $menu_items = [
         ]
     ],
     'assignments' => ['name' => 'Assignments', 'icon' => 'fa-tasks', 'link' => 'student_assignment.php'],
-    'appointments' => [
-        'name' => 'Appointment', 
-        'icon' => 'fa-calendar-check', 
-        'sub_items' => [
-            'book_session' => ['name' => 'Book Consultation', 'icon' => 'fa-comments', 'link' => 'student_appointment_meeting.php'], 
-            'presentation' => ['name' => 'Final Presentation', 'icon' => 'fa-chalkboard-teacher', 'link' => 'Student_mainpage.php?page=presentation']
-        ]
-    ],
     'grades' => ['name' => 'My Grades', 'icon' => 'fa-star', 'link' => 'Student_mainpage.php?page=grades'],
 ];
 ?>
@@ -204,16 +195,13 @@ $menu_items = [
         .page-title { font-size: 24px; margin: 0 0 10px 0; color: var(--text-color); }
         .empty-state { text-align: center; padding: 30px; color: #999; background: #fff; border-radius: 12px; border: 1px dashed #ddd; margin-bottom: 20px; }
 
-        /* Assignment List Styles */
         .section-header { font-size: 18px; font-weight: 600; color: #333; margin-bottom: 15px; margin-top: 10px; padding-bottom: 5px; border-bottom: 2px solid #eee; }
-        
         .ass-grid { display: flex; flex-direction: column; gap: 15px; margin-bottom: 30px; }
         .ass-card { background: #fff; border-radius: 10px; padding: 20px; box-shadow: var(--card-shadow); display: flex; justify-content: space-between; align-items: center; transition: transform 0.2s; border-left: 5px solid #ccc; position: relative; }
         .ass-card:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.08); }
         
-        /* Status Colors */
         .ass-card.st-NotTurnedIn { border-left-color: #6c757d; }
-        .ass-card.st-Viewed { border-left-color: #007bff; }
+        .ass-card.st-Viewed { border-left-color: #6c757d; } /* 统一改成灰色，不让学生看出区别 */
         .ass-card.st-TurnedIn { border-left-color: #28a745; }
         .ass-card.st-LateTurnedIn { border-left-color: #ffc107; }
         .ass-card.st-Missing { border-left-color: #dc3545; }
@@ -300,7 +288,7 @@ $menu_items = [
                 <p style="color: #666; margin: 0;">View and manage your tasks assigned by supervisor.</p>
             </div>
 
-            <?php if ($sv_id == 0): ?>
+            <?php if (empty($sv_staff_id)): ?>
                 <div class="empty-state">
                     <i class="fa fa-exclamation-circle" style="font-size: 48px; color: #f0ad4e; margin-bottom: 15px;"></i>
                     <p><strong>Supervisor Not Assigned</strong></p>
@@ -308,7 +296,6 @@ $menu_items = [
                 </div>
             <?php else: ?>
                 
-                <!-- 1. To Do (Pending) Assignments -->
                 <h3 class="section-header"><i class="fa fa-clipboard-list"></i> To Do</h3>
                 <?php if (count($pending_assignments) > 0): ?>
                     <div class="ass-grid">
@@ -322,6 +309,9 @@ $menu_items = [
                             $time_left = $deadline_ts - time();
                             $days_left = floor($time_left / (60 * 60 * 24));
                             $deadline_color = ($time_left < 0) ? 'red' : (($days_left < 3) ? '#f39c12' : '#777');
+
+                            // 【核心修改】如果是 Not Turned In 或 Viewed，隐藏 Status Pill
+                            $should_show_status = !($status == 'Not Turned In' || $status == 'Viewed');
                         ?>
                             <div class="ass-card <?php echo $statusClass; ?>">
                                 <div class="ass-content">
@@ -332,8 +322,11 @@ $menu_items = [
                                     </div>
                                 </div>
                                 <div class="ass-action">
-                                    <span class="status-pill <?php echo $pillClass; ?>"><?php echo $status; ?></span>
-                                    <br>
+                                    <?php if ($should_show_status): ?>
+                                        <span class="status-pill <?php echo $pillClass; ?>"><?php echo $status; ?></span>
+                                        <br>
+                                    <?php endif; ?>
+                                    
                                     <a href="student_assignment_details.php?id=<?php echo $ass['fyp_assignmentid']; ?>&auth_user_id=<?php echo $auth_user_id; ?>" class="btn-view">
                                         View Details
                                     </a>
@@ -347,7 +340,6 @@ $menu_items = [
                     </div>
                 <?php endif; ?>
 
-                <!-- 2. Completed (Submitted/Graded) Assignments -->
                 <h3 class="section-header"><i class="fa fa-check-circle"></i> Completed / Submitted</h3>
                 <?php if (count($completed_assignments) > 0): ?>
                     <div class="ass-grid">

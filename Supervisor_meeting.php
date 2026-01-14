@@ -1,12 +1,11 @@
 <?php
 // ====================================================
-// supervisor_meeting.php - 导师会议管理 (发布时间 & 审批预约)
+// supervisor_meeting.php - 最终版 (移除调试 + 增加 Slot 编辑功能)
 // ====================================================
 include("connect.php");
 
 // 1. 验证用户登录
 $auth_user_id = $_GET['auth_user_id'] ?? null;
-// 手动设置当前页面为 schedule 以高亮菜单
 $current_page = 'schedule'; 
 
 if (!$auth_user_id) { header("location: login.php"); exit; }
@@ -14,18 +13,24 @@ if (!$auth_user_id) { header("location: login.php"); exit; }
 // 2. 获取导师信息
 $user_name = "Supervisor"; 
 $user_avatar = "image/user.png"; 
-$sv_id = 0;
-$sv_room = "Office"; // 默认地点
+$sv_id = ""; // Staff ID (String)
+$sv_room = "Office"; 
 
 if (isset($conn)) {
-    // 获取 Supervisor ID
     $sql_sv = "SELECT * FROM supervisor WHERE fyp_userid = ?";
     if ($stmt = $conn->prepare($sql_sv)) {
         $stmt->bind_param("i", $auth_user_id); $stmt->execute();
         $res = $stmt->get_result();
         if ($res->num_rows > 0) {
             $row = $res->fetch_assoc();
-            $sv_id = $row['fyp_supervisorid'];
+            
+            // 优先获取 fyp_staffid
+            if (!empty($row['fyp_staffid'])) {
+                $sv_id = $row['fyp_staffid'];
+            } elseif (!empty($row['fyp_supervisorid'])) {
+                $sv_id = $row['fyp_supervisorid'];
+            }
+            
             if (!empty($row['fyp_name'])) $user_name = $row['fyp_name'];
             if (!empty($row['fyp_profileimg'])) $user_avatar = $row['fyp_profileimg'];
             if (!empty($row['fyp_roomno'])) $sv_room = $row['fyp_roomno'];
@@ -35,61 +40,113 @@ if (isset($conn)) {
 }
 
 // ====================================================
-// 3. 处理 POST 请求 (发布时间 / 处理预约)
+// 3. 处理 POST 请求
 // ====================================================
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     
-    // A. 发布新时间段 (Add Slot)
+    // A. 批量发布时间段 (Batch Add Slot)
     if (isset($_POST['add_slot'])) {
-        $date = $_POST['date'];
-        $start_time = $_POST['start_time'];
-        $end_time = $_POST['end_time'];
-        $location = !empty($_POST['location']) ? $_POST['location'] : $sv_room;
-        
-        // 获取星期几
-        $day_of_week = date('l', strtotime($date));
-        
-        $sql_add = "INSERT INTO schedule_meeting (fyp_supervisorid, fyp_date, fyp_day, fyp_fromtime, fyp_totime, fyp_location, fyp_status) 
-                    VALUES (?, ?, ?, ?, ?, ?, 'Available')";
-        
-        if ($stmt = $conn->prepare($sql_add)) {
-            $stmt->bind_param("isssss", $sv_id, $date, $day_of_week, $start_time, $end_time, $location);
-            if ($stmt->execute()) {
-                echo "<script>alert('New slot added successfully!'); window.location.href='supervisor_meeting.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
+        if (empty($sv_id)) {
+            echo "<script>alert('Error: Supervisor ID (Staff ID) not found.');</script>";
+        } else {
+            $start_date = $_POST['start_date'];
+            $end_date = $_POST['end_date'];
+            $days_selected = $_POST['days'] ?? []; 
+            
+            $start_time = $_POST['start_hour'] . ':' . $_POST['start_min'] . ':00';
+            $end_time   = $_POST['end_hour'] . ':' . $_POST['end_min'] . ':00';
+            $location   = !empty($_POST['location']) ? $_POST['location'] : $sv_room;
+            
+            if ($start_time >= $end_time) {
+                echo "<script>alert('Error: End time must be later than Start time.');</script>";
+            } elseif (empty($days_selected)) {
+                echo "<script>alert('Please select at least one day.');</script>";
             } else {
-                echo "<script>alert('Error adding slot.');</script>";
+                $sql_add = "INSERT INTO schedule_meeting (fyp_staffid, fyp_date, fyp_day, fyp_fromtime, fyp_totime, fyp_location, fyp_status) 
+                            VALUES (?, ?, ?, ?, ?, ?, 'Available')";
+                
+                if ($stmt = $conn->prepare($sql_add)) {
+                    $count_added = 0;
+                    $current = strtotime($start_date);
+                    $end = strtotime($end_date);
+                    
+                    while ($current <= $end) {
+                        $current_date_str = date('Y-m-d', $current); 
+                        $day_name = date('l', $current); 
+                        
+                        if (in_array($day_name, $days_selected)) {
+                            // StaffID 是字符串，所以用 "s"
+                            $stmt->bind_param("ssssss", $sv_id, $current_date_str, $day_name, $start_time, $end_time, $location);
+                            if($stmt->execute()) {
+                                $count_added++;
+                            }
+                        }
+                        $current = strtotime('+1 day', $current);
+                    }
+                    
+                    if ($count_added > 0) {
+                        echo "<script>alert('Success! $count_added slots added.'); window.location.href='supervisor_meeting.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
+                    } else {
+                        echo "<script>alert('No slots added. Check date range.');</script>";
+                    }
+                    $stmt->close();
+                } else {
+                    echo "<script>alert('Database Error: " . addslashes($conn->error) . "');</script>";
+                }
             }
-            $stmt->close();
         }
     }
 
-    // B. 删除时间段 (Delete Slot - 仅限未被预订的)
+    // B. 编辑时间段 (Edit Slot - Update)
+    if (isset($_POST['edit_slot'])) {
+        $sch_id = $_POST['schedule_id'];
+        $new_date = $_POST['edit_date'];
+        $new_day = date('l', strtotime($new_date)); // 重新计算星期几
+        
+        $new_start_time = $_POST['edit_start_hour'] . ':' . $_POST['edit_start_min'] . ':00';
+        $new_end_time   = $_POST['edit_end_hour'] . ':' . $_POST['edit_end_min'] . ':00';
+        $new_location   = $_POST['edit_location'];
+
+        if ($new_start_time >= $new_end_time) {
+            echo "<script>alert('Error: End time must be later than Start time.');</script>";
+        } else {
+            // 只允许更新 Available 的时间段，防止破坏已有预约
+            $sql_edit = "UPDATE schedule_meeting 
+                         SET fyp_date = ?, fyp_day = ?, fyp_fromtime = ?, fyp_totime = ?, fyp_location = ? 
+                         WHERE fyp_scheduleid = ? AND fyp_status = 'Available'";
+            
+            if ($stmt = $conn->prepare($sql_edit)) {
+                $stmt->bind_param("sssssi", $new_date, $new_day, $new_start_time, $new_end_time, $new_location, $sch_id);
+                if ($stmt->execute()) {
+                    echo "<script>alert('Slot updated successfully!'); window.location.href='supervisor_meeting.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
+                } else {
+                    echo "<script>alert('Error updating slot.');</script>";
+                }
+                $stmt->close();
+            }
+        }
+    }
+
+    // C. 删除时间段
     if (isset($_POST['delete_slot'])) {
         $sch_id = $_POST['schedule_id'];
-        // 只能删除 Available 的，或者强制删除（这里假设只能删除 Available 以防误删已有预约）
         $conn->query("DELETE FROM schedule_meeting WHERE fyp_scheduleid = '$sch_id' AND fyp_status = 'Available'");
         echo "<script>window.location.href='supervisor_meeting.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
     }
     
-    // C. 处理预约请求 (Approve / Reject / Cancel)
+    // D. 处理预约请求
     if (isset($_POST['handle_appointment'])) {
         $app_id = $_POST['appointment_id'];
         $sch_id = $_POST['schedule_id'];
-        $action = $_POST['action_type']; // 'approve', 'reject', 'cancel'
+        $action = $_POST['action_type']; 
         
         if ($action == 'approve') {
-            // 批准：更新预约状态为 Approved
-            // 此时 schedule 状态已经是 Booked (学生申请时锁定的)，无需更改
             $conn->query("UPDATE appointment_meeting SET fyp_status = 'Approved' WHERE fyp_appointmentid = '$app_id'");
             echo "<script>alert('Appointment Approved!'); window.location.href='supervisor_meeting.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
         } 
         elseif ($action == 'reject' || $action == 'cancel') {
-            // 拒绝/取消：
-            // 1. 更新预约状态
             $new_status = ($action == 'reject') ? 'Rejected' : 'Cancelled';
             $conn->query("UPDATE appointment_meeting SET fyp_status = '$new_status' WHERE fyp_appointmentid = '$app_id'");
-            
-            // 2. [关键] 释放时间段，改回 Available，供他人预约
             $conn->query("UPDATE schedule_meeting SET fyp_status = 'Available' WHERE fyp_scheduleid = '$sch_id'");
             
             $msg = ($action == 'reject') ? 'Request Rejected.' : 'Appointment Cancelled.';
@@ -102,38 +159,40 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 // 4. 获取数据 (GET)
 // ====================================================
 
-// A. 获取 Pending Requests (待处理请求)
 $pending_requests = [];
-$sql_pen = "SELECT am.*, s.fyp_studname, s.fyp_studfullid, sm.fyp_date, sm.fyp_day, sm.fyp_fromtime, sm.fyp_totime 
-            FROM appointment_meeting am
-            JOIN student s ON am.fyp_studid = s.fyp_studid
-            JOIN schedule_meeting sm ON am.fyp_scheduleid = sm.fyp_scheduleid
-            WHERE am.fyp_supervisorid = '$sv_id' AND am.fyp_status = 'Pending'
-            ORDER BY sm.fyp_date ASC";
-$res_pen = $conn->query($sql_pen);
-while ($row = $res_pen->fetch_assoc()) $pending_requests[] = $row;
-
-// B. 获取 Upcoming Approved Meetings (即将到来的已批准会议)
 $upcoming_meetings = [];
-$sql_up = "SELECT am.*, s.fyp_studname, s.fyp_studfullid, sm.fyp_date, sm.fyp_day, sm.fyp_fromtime, sm.fyp_totime, sm.fyp_location
-           FROM appointment_meeting am
-           JOIN student s ON am.fyp_studid = s.fyp_studid
-           JOIN schedule_meeting sm ON am.fyp_scheduleid = sm.fyp_scheduleid
-           WHERE am.fyp_supervisorid = '$sv_id' AND am.fyp_status = 'Approved' AND sm.fyp_date >= CURDATE()
-           ORDER BY sm.fyp_date ASC";
-$res_up = $conn->query($sql_up);
-while ($row = $res_up->fetch_assoc()) $upcoming_meetings[] = $row;
-
-// C. 获取 My Available Slots (我发布的空闲时间)
 $my_slots = [];
-$sql_slots = "SELECT * FROM schedule_meeting 
-              WHERE fyp_supervisorid = '$sv_id' AND fyp_status = 'Available' AND fyp_date >= CURDATE() 
-              ORDER BY fyp_date ASC";
-$res_slots = $conn->query($sql_slots);
-while ($row = $res_slots->fetch_assoc()) $my_slots[] = $row;
 
+if (!empty($sv_id)) {
+    // A. Pending
+    $sql_pen = "SELECT am.*, s.fyp_studname, s.fyp_studid, sm.fyp_date, sm.fyp_day, sm.fyp_fromtime, sm.fyp_totime 
+                FROM appointment_meeting am
+                JOIN student s ON am.fyp_studid = s.fyp_studid
+                JOIN schedule_meeting sm ON am.fyp_scheduleid = sm.fyp_scheduleid
+                WHERE am.fyp_staffid = '$sv_id' AND am.fyp_status = 'Pending'
+                ORDER BY sm.fyp_date ASC";
+    $res_pen = $conn->query($sql_pen);
+    if ($res_pen) { while ($row = $res_pen->fetch_assoc()) $pending_requests[] = $row; }
 
-// 5. 菜单定义 (保持一致)
+    // B. Upcoming
+    $sql_up = "SELECT am.*, s.fyp_studname, s.fyp_studid, sm.fyp_date, sm.fyp_day, sm.fyp_fromtime, sm.fyp_totime, sm.fyp_location
+               FROM appointment_meeting am
+               JOIN student s ON am.fyp_studid = s.fyp_studid
+               JOIN schedule_meeting sm ON am.fyp_scheduleid = sm.fyp_scheduleid
+               WHERE am.fyp_staffid = '$sv_id' AND am.fyp_status = 'Approved' AND sm.fyp_date >= CURDATE()
+               ORDER BY sm.fyp_date ASC";
+    $res_up = $conn->query($sql_up);
+    if ($res_up) { while ($row = $res_up->fetch_assoc()) $upcoming_meetings[] = $row; }
+
+    // C. Available Slots
+    $sql_slots = "SELECT * FROM schedule_meeting 
+                  WHERE fyp_staffid = '$sv_id' AND fyp_status = 'Available' 
+                  ORDER BY fyp_date ASC";
+    $res_slots = $conn->query($sql_slots);
+    if ($res_slots) { while ($row = $res_slots->fetch_assoc()) $my_slots[] = $row; }
+}
+
+// 菜单
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Supervisor_mainpage.php?page=dashboard'],
     'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'supervisor_profile.php'],
@@ -151,6 +210,14 @@ $menu_items = [
         'sub_items' => [
             'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'supervisor_purpose.php'],
             'my_projects'     => ['name' => 'My Projects', 'icon' => 'fa-folder-open', 'link' => 'Supervisor_mainpage.php?page=my_projects'],
+            'propose_assignment' => ['name' => 'Propose Assignment', 'icon' => 'fa-tasks', 'link' => 'supervisor_assignment_purpose.php']
+        ]
+    ],
+    'grading' => [
+        'name' => 'Assessment',
+        'icon' => 'fa-marker',
+        'sub_items' => [
+            'grade_assignment' => ['name' => 'Grade Assignments', 'icon' => 'fa-check-square', 'link' => 'Supervisor_assignment_grade.php'],
         ]
     ],
     'announcement' => [
@@ -161,7 +228,6 @@ $menu_items = [
             'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Supervisor_mainpage.php?page=view_announcements'],
         ]
     ],
-    // 当前页面
     'schedule'  => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'supervisor_meeting.php'],
 ];
 ?>
@@ -204,16 +270,26 @@ $menu_items = [
         
         .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; }
 
-        /* Page Specific */
         .container-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
         .card { background: #fff; padding: 25px; border-radius: 12px; box-shadow: var(--card-shadow); margin-bottom: 20px; }
         .card-header { font-size: 18px; font-weight: 600; color: #333; border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
         
-        /* Add Slot Form */
+        /* Forms & Inputs */
         .form-row { display: flex; gap: 15px; margin-bottom: 15px; }
         .form-group { flex: 1; }
         .form-group label { display: block; font-size: 13px; margin-bottom: 5px; color: #555; font-weight: 500; }
         .form-control { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
+        
+        .time-select-wrapper { display: flex; align-items: center; gap: 5px; }
+        .time-select { padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-family: inherit; font-size: 14px; flex: 1; cursor: pointer; }
+        .time-sep { font-weight: bold; color: #555; }
+
+        .days-checkbox-group { display: flex; flex-wrap: wrap; gap: 10px; }
+        .day-label { display: flex; align-items: center; font-size: 13px; cursor: pointer; background: #f8f9fa; padding: 5px 10px; border-radius: 20px; border: 1px solid #e0e0e0; transition: all 0.2s; }
+        .day-label:hover { background: #e2e6ea; }
+        .day-label input { margin-right: 5px; }
+        .day-label input:checked + span { font-weight: 600; color: var(--primary-color); }
+
         .btn-add { background: var(--primary-color); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; width: 100%; }
         .btn-add:hover { background: #004494; }
 
@@ -233,9 +309,20 @@ $menu_items = [
         .btn-accept { background: #28a745; }
         .btn-reject { background: #dc3545; }
         .btn-cancel { background: #6c757d; }
+        
+        .btn-edit { background: #007bff; color: white; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 4px; border:none; cursor: pointer; }
         .btn-delete { background: #dc3545; color: white; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 4px; border:none; cursor: pointer;}
 
         .empty-state { text-align: center; padding: 30px; color: #999; font-style: italic; }
+
+        /* Modal Styles */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; }
+        .modal-overlay.show { display: flex; }
+        .modal-box { background: #fff; padding: 25px; border-radius: 12px; width: 90%; max-width: 500px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
+        .modal-title { font-size: 18px; font-weight: 600; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+        .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+        .btn-save { background: #28a745; color: white; padding: 8px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; }
+        .btn-close { background: #6c757d; color: white; padding: 8px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; }
 
         @media (max-width: 1100px) { .container-cards { grid-template-columns: 1fr; } }
         @media (max-width: 900px) { .layout-container { flex-direction: column; } .sidebar { width: 100%; min-height: auto; } }
@@ -259,20 +346,14 @@ $menu_items = [
             <ul class="menu-list">
                 <?php foreach ($menu_items as $key => $item): ?>
                     <?php 
-                        $isActive = ($key == $current_page);
-                        $hasActiveChild = false;
-                        if (isset($item['sub_items'])) {
-                            foreach ($item['sub_items'] as $sub_key => $sub) {
-                                if ($sub_key == $current_page) { $hasActiveChild = true; break; }
-                            }
-                        }
+                        $isActive = ($key == 'schedule'); 
                         $linkUrl = isset($item['link']) ? $item['link'] : "#";
-                        if ($linkUrl !== "#") {
+                        if (strpos($linkUrl, '.php') !== false) {
                              $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?';
                              $linkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
                         }
                     ?>
-                    <li class="menu-item <?php echo $hasActiveChild ? 'has-active-child' : ''; ?>">
+                    <li class="menu-item <?php echo $isActive ? 'has-active-child' : ''; ?>">
                         <a href="<?php echo $linkUrl; ?>" class="menu-link <?php echo $isActive ? 'active' : ''; ?>">
                             <span class="menu-icon"><i class="fa <?php echo $item['icon']; ?>"></i></span>
                             <?php echo $item['name']; ?>
@@ -281,12 +362,12 @@ $menu_items = [
                             <ul class="submenu">
                                 <?php foreach ($item['sub_items'] as $sub_key => $sub_item): 
                                     $subLinkUrl = isset($sub_item['link']) ? $sub_item['link'] : "#";
-                                    if ($subLinkUrl !== "#") {
+                                    if (strpos($subLinkUrl, '.php') !== false) {
                                         $separator = (strpos($subLinkUrl, '?') !== false) ? '&' : '?';
                                         $subLinkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
                                     }
                                 ?>
-                                    <li><a href="<?php echo $subLinkUrl; ?>" class="menu-link <?php echo ($sub_key == $current_page) ? 'active' : ''; ?>">
+                                    <li><a href="<?php echo $subLinkUrl; ?>" class="menu-link <?php echo ($sub_key == 'schedule') ? 'active' : ''; ?>">
                                         <span class="menu-icon"><i class="fa <?php echo $sub_item['icon']; ?>"></i></span> <?php echo $sub_item['name']; ?>
                                     </a></li>
                                 <?php endforeach; ?>
@@ -298,39 +379,84 @@ $menu_items = [
         </aside>
 
         <main class="main-content">
-            <!-- Part 1: Add Schedule Form & Available Slots -->
             <div class="container-cards">
-                <!-- Add New Slot -->
                 <div class="card">
-                    <div class="card-header">Publish Availability</div>
+                    <div class="card-header">Publish Availability (Batch)</div>
                     <form method="POST">
-                        <div class="form-group" style="margin-bottom: 15px;">
-                            <label>Date</label>
-                            <input type="date" name="date" class="form-control" required min="<?php echo date('Y-m-d'); ?>">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Start Date</label>
+                                <input type="date" name="start_date" class="form-control" required min="<?php echo date('Y-m-d'); ?>">
+                            </div>
+                            <div class="form-group">
+                                <label>End Date</label>
+                                <input type="date" name="end_date" class="form-control" required min="<?php echo date('Y-m-d'); ?>">
+                            </div>
                         </div>
+
+                        <div class="form-group" style="margin-bottom: 15px;">
+                            <label>Repeat on Days:</label>
+                            <div class="days-checkbox-group">
+                                <label class="day-label"><input type="checkbox" name="days[]" value="Monday"> <span>Mon</span></label>
+                                <label class="day-label"><input type="checkbox" name="days[]" value="Tuesday"> <span>Tue</span></label>
+                                <label class="day-label"><input type="checkbox" name="days[]" value="Wednesday"> <span>Wed</span></label>
+                                <label class="day-label"><input type="checkbox" name="days[]" value="Thursday"> <span>Thu</span></label>
+                                <label class="day-label"><input type="checkbox" name="days[]" value="Friday"> <span>Fri</span></label>
+                            </div>
+                        </div>
+
                         <div class="form-row">
                             <div class="form-group">
                                 <label>Start Time</label>
-                                <input type="time" name="start_time" class="form-control" required>
+                                <div class="time-select-wrapper">
+                                    <select name="start_hour" class="time-select">
+                                        <?php for($i=8; $i<=20; $i++): $h = str_pad($i, 2, '0', STR_PAD_LEFT); ?>
+                                            <option value="<?php echo $h; ?>"><?php echo $h; ?></option>
+                                        <?php endfor; ?>
+                                    </select>
+                                    <span class="time-sep">:</span>
+                                    <select name="start_min" class="time-select">
+                                        <option value="00">00</option>
+                                        <option value="15">15</option>
+                                        <option value="30">30</option>
+                                        <option value="45">45</option>
+                                    </select>
+                                </div>
                             </div>
                             <div class="form-group">
                                 <label>End Time</label>
-                                <input type="time" name="end_time" class="form-control" required>
+                                <div class="time-select-wrapper">
+                                    <select name="end_hour" class="time-select">
+                                        <?php for($i=9; $i<=21; $i++): $h = str_pad($i, 2, '0', STR_PAD_LEFT); ?>
+                                            <option value="<?php echo $h; ?>"><?php echo $h; ?></option>
+                                        <?php endfor; ?>
+                                    </select>
+                                    <span class="time-sep">:</span>
+                                    <select name="end_min" class="time-select">
+                                        <option value="00">00</option>
+                                        <option value="15">15</option>
+                                        <option value="30">30</option>
+                                        <option value="45">45</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
+
                         <div class="form-group" style="margin-bottom: 20px;">
                             <label>Location (Optional)</label>
                             <input type="text" name="location" class="form-control" value="<?php echo htmlspecialchars($sv_room); ?>" placeholder="e.g. Online / Room 101">
                         </div>
-                        <button type="submit" name="add_slot" class="btn-add"><i class="fa fa-plus-circle"></i> Add Slot</button>
+                        <button type="submit" name="add_slot" class="btn-add"><i class="fa fa-plus-circle"></i> Add Slots (Batch)</button>
                     </form>
                 </div>
 
-                <!-- My Available Slots List -->
                 <div class="card">
-                    <div class="card-header">My Available Slots</div>
+                    <div class="card-header">
+                        My Available Slots
+                        <span style="font-size:11px; color:#999; margin-left:10px; font-weight:normal;">(Showing all dates)</span>
+                    </div>
                     <?php if (count($my_slots) > 0): ?>
-                        <div style="max-height: 300px; overflow-y: auto;">
+                        <div style="max-height: 400px; overflow-y: auto;">
                             <table class="req-table">
                                 <thead>
                                     <tr>
@@ -351,10 +477,17 @@ $menu_items = [
                                                 <div style="font-size:11px; color:#888;"><?php echo $slot['fyp_location']; ?></div>
                                             </td>
                                             <td>
-                                                <form method="POST" onsubmit="return confirm('Delete this available slot?');">
-                                                    <input type="hidden" name="schedule_id" value="<?php echo $slot['fyp_scheduleid']; ?>">
-                                                    <button type="submit" name="delete_slot" class="btn-delete" title="Delete"><i class="fa fa-trash"></i></button>
-                                                </form>
+                                                <div style="display:flex; gap:5px;">
+                                                    <button type="button" class="btn-edit" title="Manage / Edit" 
+                                                        onclick="openEditModal('<?php echo $slot['fyp_scheduleid']; ?>', '<?php echo $slot['fyp_date']; ?>', '<?php echo $slot['fyp_fromtime']; ?>', '<?php echo $slot['fyp_totime']; ?>', '<?php echo htmlspecialchars($slot['fyp_location']); ?>')">
+                                                        <i class="fa fa-edit"></i>
+                                                    </button>
+                                                    
+                                                    <form method="POST" onsubmit="return confirm('Delete this available slot?');">
+                                                        <input type="hidden" name="schedule_id" value="<?php echo $slot['fyp_scheduleid']; ?>">
+                                                        <button type="submit" name="delete_slot" class="btn-delete" title="Delete"><i class="fa fa-trash"></i></button>
+                                                    </form>
+                                                </div>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>
@@ -362,12 +495,11 @@ $menu_items = [
                             </table>
                         </div>
                     <?php else: ?>
-                        <div class="empty-state">No available slots posted.</div>
+                        <div class="empty-state">No available slots posted yet.</div>
                     <?php endif; ?>
                 </div>
             </div>
 
-            <!-- Part 2: Incoming Requests (Pending) -->
             <div class="card">
                 <div class="card-header" style="border-left: 5px solid #d93025; padding-left:10px;">
                     Incoming Appointment Requests <span class="badge bg-pending" style="margin-left:10px;"><?php echo count($pending_requests); ?> Pending</span>
@@ -388,7 +520,7 @@ $menu_items = [
                                 <tr>
                                     <td>
                                         <strong><?php echo htmlspecialchars($req['fyp_studname']); ?></strong>
-                                        <div style="font-size:12px; color:#666;"><?php echo htmlspecialchars($req['fyp_studfullid']); ?></div>
+                                        <div style="font-size:12px; color:#666;"><?php echo htmlspecialchars($req['fyp_studid']); ?></div>
                                     </td>
                                     <td>
                                         <div><?php echo $req['fyp_date'] . " (" . $req['fyp_day'] . ")"; ?></div>
@@ -424,7 +556,6 @@ $menu_items = [
                 <?php endif; ?>
             </div>
 
-            <!-- Part 3: Approved / Upcoming Meetings -->
             <div class="card">
                 <div class="card-header" style="border-left: 5px solid #28a745; padding-left:10px;">
                     Upcoming Scheduled Meetings
@@ -449,7 +580,7 @@ $menu_items = [
                                     </td>
                                     <td>
                                         <?php echo htmlspecialchars($up['fyp_studname']); ?>
-                                        <div style="font-size:12px; color:#666;"><?php echo htmlspecialchars($up['fyp_studfullid']); ?></div>
+                                        <div style="font-size:12px; color:#666;"><?php echo htmlspecialchars($up['fyp_studid']); ?></div>
                                     </td>
                                     <td><?php echo htmlspecialchars($up['fyp_location']); ?></td>
                                     <td>
@@ -473,5 +604,100 @@ $menu_items = [
 
         </main>
     </div>
+
+    <div id="editSlotModal" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-title">Manage Slot</div>
+            <form method="POST">
+                <input type="hidden" name="schedule_id" id="edit_id">
+                
+                <div class="form-group" style="margin-bottom:15px;">
+                    <label>Date</label>
+                    <input type="date" name="edit_date" id="edit_date" class="form-control" required>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Start Time</label>
+                        <div class="time-select-wrapper">
+                            <select name="edit_start_hour" id="edit_start_hour" class="time-select">
+                                <?php for($i=8; $i<=20; $i++): $h = str_pad($i, 2, '0', STR_PAD_LEFT); ?>
+                                    <option value="<?php echo $h; ?>"><?php echo $h; ?></option>
+                                <?php endfor; ?>
+                            </select>
+                            <span class="time-sep">:</span>
+                            <select name="edit_start_min" id="edit_start_min" class="time-select">
+                                <option value="00">00</option>
+                                <option value="15">15</option>
+                                <option value="30">30</option>
+                                <option value="45">45</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>End Time</label>
+                        <div class="time-select-wrapper">
+                            <select name="edit_end_hour" id="edit_end_hour" class="time-select">
+                                <?php for($i=9; $i<=21; $i++): $h = str_pad($i, 2, '0', STR_PAD_LEFT); ?>
+                                    <option value="<?php echo $h; ?>"><?php echo $h; ?></option>
+                                <?php endfor; ?>
+                            </select>
+                            <span class="time-sep">:</span>
+                            <select name="edit_end_min" id="edit_end_min" class="time-select">
+                                <option value="00">00</option>
+                                <option value="15">15</option>
+                                <option value="30">30</option>
+                                <option value="45">45</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 20px;">
+                    <label>Location</label>
+                    <input type="text" name="edit_location" id="edit_location" class="form-control" required>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="submit" name="edit_slot" class="btn-save">Save Changes</button>
+                    <button type="button" class="btn-close" onclick="closeEditModal()">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const editModal = document.getElementById('editSlotModal');
+
+        function openEditModal(id, date, start_time, end_time, location) {
+            document.getElementById('edit_id').value = id;
+            document.getElementById('edit_date').value = date;
+            document.getElementById('edit_location').value = location;
+
+            // Split time string (e.g. "14:00:00") into hour and min
+            if(start_time) {
+                const s = start_time.split(':');
+                document.getElementById('edit_start_hour').value = s[0];
+                document.getElementById('edit_start_min').value = s[1];
+            }
+            if(end_time) {
+                const e = end_time.split(':');
+                document.getElementById('edit_end_hour').value = e[0];
+                document.getElementById('edit_end_min').value = e[1];
+            }
+
+            editModal.classList.add('show');
+        }
+
+        function closeEditModal() {
+            editModal.classList.remove('show');
+        }
+
+        window.onclick = function(e) {
+            if (e.target.classList.contains('modal-overlay')) {
+                e.target.classList.remove('show');
+            }
+        }
+    </script>
 </body>
 </html>

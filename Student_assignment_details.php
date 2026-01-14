@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// student_assignment_details.php - 作业详情与提交
+// student_assignment_details.php - 作业详情 (支持退回后下载旧文件版)
 // ====================================================
 include("connect.php");
 
@@ -63,12 +63,9 @@ if ($stmt = $conn->prepare($sql_sub)) {
 
 // === 核心逻辑 A: 自动标记为 "Viewed" ===
 if (!$submission) {
-    // 如果没有记录，创建一条 'Viewed'
     $conn->query("INSERT INTO assignment_submission (fyp_assignmentid, fyp_studid, fyp_submission_status) VALUES ('$assign_id', '$current_stud_id', 'Viewed')");
-    // 刷新数据
     $submission = ['fyp_submission_status' => 'Viewed', 'fyp_marks' => null, 'fyp_feedback' => null, 'fyp_submitted_file' => null];
 } elseif ($submission['fyp_submission_status'] == 'Not Turned In') {
-    // 如果状态是默认的 Not Turned In，更新为 Viewed
     $conn->query("UPDATE assignment_submission SET fyp_submission_status = 'Viewed' WHERE fyp_submissionid = '{$submission['fyp_submissionid']}'");
     $submission['fyp_submission_status'] = 'Viewed';
 }
@@ -76,7 +73,6 @@ if (!$submission) {
 // === 核心逻辑 B: 处理文件上传 (Submit / Resubmit) ===
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['submit_assignment'])) {
     
-    // 检查文件
     if (isset($_FILES['file_upload']) && $_FILES['file_upload']['error'] == 0) {
         $upload_dir = "uploads/assignments/";
         if (!is_dir($upload_dir)) mkdir($upload_dir, 0777, true);
@@ -87,7 +83,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['submit_assignment'])) 
         if (move_uploaded_file($_FILES['file_upload']['tmp_name'], $target_file)) {
             $date_now = date('Y-m-d H:i:s');
             
-            // 判断状态
             $new_status = 'Turned In';
             
             // 1. 检查是否迟交
@@ -100,7 +95,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['submit_assignment'])) 
                 $new_status = 'Resubmitted';
             }
 
-            // 更新数据库
             $sql_upd = "UPDATE assignment_submission 
                         SET fyp_submitted_file = ?, fyp_submission_status = ?, fyp_submission_date = ? 
                         WHERE fyp_assignmentid = ? AND fyp_studid = ?";
@@ -123,11 +117,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['submit_assignment'])) 
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['undo_submission'])) {
     $current_status = $submission['fyp_submission_status'];
     
-    // 只有未被打分的状态才能撤销
     if ($current_status != 'Graded') {
-        // 删除服务器上的文件 (可选，这里只清空数据库记录)
-        /* if (file_exists($submission['fyp_submitted_file'])) { unlink($submission['fyp_submitted_file']); } */
-        
         $sql_undo = "UPDATE assignment_submission 
                      SET fyp_submitted_file = NULL, fyp_submission_status = 'Viewed', fyp_submission_date = NULL 
                      WHERE fyp_assignmentid = ? AND fyp_studid = ?";
@@ -158,14 +148,6 @@ $menu_items = [
         ]
     ],
     'assignments' => ['name' => 'Assignments', 'icon' => 'fa-tasks', 'link' => 'student_assignment.php'],
-    'appointments' => [
-        'name' => 'Appointment', 
-        'icon' => 'fa-calendar-check', 
-        'sub_items' => [
-            'book_session' => ['name' => 'Book Consultation', 'icon' => 'fa-comments', 'link' => 'student_appointment_meeting.php'], 
-            'presentation' => ['name' => 'Final Presentation', 'icon' => 'fa-chalkboard-teacher', 'link' => 'Student_mainpage.php?page=presentation']
-        ]
-    ],
     'grades' => ['name' => 'My Grades', 'icon' => 'fa-star', 'link' => 'Student_mainpage.php?page=grades'],
 ];
 ?>
@@ -223,7 +205,7 @@ $menu_items = [
         .desc-text { color: #444; line-height: 1.6; white-space: pre-wrap; font-size: 15px; }
         
         /* Submission Status Colors */
-        .status-Viewed { border-top-color: #007bff; }
+        .status-Viewed { border-top-color: #ccc; } /* Neutral color for hidden status context */
         .status-TurnedIn { border-top-color: #28a745; }
         .status-LateTurnedIn { border-top-color: #ffc107; }
         .status-Resubmitted { border-top-color: #28a745; }
@@ -232,7 +214,7 @@ $menu_items = [
 
         .status-label { font-size: 14px; font-weight: 600; margin-bottom: 20px; display: block; }
         .status-tag { padding: 5px 12px; border-radius: 20px; color: white; font-size: 12px; }
-        .tag-Viewed { background: #007bff; }
+        .tag-Viewed { background: #ccc; }
         .tag-TurnedIn { background: #28a745; }
         .tag-LateTurnedIn { background: #ffc107; color: #333; }
         .tag-Resubmitted { background: #28a745; }
@@ -305,7 +287,6 @@ $menu_items = [
         </aside>
 
         <main class="main-content">
-            <!-- Header -->
             <div class="header-card">
                 <a href="student_assignment.php?auth_user_id=<?php echo $auth_user_id; ?>" style="color:#666; text-decoration:none; font-size:13px; margin-bottom:10px; display:inline-block;"><i class="fa fa-arrow-left"></i> Back to List</a>
                 <h1 class="ass-title"><?php echo htmlspecialchars($assignment['fyp_title']); ?></h1>
@@ -315,33 +296,35 @@ $menu_items = [
                 </div>
             </div>
 
-            <!-- Content Grid -->
             <div class="content-grid">
-                <!-- Left: Description -->
                 <div class="desc-card">
                     <div class="section-h">Instructions</div>
                     <div class="desc-text"><?php echo nl2br(htmlspecialchars($assignment['fyp_description'])); ?></div>
                 </div>
 
-                <!-- Right: Submission Box -->
                 <?php 
                     $status = $submission['fyp_submission_status'];
                     $statusClass = 'status-' . str_replace(' ', '', $status);
                     $tagClass = 'tag-' . str_replace(' ', '', $status);
                     
-                    // Logic to show form vs submitted view
+                    // Logic: 
+                    // $canSubmit: when to show the upload form
                     $canSubmit = ($status == 'Viewed' || $status == 'Not Turned In' || $status == 'Need Revision');
+                    
+                    // $isSubmitted: mostly used for the undo logic
                     $isSubmitted = ($status == 'Turned In' || $status == 'Late Turned In' || $status == 'Resubmitted' || $status == 'Graded');
+                    
                     $isGraded = ($status == 'Graded');
                 ?>
                 <div class="submission-card <?php echo $statusClass; ?>">
                     <div class="section-h">Your Work</div>
                     
-                    <span class="status-label">
-                        Status: <span class="status-tag <?php echo $tagClass; ?>"><?php echo $status; ?></span>
-                    </span>
+                    <?php if ($status != 'Viewed' && $status != 'Not Turned In'): ?>
+                        <span class="status-label">
+                            Status: <span class="status-tag <?php echo $tagClass; ?>"><?php echo $status; ?></span>
+                        </span>
+                    <?php endif; ?>
 
-                    <!-- Feedback Display -->
                     <?php if (!empty($submission['fyp_feedback'])): ?>
                         <div class="feedback-box">
                             <strong><i class="fa fa-comment-dots"></i> Feedback:</strong><br>
@@ -349,25 +332,29 @@ $menu_items = [
                         </div>
                     <?php endif; ?>
 
-                    <!-- Marks Display -->
                     <?php if ($isGraded && $submission['fyp_marks'] !== null): ?>
                         <div class="marks-box">
                             <?php echo $submission['fyp_marks']; ?> / 100
                         </div>
                     <?php endif; ?>
 
-                    <!-- View Submitted File -->
-                    <?php if ($isSubmitted && !empty($submission['fyp_submitted_file'])): ?>
+                    <?php 
+                        // 【核心修改】: 这里增加了 OR $status == 'Need Revision'
+                        // 这样即使状态是 "Need Revision"，也能看到文件下载链接
+                        if (($isSubmitted || $status == 'Need Revision') && !empty($submission['fyp_submitted_file'])): 
+                    ?>
                         <a href="<?php echo $submission['fyp_submitted_file']; ?>" target="_blank" class="submitted-file">
                             <i class="fa fa-file-pdf fa-lg"></i> 
-                            <?php echo basename($submission['fyp_submitted_file']); ?>
+                            <?php 
+                                echo basename($submission['fyp_submitted_file']); 
+                                if ($status == 'Need Revision') echo " (Previous File)"; 
+                            ?>
                         </a>
                         <div style="font-size:12px; color:#888; text-align:right; margin-bottom:15px;">
                             Submitted on: <?php echo $submission['fyp_submission_date']; ?>
                         </div>
                     <?php endif; ?>
 
-                    <!-- Submission Form -->
                     <?php if ($canSubmit): ?>
                         <form method="POST" enctype="multipart/form-data">
                             <div class="upload-area">
@@ -381,7 +368,6 @@ $menu_items = [
                         </form>
                     <?php endif; ?>
 
-                    <!-- Undo Button -->
                     <?php if ($isSubmitted && !$isGraded): ?>
                         <form method="POST" onsubmit="return confirm('Are you sure you want to unsubmit?');">
                             <button type="submit" name="undo_submission" class="btn-undo">

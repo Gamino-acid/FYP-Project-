@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// Supervisor_student_list.php - 新思路版 (通过 StudentID+ProjectID 定位)
+// Supervisor_student_list.php - 学生列表 (含 Academic Year 筛选)
 // ====================================================
 include("connect.php");
 session_start();
@@ -35,7 +35,19 @@ if (isset($conn)) {
 }
 
 // ----------------------------------------------------
-// 3. 处理 Hide/Active 操作 (POST 方法 - 更稳健)
+// 3. 获取 Academic Year 列表 (用于下拉菜单)
+// ----------------------------------------------------
+$academic_years_list = [];
+$ay_sql = "SELECT * FROM academic_year ORDER BY fyp_acdyear DESC, fyp_intake ASC";
+$ay_res = $conn->query($ay_sql);
+if ($ay_res) {
+    while ($row = $ay_res->fetch_assoc()) {
+        $academic_years_list[] = $row;
+    }
+}
+
+// ----------------------------------------------------
+// 4. 处理 Hide/Active 操作 (POST 方法)
 // ----------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action_type'])) {
     
@@ -45,8 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action_type'])) {
     
     $new_status = ($action_type == 'Hide') ? 'Hidden' : 'Active';
 
-    // 【核心改变】不再依赖 reg_id，而是通过 "学生ID + 项目ID" 来更新
-    // 这样绝对不会因为主键名字不对而失败
+    // 更新状态
     $sql_update = "UPDATE fyp_registration 
                    SET fyp_archive_status = ? 
                    WHERE fyp_studid = ? AND fyp_projectid = ?";
@@ -55,10 +66,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action_type'])) {
         $stmt->bind_param("ssi", $new_status, $target_stud_id, $target_proj_id);
         
         if ($stmt->execute()) {
-            // 成功后刷新页面，保持筛选状态
+            // 成功后刷新页面，保持所有筛选状态 (View, Sort, Year)
             $f_view = $_POST['current_filter'] ?? 'Active';
             $f_sort = $_POST['current_sort'] ?? 'ASC';
-            echo "<script>window.location.href='Supervisor_student_list.php?auth_user_id=$auth_user_id&filter_view=$f_view&sort_order=$f_sort';</script>";
+            $f_year = $_POST['current_year'] ?? 'All'; // [新增] 保持学年筛选
+            
+            echo "<script>window.location.href='Supervisor_student_list.php?auth_user_id=$auth_user_id&filter_view=$f_view&sort_order=$f_sort&filter_year=$f_year';</script>";
         } else {
             echo "<script>alert('Error updating status: " . $stmt->error . "');</script>";
         }
@@ -67,16 +80,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action_type'])) {
 }
 
 // ----------------------------------------------------
-// 4. 获取列表 (查询逻辑)
+// 5. 获取列表 (查询逻辑)
 // ----------------------------------------------------
 $my_students = [];
+
+// 获取筛选参数
 $filter_view = $_GET['filter_view'] ?? 'Active'; 
 $sort_order = $_GET['sort_order'] ?? 'ASC'; 
+$filter_year = $_GET['filter_year'] ?? 'All'; // [新增] 学年参数
 
 if (!empty($my_staff_id)) {
-    // 这里的 SELECT 即使不知道主键名也没关系，因为我们 update 不用主键了
     $sql = "SELECT s.fyp_studid, s.fyp_studname, s.fyp_email, s.fyp_contactno, s.fyp_profileimg,
-                   p.fyp_projectid, p.fyp_projecttitle, p.fyp_projecttype,
+                   p.fyp_projectid, p.fyp_projecttitle, p.fyp_projecttype, p.fyp_academicid,
                    r.fyp_datecreated as reg_date, r.fyp_archive_status,
                    ay.fyp_acdyear, ay.fyp_intake
             FROM fyp_registration r
@@ -85,7 +100,15 @@ if (!empty($my_staff_id)) {
             LEFT JOIN academic_year ay ON p.fyp_academicid = ay.fyp_academicid
             WHERE p.fyp_staffid = ?";
 
-    // 筛选
+    // [新增] 学年筛选逻辑
+    if ($filter_year != 'All') {
+        // 绑定参数比较麻烦，这里直接拼 SQL (确保 filter_year 是安全的 int 或字符串)
+        // 既然是下拉菜单选的 ID，我们可以简单转义一下
+        $safe_year_id = $conn->real_escape_string($filter_year);
+        $sql .= " AND p.fyp_academicid = '$safe_year_id'";
+    }
+
+    // 状态筛选
     if ($filter_view == 'Active') {
         $sql .= " AND (r.fyp_archive_status = 'Active' OR r.fyp_archive_status IS NULL)";
     } elseif ($filter_view == 'Hidden') {
@@ -107,7 +130,7 @@ if (!empty($my_staff_id)) {
     }
 }
 
-// 5. 菜单定义
+// 6. 菜单定义
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Supervisor_mainpage.php?page=dashboard'],
     'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'supervisor_profile.php'],
@@ -184,11 +207,11 @@ $menu_items = [
         .content-card { background: #fff; padding: 30px; border-radius: 12px; box-shadow: var(--card-shadow); }
         
         /* Filter Bar */
-        .filter-bar { background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; gap: 15px; align-items: flex-end; border: 1px solid #eee; }
-        .filter-group { display: flex; flex-direction: column; gap: 5px; }
+        .filter-bar { background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; gap: 15px; align-items: flex-end; border: 1px solid #eee; flex-wrap: wrap; }
+        .filter-group { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 150px; }
         .filter-group label { font-size: 12px; font-weight: 600; color: #666; }
-        .filter-select { padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; min-width: 150px; }
-        .btn-apply { background: var(--primary-color); color: white; border: none; padding: 9px 20px; border-radius: 6px; cursor: pointer; font-weight: 500; }
+        .filter-select { padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; width: 100%; box-sizing: border-box; }
+        .btn-apply { background: var(--primary-color); color: white; border: none; padding: 9px 20px; border-radius: 6px; cursor: pointer; font-weight: 500; height: 38px; }
 
         /* Table */
         .std-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
@@ -291,6 +314,18 @@ $menu_items = [
                     <input type="hidden" name="auth_user_id" value="<?php echo htmlspecialchars($auth_user_id); ?>">
                     
                     <div class="filter-group">
+                        <label>Academic Year</label>
+                        <select name="filter_year" class="filter-select">
+                            <option value="All">All Years</option>
+                            <?php foreach ($academic_years_list as $ay): ?>
+                                <option value="<?php echo $ay['fyp_academicid']; ?>" <?php if($filter_year == $ay['fyp_academicid']) echo 'selected'; ?>>
+                                    <?php echo htmlspecialchars($ay['fyp_acdyear'] . " (" . $ay['fyp_intake'] . ")"); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <div class="filter-group">
                         <label>View Mode</label>
                         <select name="filter_view" class="filter-select">
                             <option value="Active" <?php if($filter_view == 'Active') echo 'selected'; ?>>Default (Active Only)</option>
@@ -365,8 +400,7 @@ $menu_items = [
                                             <input type="hidden" name="target_proj_id" value="<?php echo $std['fyp_projectid']; ?>">
                                             <input type="hidden" name="current_filter" value="<?php echo $filter_view; ?>">
                                             <input type="hidden" name="current_sort" value="<?php echo $sort_order; ?>">
-                                            
-                                            <?php if ($isHidden): ?>
+                                            <input type="hidden" name="current_year" value="<?php echo $filter_year; ?>"> <?php if ($isHidden): ?>
                                                 <input type="hidden" name="action_type" value="Active">
                                                 <button type="submit" class="btn-action btn-active" title="Set to Active">
                                                     <i class="fa fa-check-circle"></i> Set Active
@@ -387,8 +421,8 @@ $menu_items = [
                     <div class="empty-box">
                         <i class="fa fa-search" style="font-size:48px; opacity:0.3; margin-bottom:15px;"></i>
                         <p>No students found matching your filters.</p>
-                        <?php if ($filter_view != 'All'): ?>
-                            <a href="?auth_user_id=<?php echo $auth_user_id; ?>&filter_view=All" style="color:#0056b3;">View All Students</a>
+                        <?php if ($filter_view != 'All' || $filter_year != 'All'): ?>
+                            <a href="?auth_user_id=<?php echo $auth_user_id; ?>&filter_view=All&filter_year=All" style="color:#0056b3;">View All Students</a>
                         <?php endif; ?>
                     </div>
                 <?php endif; ?>

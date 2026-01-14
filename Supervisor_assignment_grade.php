@@ -1,6 +1,7 @@
 <?php
 // ====================================================
-// Supervisor_assignment_grade.php - 作业列表(带统计) & 打分详情 (Insight Only on List)
+// Supervisor_assignment_grade.php - 修正版 V4
+// (修复: staffid 逻辑 + 移除 studfullid + 移除分组过滤)
 // ====================================================
 include("connect.php");
 
@@ -28,7 +29,14 @@ if (isset($conn)) {
         $res = $stmt->get_result();
         if ($res->num_rows > 0) {
             $row = $res->fetch_assoc();
-            $sv_id = $row['fyp_supervisorid'];
+            
+            // 自动检测列名: fyp_staffid 或 fyp_supervisorid
+            if (isset($row['fyp_staffid'])) {
+                $sv_id = $row['fyp_staffid'];
+            } elseif (isset($row['fyp_supervisorid'])) {
+                $sv_id = $row['fyp_supervisorid'];
+            }
+            
             if (!empty($row['fyp_name'])) $user_name = $row['fyp_name'];
             if (!empty($row['fyp_profileimg'])) $user_avatar = $row['fyp_profileimg'];
         }
@@ -37,7 +45,7 @@ if (isset($conn)) {
 }
 
 // ====================================================
-// 3. 处理打分/退回提交 (POST) - 保持不变
+// 3. 处理打分/退回提交 (POST)
 // ====================================================
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $date_now = date('Y-m-d H:i:s');
@@ -84,25 +92,23 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 }
 
 // ====================================================
-// 4. 获取数据 (列表或详情)
+// 4. 获取数据
 // ====================================================
 $view_assignment_id = $_GET['view_id'] ?? null;
 $assignments_list = [];
 $students_to_grade = [];
 $current_assignment = null;
-// $insight_stats is no longer needed for detail view calculation if we don't display it
 
-// 获取筛选参数 (列表页用)
 $sort_by = $_GET['sort_by'] ?? 'DESC'; 
 $filter_type = $_GET['filter_type'] ?? 'All';
 
 if ($sv_id > 0) {
     if (!$view_assignment_id) {
-        // --- VIEW A: List with Embedded Stats ---
+        // --- VIEW A: List Assignments ---
         
         $sql_list = "SELECT a.*,
                             (SELECT COUNT(*) FROM fyp_registration r JOIN student s ON r.fyp_studid = s.fyp_studid 
-                             WHERE r.fyp_supervisorid = a.fyp_supervisorid 
+                             WHERE r.fyp_staffid = a.fyp_staffid 
                              AND (
                                 (a.fyp_target_id = 'ALL' AND (
                                     (a.fyp_assignment_type = 'Individual' AND s.fyp_group = 'Individual') OR 
@@ -121,7 +127,7 @@ if ($sv_id > 0) {
                             (SELECT COUNT(*) FROM assignment_submission sub WHERE sub.fyp_assignmentid = a.fyp_assignmentid AND sub.fyp_submission_status = 'Need Revision') as revision_count
                             
                      FROM assignment a 
-                     WHERE a.fyp_supervisorid = '$sv_id'";
+                     WHERE a.fyp_staffid = '$sv_id'"; 
 
         if ($filter_type != 'All') {
             $sql_list .= " AND a.fyp_assignment_type = '$filter_type'";
@@ -139,48 +145,26 @@ if ($sv_id > 0) {
                     if ($target_type == 'Group') {
                         $g_name_sql = "SELECT group_name FROM student_group WHERE group_id = '$target_id'";
                         $g_name_res = $conn->query($g_name_sql);
-                        if ($g_name_res && $g_row = $g_name_res->fetch_assoc()) {
-                            $target_display_name = "Group: " . $g_row['group_name'];
-                        } else {
-                            $target_display_name = "Unknown Group (ID: $target_id)";
-                        }
+                        if ($g_name_res && $g_row = $g_name_res->fetch_assoc()) $target_display_name = "Group: " . $g_row['group_name'];
                     } else {
                         $s_name_sql = "SELECT fyp_studname FROM student WHERE fyp_studid = '$target_id'";
                         $s_name_res = $conn->query($s_name_sql);
-                        if ($s_name_res && $s_row = $s_name_res->fetch_assoc()) {
-                            $target_display_name = "Student: " . $s_row['fyp_studname'];
-                        } else {
-                            $target_display_name = "Unknown Student (ID: $target_id)";
-                        }
+                        if ($s_name_res && $s_row = $s_name_res->fetch_assoc()) $target_display_name = "Student: " . $s_row['fyp_studname'];
                     }
                 } else {
                     $target_display_name = ($target_type == 'Group') ? 'All Groups' : 'All Individual Students';
                 }
                 
                 $row['target_display_name'] = $target_display_name;
-
                 $total_count = $row['total_students'];
                 $submitted_count = $row['submitted_count'];
                 $graded_count = $row['graded_count'];
-                $revision_count = $row['revision_count']; // using the new subquery
+                $revision_count = $row['revision_count']; 
                 
-                // Note: The previous logic iterated submission table again, but here we optimized with subquery for main stats.
-                // Revision count was missing in main subquery above, added it now.
-
-                // Simple Calc for Pending
-                // Not Submitted = Total - (Submitted + Graded + Revision)
-                // This is an estimation. Accurate way is checking 'Not Turned In' + 'Viewed'
-                // For list view summary, this is acceptable.
                 $not_submitted = $total_count - ($submitted_count + $graded_count + $revision_count);
                 if ($not_submitted < 0) $not_submitted = 0;
 
-                $row['stats'] = [
-                    'not_submitted' => $not_submitted,
-                    'submitted' => $submitted_count,
-                    'graded' => $graded_count,
-                    'revision' => $revision_count
-                ];
-                
+                $row['stats'] = ['not_submitted' => $not_submitted, 'submitted' => $submitted_count, 'graded' => $graded_count, 'revision' => $revision_count];
                 $assignments_list[] = $row;
             }
         }
@@ -188,7 +172,7 @@ if ($sv_id > 0) {
     } else {
         // --- VIEW B: Grade Students (Detail) ---
         
-        $sql_detail = "SELECT * FROM assignment WHERE fyp_assignmentid = '$view_assignment_id' AND fyp_supervisorid = '$sv_id'";
+        $sql_detail = "SELECT * FROM assignment WHERE fyp_assignmentid = '$view_assignment_id' AND fyp_staffid = '$sv_id'";
         $res_d = $conn->query($sql_detail);
         $current_assignment = $res_d->fetch_assoc();
 
@@ -196,17 +180,14 @@ if ($sv_id > 0) {
             $target_type = $current_assignment['fyp_assignment_type'];
             $target_id = $current_assignment['fyp_target_id']; 
 
-            $base_fields = "s.fyp_studid, s.fyp_studname, s.fyp_studfullid, 
+            // 【修正】: 移除了 s.fyp_studfullid，仅保留 s.fyp_studid
+            $base_fields = "s.fyp_studid, s.fyp_studname, s.fyp_group, 
                             g.fyp_marks, g.fyp_feedback, g.fyp_submission_status, g.fyp_submission_date, g.fyp_submitted_file";
             
             $join_part = "LEFT JOIN assignment_submission g ON (s.fyp_studid = g.fyp_studid AND g.fyp_assignmentid = '$view_assignment_id')";
 
             if ($target_id == 'ALL') {
-                if ($target_type == 'Individual') {
-                    $sql_studs = "SELECT $base_fields FROM fyp_registration r JOIN student s ON r.fyp_studid = s.fyp_studid $join_part WHERE r.fyp_supervisorid = '$sv_id' AND s.fyp_group = 'Individual'";
-                } else {
-                    $sql_studs = "SELECT $base_fields FROM fyp_registration r JOIN student s ON r.fyp_studid = s.fyp_studid $join_part WHERE r.fyp_supervisorid = '$sv_id' AND s.fyp_group = 'Group'";
-                }
+                $sql_studs = "SELECT $base_fields FROM fyp_registration r JOIN student s ON r.fyp_studid = s.fyp_studid $join_part WHERE r.fyp_staffid = '$sv_id'";
             } else {
                 if ($target_type == 'Individual') {
                     $sql_studs = "SELECT $base_fields FROM student s $join_part WHERE s.fyp_studid = '$target_id'";
@@ -225,12 +206,10 @@ if ($sv_id > 0) {
                     while ($row = $res_s->fetch_assoc()) {
                         
                         $row['display_group_name'] = '';
-                        if ($target_type == 'Group') {
-                             $g_query = "SELECT group_name FROM student_group WHERE leader_id = '{$row['fyp_studid']}' UNION SELECT sg.group_name FROM group_request gr JOIN student_group sg ON gr.group_id = sg.group_id WHERE gr.invitee_id = '{$row['fyp_studid']}' AND gr.request_status = 'Accepted' LIMIT 1";
-                             $g_result = $conn->query($g_query);
-                             if ($g_result && $g_data = $g_result->fetch_assoc()) {
-                                 $row['display_group_name'] = $g_data['group_name'];
-                             }
+                        $g_query = "SELECT group_name FROM student_group WHERE leader_id = '{$row['fyp_studid']}' UNION SELECT sg.group_name FROM group_request gr JOIN student_group sg ON gr.group_id = sg.group_id WHERE gr.invitee_id = '{$row['fyp_studid']}' AND gr.request_status = 'Accepted' LIMIT 1";
+                        $g_result = $conn->query($g_query);
+                        if ($g_result && $g_data = $g_result->fetch_assoc()) {
+                             $row['display_group_name'] = $g_data['group_name'];
                         }
 
                         $inherited = false;
@@ -471,13 +450,11 @@ $menu_items = [
 
         <main class="main-content">
             <?php if (!$view_assignment_id): ?>
-                <!-- VIEW A: List Assignments with Embedded Stats -->
                 <div class="card">
                     <div class="card-header">
                         Select Assignment to Grade
                     </div>
                     
-                    <!-- Filter Bar -->
                     <form method="GET" class="filter-bar">
                         <input type="hidden" name="auth_user_id" value="<?php echo htmlspecialchars($auth_user_id); ?>">
                         <div class="filter-group">
@@ -512,7 +489,6 @@ $menu_items = [
                                     </div>
                                     
                                     <div class="ass-stats">
-                                        <!-- Removed Total Students Badge -->
                                         <div class="stat-badge stat-submitted">
                                             <i class="fa fa-file-upload"></i> Submitted: <?php echo $ass['stats']['submitted']; ?>
                                         </div>
@@ -537,7 +513,6 @@ $menu_items = [
                 </div>
 
             <?php else: ?>
-                <!-- VIEW B: Grade Students -->
                 <a href="?auth_user_id=<?php echo $auth_user_id; ?>" class="back-link"><i class="fa fa-arrow-left"></i> Back to Assignments</a>
                 
                 <div class="card">
@@ -552,16 +527,14 @@ $menu_items = [
                         <?php foreach ($students_to_grade as $stud): 
                             $status = $stud['final_status'];
                             $cssStatus = str_replace(' ', '', $status);
-
-                            // 是否允许打分
                             $canGrade = ($status == 'Turned In' || $status == 'Late Turned In' || $status == 'Resubmitted' || $status == 'Graded' || $status == 'Need Revision');
                         ?>
                             <div class="student-card">
                                 <div class="stud-info">
                                     <div style="font-weight:600; color:#333; font-size:16px;"><?php echo htmlspecialchars($stud['fyp_studname']); ?></div>
-                                    <div style="font-size:13px; color:#888; margin-bottom:5px;"><?php echo htmlspecialchars($stud['fyp_studfullid']); ?></div>
                                     
-                                    <!-- NEW: Group Name Display -->
+                                    <div style="font-size:13px; color:#888; margin-bottom:5px;"><?php echo htmlspecialchars($stud['fyp_studid']); ?></div>
+                                    
                                     <?php if(!empty($stud['display_group_name'])): ?>
                                         <div style="font-size:12px; color:#0056b3; font-weight:600; margin-bottom:5px;">
                                             <i class="fa fa-users"></i> <?php echo htmlspecialchars($stud['display_group_name']); ?>
@@ -576,7 +549,6 @@ $menu_items = [
                                         </div>
                                     <?php endif; ?>
 
-                                    <!-- FILE DOWNLOAD LINK -->
                                     <?php if(!empty($stud['fyp_submitted_file'])): ?>
                                         <a href="<?php echo $stud['fyp_submitted_file']; ?>" target="_blank" class="file-link">
                                             <i class="fa fa-download"></i> View File
