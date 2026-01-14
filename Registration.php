@@ -1,64 +1,72 @@
 <?php
-// ----------------------------------------------------
-// Student Registration Page - With First & Last Name
-// ----------------------------------------------------
+ini_set('session.cookie_httponly', 1);
+ini_set('session.use_strict_mode', 1);
+ini_set('session.cookie_samesite', 'Strict');
+
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src 'self' data:;");
+
 session_start();
 include("connect.php");
+
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+function clean_input($data) {
+    $data = trim($data);
+    $data = strip_tags($data);
+    return htmlspecialchars($data, ENT_QUOTES, 'UTF-8');
+}
 
 $message = '';
 $message_type = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
-    $first_name = trim($_POST['first_name']);
-    $last_name = trim($_POST['last_name']);
-    $email = trim($_POST['email']);
+
+    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        die("Security Warning: CSRF Token mismatch. Please refresh the page.");
+    }
+
+    $first_name = clean_input($_POST['first_name']);
+    $last_name = clean_input($_POST['last_name']);
     
-    // Validate inputs
+    $email_raw = trim($_POST['email']);
+    
     if (empty($first_name) || empty($last_name)) {
         $message = "Please enter your first name and last name.";
         $message_type = 'error';
-    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    } elseif (!filter_var($email_raw, FILTER_VALIDATE_EMAIL)) {
         $message = "Please enter a valid email address.";
         $message_type = 'error';
     } else {
-        // Check if email already exists in pending_registration
         $stmt = $conn->prepare("SELECT id FROM pending_registration WHERE email = ? AND status = 'pending'");
-        $stmt->bind_param("s", $email);
+        $stmt->bind_param("s", $email_raw);
         $stmt->execute();
         $result = $stmt->get_result();
         
         if ($result->num_rows > 0) {
-            $message = "This email has already submitted a registration request.<br>Please wait for Coordinator approval.";
-            $message_type = 'error';
+            $message = "You have already submitted a request. Please wait for approval.";
+            $message_type = 'warning';
         } else {
             $stmt->close();
             
-            // Check if email already exists in user table (Already registered)
             $stmt2 = $conn->prepare("SELECT fyp_userid FROM user WHERE fyp_username = ?");
-            $stmt2->bind_param("s", $email);
+            $stmt2->bind_param("s", $email_raw);
             $stmt2->execute();
             $result2 = $stmt2->get_result();
             
             if ($result2->num_rows > 0) {
-                $message = "This email is already registered. Please <a href='Login.php'>login</a> instead.";
+                $message = "This email is already registered. Please login instead.";
                 $message_type = 'error';
             } else {
-                // Insert into pending_registration table with first and last name
-                // This matches the columns in your database screenshot
                 $stmt3 = $conn->prepare("INSERT INTO pending_registration (first_name, last_name, email, status, created_at) VALUES (?, ?, ?, 'pending', NOW())");
-                $stmt3->bind_param("sss", $first_name, $last_name, $email);
+                $stmt3->bind_param("sss", $first_name, $last_name, $email_raw);
                 
                 if ($stmt3->execute()) {
-                    $full_name = htmlspecialchars($first_name . ' ' . $last_name);
-                    $message = "✅ Registration request submitted successfully!<br><br>
-                               <i class='fas fa-envelope' style='font-size:30px; color:#28a745;'></i><br><br>
-                               <strong>Name:</strong> {$full_name}<br>
-                               <strong>Email:</strong> {$email}<br><br>
-                               Please wait for Coordinator approval.<br>
-                               Your login password will be sent to this email.";
+                    $message = "Registration request submitted! Check your email later for login credentials.";
                     $message_type = 'success';
                 } else {
-                    $message = "Registration failed. Please try again.";
+                    $message = "System error. Please try again later.";
                     $message_type = 'error';
                 }
                 $stmt3->close();
@@ -73,101 +81,234 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Student Registration - FYP System</title>
+    <title>Student Registration - FYP Portal</title>
+    <!-- Updated Logo -->
+    <link rel="icon" type="image/png" href="image/ladybug.png?v=<?php echo time(); ?>">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap');
-        :root { --primary: #0056b3; --primary-hover: #004494; }
-        body { font-family: 'Poppins', sans-serif; margin: 0; background: linear-gradient(135deg, #eef2f7, #fff); min-height: 100vh; display: flex; flex-direction: column; }
-        .topbar { padding: 15px 40px; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-        .logo { font-size: 24px; font-weight: 600; color: var(--primary); }
-        .main-wrapper { flex: 1; display: flex; justify-content: center; align-items: center; padding: 20px; }
-        .form-container { background: #fff; padding: 40px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); width: 100%; max-width: 480px; text-align: center; }
-        h1 { font-size: 26px; margin-bottom: 10px; color: #333; }
-        .intro-text { color: #666; margin-bottom: 25px; font-size: 14px; }
-        .input-group { margin-bottom: 20px; text-align: left; }
-        .input-group label { display: block; font-weight: 500; margin-bottom: 8px; font-size: 14px; color: #333; }
-        .input-group input { width: 100%; box-sizing: border-box; padding: 14px 15px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; font-family: inherit; transition: all 0.2s; }
-        .input-group input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(0,86,179,0.2); }
-        .name-row { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-        .btn-submit { width: 100%; padding: 15px; border: none; border-radius: 8px; background: var(--primary); color: #fff; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
-        .btn-submit:hover { background: var(--primary-hover); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,86,179,0.3); }
-        .form-links { margin-top: 20px; font-size: 14px; color: #666; }
-        .form-links a { color: var(--primary); text-decoration: none; font-weight: 500; }
-        .form-links a:hover { text-decoration: underline; }
-        .error-message { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; }
-        .success-message { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; padding: 20px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; line-height: 1.6; }
-        .info-box { background: #e7f3ff; border: 1px solid #b6d4fe; padding: 15px; border-radius: 8px; margin-bottom: 25px; text-align: left; font-size: 13px; color: #084298; }
-        .info-box strong { display: block; margin-bottom: 8px; font-size: 14px; }
-        .info-box ol { margin: 0; padding-left: 18px; }
-        .info-box li { margin-bottom: 5px; }
-        small { color: #666; font-size: 12px; margin-top: 8px; display: block; }
-        .required { color: #dc3545; font-weight: bold; }
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap');
+        
+        :root {
+            --primary: #0056b3;
+            --primary-hover: #004494;
+            --bg-color: #f4f7fc;
+            --card-bg: #ffffff;
+            --text-color: #333;
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            margin: 0;
+            background-color: var(--bg-color);
+            background-image: radial-gradient(#e0e7ff 1px, transparent 1px);
+            background-size: 20px 20px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .topbar {
+            padding: 20px 40px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .logo-img {
+            height: 50px;
+            width: auto;
+            object-fit: contain;
+        }
+
+        .system-title {
+            font-size: 22px;
+            font-weight: 600;
+            color: var(--primary);
+            letter-spacing: 0.5px;
+        }
+
+        .main-wrapper {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .register-card {
+            background: var(--card-bg);
+            padding: 50px 40px;
+            border-radius: 16px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+            width: 100%;
+            max-width: 500px;
+            text-align: center;
+        }
+
+        .register-card h1 {
+            font-size: 26px;
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .register-card p {
+            color: #7f8c8d;
+            margin-bottom: 35px;
+            font-size: 14px;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+            text-align: left;
+        }
+
+        .input-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: #34495e;
+            margin-bottom: 8px;
+        }
+
+        .input-field {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 15px;
+            font-family: inherit;
+            box-sizing: border-box;
+            transition: all 0.3s;
+            background: #fdfdfd;
+        }
+
+        .input-field:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(0, 86, 179, 0.1);
+            background: #fff;
+        }
+
+        .row {
+            display: flex;
+            gap: 15px;
+        }
+        
+        .col {
+            flex: 1;
+        }
+
+        .btn-submit {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #0056b3, #004494);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(0, 86, 179, 0.3);
+            margin-top: 10px;
+        }
+
+        .btn-submit:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 86, 179, 0.4);
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-top: 25px;
+            color: #666;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .back-link:hover {
+            color: var(--primary);
+        }
+
+        .info-box {
+            background: #e3f2fd;
+            border: 1px solid #bbdefb;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            text-align: left;
+            font-size: 13px;
+            color: #0d47a1;
+        }
+        
+        .info-box i { margin-right: 5px; }
     </style>
 </head>
 <body>
-    <header class="topbar">
-        <div class="logo"><i class="fas fa-graduation-cap"></i> FYP Management System</div>
-    </header>
+
+    <div class="topbar">
+        <!-- Updated Logo -->
+        <img src="image/ladybug.png?v=<?php echo time(); ?>" alt="FYP Logo" class="logo-img" onerror="this.onerror=null; this.src='https://via.placeholder.com/150x50?text=FYP+Logo';">
+        <div class="system-title">FYP Portal</div>
+    </div>
 
     <div class="main-wrapper">
-        <div class="form-container">
-            <h1><i class="fas fa-user-plus"></i> Student Registration</h1>
-            <p class="intro-text">Request access to the FYP Portal</p>
-            
-            <?php if ($message): ?>
-                <div class="<?php echo ($message_type === 'success') ? 'success-message' : 'error-message'; ?>">
-                    <?php echo $message; ?>
-                </div>
-                <?php if ($message_type === 'success'): ?>
-                    <a href="Login.php" class="btn-submit" style="display: block; text-decoration: none; margin-top: 15px;">
-                        <i class="fas fa-arrow-left"></i> Back to Login
-                    </a>
-                <?php endif; ?>
-            <?php endif; ?>
+        <div class="register-card">
+            <h1>Student Registration</h1>
+            <p>Request access to the FYP Management System</p>
 
-            <?php if ($message_type !== 'success'): ?>
             <div class="info-box">
-                <strong><i class="fas fa-info-circle"></i> How Registration Works</strong>
-                <ol>
-                    <li>Fill in your name and email below</li>
-                    <li>Coordinator will review your request</li>
-                    <li>Once approved, login credentials will be sent to your email</li>
-                    <li>Use the credentials to access the FYP Portal</li>
-                </ol>
+                <i class="fas fa-info-circle"></i> 
+                <strong>Note:</strong> Your account will be reviewed by the coordinator. Login credentials will be sent to your email upon approval.
             </div>
 
-            <form method="POST" autocomplete="off">
-                <div class="name-row">
-                    <div class="input-group">
-                        <label for="first_name">First Name <span class="required">*</span></label>
-                        <input type="text" id="first_name" name="first_name" placeholder="e.g., John" required
-                               value="<?php echo isset($_POST['first_name']) ? htmlspecialchars($_POST['first_name']) : ''; ?>">
+            <form method="POST" action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>">
+                <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+
+                <div class="row">
+                    <div class="col">
+                        <div class="input-group">
+                            <label>First Name</label>
+                            <input type="text" name="first_name" class="input-field" placeholder="John" required>
+                        </div>
                     </div>
-                    <div class="input-group">
-                        <label for="last_name">Last Name <span class="required">*</span></label>
-                        <input type="text" id="last_name" name="last_name" placeholder="e.g., Doe" required
-                               value="<?php echo isset($_POST['last_name']) ? htmlspecialchars($_POST['last_name']) : ''; ?>">
+                    <div class="col">
+                        <div class="input-group">
+                            <label>Last Name</label>
+                            <input type="text" name="last_name" class="input-field" placeholder="Doe" required>
+                        </div>
                     </div>
                 </div>
 
                 <div class="input-group">
-                    <label for="email">Email Address <span class="required">*</span></label>
-                    <input type="email" id="email" name="email" placeholder="yourname@gmail.com" required
-                           value="<?php echo isset($_POST['email']) ? htmlspecialchars($_POST['email']) : ''; ?>">
-                    <small><i class="fas fa-envelope"></i> Enter your active email address to receive login credentials</small>
+                    <label>Email Address</label>
+                    <input type="email" name="email" class="input-field" placeholder="your.email@example.com" required>
                 </div>
 
                 <button type="submit" name="register" class="btn-submit">
-                    <i class="fas fa-paper-plane"></i> SUBMIT REGISTRATION REQUEST
+                    <i class="fas fa-paper-plane" style="margin-right:8px;"></i> Submit Request
                 </button>
-
-                <div class="form-links">
-                    <p>Already have an account? <a href="Login.php"><i class="fas fa-sign-in-alt"></i> Login here</a></p>
-                </div>
             </form>
-            <?php endif; ?>
+
+            <a href="Login.php" class="back-link">
+                <i class="fas fa-arrow-left"></i> Back to Login
+            </a>
         </div>
     </div>
+
+    <script>
+        <?php if ($message): ?>
+        Swal.fire({
+            icon: '<?php echo $message_type; ?>',
+            title: '<?php echo $message_type == "success" ? "Success!" : "Oops..."; ?>',
+            text: '<?php echo $message; ?>',
+            confirmButtonColor: '#0056b3'
+        });
+        <?php endif; ?>
+    </script>
+
 </body>
 </html>

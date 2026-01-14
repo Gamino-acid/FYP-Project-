@@ -1,24 +1,23 @@
 <?php
 // ====================================================
-// Coordinator_announcement.php - 发布公告 (Fixed Identity)
+// Coordinator_announcement.php - 修复版 V3
+// (修复: 正确读取并存入 VARCHAR 类型的 staffid)
 // ====================================================
 include("connect.php");
 
 // 1. 基础验证
 $auth_user_id = $_GET['auth_user_id'] ?? null;
-// 手动设置当前页面为 post_announcement 以高亮菜单
 $current_page = 'post_announcement'; 
 
 if (!$auth_user_id) { header("location: login.php"); exit; }
 
-// 2. 获取 Coordinator 信息 (关键修改：从 coordinator 表获取)
+// 2. 获取 Coordinator 信息
 $user_name = "Coordinator"; 
 $user_avatar = "image/user.png"; 
-$coor_id = 0;
-$my_active_targets = []; // Coordinator 可以给全校发，也可以给特定项目发
+$current_staff_id = ""; // 用于存储读取到的 VARCHAR ID
 
 if (isset($conn)) {
-    // 获取用户基本名
+    // A. 获取用户基本名
     $sql_user = "SELECT fyp_username FROM `USER` WHERE fyp_userid = ?";
     if ($stmt = $conn->prepare($sql_user)) {
         $stmt->bind_param("i", $auth_user_id); $stmt->execute();
@@ -26,22 +25,29 @@ if (isset($conn)) {
         $stmt->close();
     }
     
-    // 获取 COORDINATOR 详细资料 (而非 Supervisor)
+    // B. 获取 COORDINATOR 详细资料 (包括 fyp_staffid)
     $sql_coor = "SELECT * FROM coordinator WHERE fyp_userid = ?";
     if ($stmt = $conn->prepare($sql_coor)) {
         $stmt->bind_param("i", $auth_user_id); $stmt->execute();
         $res = $stmt->get_result();
         if ($res->num_rows > 0) {
             $row = $res->fetch_assoc();
-            $coor_id = $row['fyp_coordinatorid'];
+            
+            // 【修复点 1】: 优先读取 fyp_staffid (VARCHAR)
+            if (!empty($row['fyp_staffid'])) {
+                $current_staff_id = $row['fyp_staffid'];
+            } elseif (!empty($row['fyp_coordinatorid'])) {
+                $current_staff_id = $row['fyp_coordinatorid']; // 后备
+            }
+
             if (!empty($row['fyp_name'])) $user_name = $row['fyp_name'];
             if (!empty($row['fyp_profileimg'])) $user_avatar = $row['fyp_profileimg'];
         }
         $stmt->close();
     }
 
-    // 获取所有 Active Projects (Coordinator 可以给任何项目发公告)
-    // 这里我们列出所有 Active 的项目供选择
+    // C. 获取所有 Active Projects
+    $my_active_targets = []; 
     $sql_targets = "SELECT p.fyp_projecttitle, p.fyp_projecttype, 
                            GROUP_CONCAT(s.fyp_studname SEPARATOR ', ') as students
                     FROM fyp_registration r
@@ -76,24 +82,35 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $final_receiver = $receiver_type; 
     }
 
-    // 存入数据库
-    // 注意：我们将 Coordinator 的名字存入 fyp_supervisorid 字段
-    // 这样学生端显示时，如果 ID 不是数字，就会直接显示这个名字
-    $sender_identity = $user_name; 
+    // 【修复点 2】: 重新获取正确的 Staff ID (VARCHAR) 以防丢失
+    // 即使上面获取过一次，在POST请求中为了安全和准确，这里再次确认 ID
+    $sender_identity = $auth_user_id; // 默认
+    
+    // 再次查询确保拿到 VARCHAR 类型的 staffid
+    $id_query = "SELECT fyp_staffid FROM coordinator WHERE fyp_userid = '$auth_user_id' LIMIT 1";
+    $id_res = $conn->query($id_query);
+    if ($id_res && $id_row = $id_res->fetch_assoc()) {
+        if(!empty($id_row['fyp_staffid'])) {
+            $sender_identity = $id_row['fyp_staffid']; // 这里拿到了 "S1234" 这样的字符串
+        }
+    }
 
-    $sql_insert = "INSERT INTO announcement (fyp_subject, fyp_description, fyp_receiver, fyp_datecreated, fyp_supervisorid) VALUES (?, ?, ?, ?, ?)";
+    // 插入数据库
+    // 注意：bind_param 使用 "sssss"，最后一个 s 代表 sender_identity 是字符串
+    $sql_insert = "INSERT INTO announcement (fyp_subject, fyp_description, fyp_receiver, fyp_datecreated, fyp_staffid) VALUES (?, ?, ?, ?, ?)";
     
     if ($stmt = $conn->prepare($sql_insert)) {
+        // 绑定参数: Subject(s), Description(s), Receiver(s), Date(s), StaffID(s - VARCHAR)
         $stmt->bind_param("sssss", $subject, $description, $final_receiver, $date_now, $sender_identity);
         
         if ($stmt->execute()) {
             echo "<script>alert('Announcement posted successfully!'); window.location.href='Coordinator_mainpage.php?auth_user_id=" . $auth_user_id . "';</script>";
         } else {
-            echo "<script>alert('Error: " . addslashes($stmt->error) . "');</script>";
+            echo "<script>alert('SQL Execute Error: " . addslashes($stmt->error) . "');</script>";
         }
         $stmt->close();
     } else {
-        echo "<script>alert('DB Prepare Error: " . $conn->error . "');</script>";
+        echo "<script>alert('DB Prepare Error: " . addslashes($conn->error) . "');</script>";
     }
 }
 
@@ -101,7 +118,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Coordinator_mainpage.php?page=dashboard'],
     'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'Coordinator_profile.php'],
-    
     'management' => [
         'name' => 'User Management',
         'icon' => 'fa-users-cog',
@@ -118,7 +134,6 @@ $menu_items = [
             'pairing_list' => ['name' => 'Pairing List', 'icon' => 'fa-link', 'link' => 'Coordinator_mainpage.php?page=pairing_list'],
         ]
     ],
-    
     'announcement' => [
         'name' => 'Announcement',
         'icon' => 'fa-bullhorn',
@@ -127,6 +142,8 @@ $menu_items = [
             'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Coordinator_mainpage.php?page=view_announcements'],
         ]
     ],
+    'schedule' => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'Coordinator_meeting.php'], 
+    'data_io' => ['name' => 'Data Management', 'icon' => 'fa-database', 'link' => 'Coordinator_mainpage.php?page=data_io'],
 ];
 ?>
 <!DOCTYPE html>
@@ -138,7 +155,7 @@ $menu_items = [
     <link rel="icon" type="image/png" href="<?php echo $user_avatar; ?>">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        /* 复用 mainpage 的 CSS */
+        /* CSS 样式 */
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap');
         :root { --primary-color: #0056b3; --primary-hover: #004494; --secondary-color: #f4f4f9; --text-color: #333; --border-color: #e0e0e0; --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); --gradient-start: #eef2f7; --gradient-end: #ffffff; --sidebar-width: 260px; }
         body { font-family: 'Poppins', sans-serif; margin: 0; background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end)); color: var(--text-color); min-height: 100vh; display: flex; flex-direction: column; }
@@ -161,7 +178,8 @@ $menu_items = [
         .menu-link:hover { background-color: var(--secondary-color); color: var(--primary-color); }
         .menu-link.active { background-color: #e3effd; color: var(--primary-color); border-left-color: var(--primary-color); }
         .menu-icon { width: 24px; margin-right: 10px; text-align: center; }
-        .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: block; }
+        .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: none; }
+        .menu-item.has-active-child .submenu, .menu-item:hover .submenu { display: block; }
         .submenu .menu-link { padding-left: 58px; font-size: 14px; padding-top: 10px; padding-bottom: 10px; }
 
         .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; }
@@ -204,7 +222,7 @@ $menu_items = [
             <ul class="menu-list">
                 <?php foreach ($menu_items as $key => $item): ?>
                     <?php 
-                        $isActive = ($key == $current_page); // 这里检查主菜单
+                        $isActive = ($key == $current_page);
                         $hasActiveChild = false;
                         if (isset($item['sub_items'])) {
                             foreach ($item['sub_items'] as $sub_key => $sub) {
@@ -265,7 +283,6 @@ $menu_items = [
                             <option value="specific">Specific Project Group (Any)</option>
                         </select>
                         
-                        <!-- 二级联动菜单：Specific Target -->
                         <div id="specific_target_container" class="specific-target-container">
                             <label for="specific_target" style="font-size:13px; color:#555;">Select Project / Team:</label>
                             <select id="specific_target" name="specific_target" class="form-control">

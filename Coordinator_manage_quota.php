@@ -7,7 +7,7 @@ include("connect.php");
 // 1. 基础验证
 $auth_user_id = $_GET['auth_user_id'] ?? null;
 // 手动设置当前页面高亮 (假设该页面属于 Dashboard 或 Management)
-$current_page = 'dashboard'; 
+$current_page = 'manage_quota'; 
 
 if (!$auth_user_id) { 
     echo "<script>window.location.href='login.php';</script>";
@@ -98,31 +98,46 @@ if ($res) { while($row = $res->fetch_assoc()) { $staff_list[] = $row; } }
 // 4. 菜单定义 (与 Profile 页面保持一致)
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Coordinator_mainpage.php?page=dashboard'],
-    'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'Coordinator_profile.php'],
-    'management' => [
+    'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'Coordinator_profile.php'], 
+    
+     'management' => [
         'name' => 'User Management',
         'icon' => 'fa-users-cog',
         'sub_items' => [
+            // 两个链接都指向同一个管理页面，通过 tab 参数区分默认显示
             'manage_students' => ['name' => 'Student List', 'icon' => 'fa-user-graduate', 'link' => 'Coordinator_manage_users.php?tab=student'],
             'manage_supervisors' => ['name' => 'Supervisor List', 'icon' => 'fa-chalkboard-teacher', 'link' => 'Coordinator_manage_users.php?tab=supervisor'],
+            'manage_quota' => ['name' => 'Supervisor Quota', 'icon' => 'fa-chalkboard-teacher', 'link' => 'Coordinator_manage_quota.php'],
         ]
     ],
+    
     'project_mgmt' => [
-        'name' => 'Project Management',
-        'icon' => 'fa-project-diagram',
+        'name' => 'Project Mgmt', 
+        'icon' => 'fa-tasks', 
         'sub_items' => [
-            'pairing_list' => ['name' => 'Pairing List', 'icon' => 'fa-link', 'link' => 'Coordinator_mainpage.php?page=pairing_list'],
-            'project_archive' => ['name' => 'Project Archive', 'icon' => 'fa-archive', 'link' => 'Coordinator_mainpage.php?page=project_archive'],
+            'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'Coordinator_purpose.php'],
+            'project_requests' => ['name' => 'Project Requests', 'icon' => 'fa-envelope-open-text', 'link' => 'Coordinator_projectreq.php'],
+            'project_list' => ['name' => 'All Projects & Groups', 'icon' => 'fa-list-alt', 'link' => 'Coordinator_manage_project.php'],
         ]
     ],
-    'announcement' => [
-        'name' => 'Announcement',
-        'icon' => 'fa-bullhorn',
+    'assessment' => [
+        'name' => 'Assessment', 
+        'icon' => 'fa-clipboard-check', 
         'sub_items' => [
-            'post_announcement' => ['name' => 'Post Announcement', 'icon' => 'fa-pen-square', 'link' => 'Coordinator_announcement.php'], 
-            'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Coordinator_mainpage.php?page=view_announcements'],
+            'propose_assignment' => ['name' => 'Create Assignment', 'icon' => 'fa-plus', 'link' => 'Coordinator_assignment_purpose.php'],
+            'grade_assignment' => ['name' => 'Grade Assignments', 'icon' => 'fa-check-square', 'link' => 'Coordinator_assignment_grade.php'], 
         ]
     ],
+    'announcements' => [
+        'name' => 'Announcements', 
+        'icon' => 'fa-bullhorn', 
+        'sub_items' => [
+            'post_announcement' => ['name' => 'Post New', 'icon' => 'fa-pen', 'link' => 'Coordinator_announcement.php'], 
+        ]
+    ],
+    'schedule' => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'Coordinator_meeting.php'], 
+    'data_io' => ['name' => 'Data Management', 'icon' => 'fa-database', 'link' => 'Coordinator_data_io.php'],
+    'reports' => ['name' => 'System Reports', 'icon' => 'fa-chart-bar', 'link' => 'Coordinator_history.php'],
 ];
 ?>
 

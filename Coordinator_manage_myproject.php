@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// Coordinator_manage_project.php - Default View: My Projects
+// Coordinator_manage_project.php - With Search & Filters
 // ====================================================
 include("connect.php");
 
@@ -15,21 +15,18 @@ if (!$auth_user_id) {
 }
 
 // ----------------------------------------------------
-// 2. 获取 Coordinator 资料 (增加获取 fyp_staffid)
+// 2. 获取 Coordinator 资料
 // ----------------------------------------------------
 $user_name = "Coordinator"; 
 $user_avatar = "image/user.png"; 
-$my_staff_id = ""; // 用于过滤 "My Projects"
 
 if (isset($conn)) {
-    // 修改查询：增加 fyp_staffid
-    $stmt = $conn->prepare("SELECT fyp_name, fyp_profileimg, fyp_staffid FROM coordinator WHERE fyp_userid = ?");
+    $stmt = $conn->prepare("SELECT fyp_name, fyp_profileimg FROM coordinator WHERE fyp_userid = ?");
     $stmt->bind_param("i", $auth_user_id); 
     $stmt->execute(); 
     $res = $stmt->get_result();
     if ($row = $res->fetch_assoc()) { 
         $user_name = $row['fyp_name']; 
-        $my_staff_id = $row['fyp_staffid']; // 获取 Staff ID
         if(!empty($row['fyp_profileimg'])) $user_avatar = $row['fyp_profileimg']; 
     }
     $stmt->close();
@@ -52,12 +49,11 @@ $intake_res = $conn->query($intake_sql);
 while($i = $intake_res->fetch_assoc()) { if($i['fyp_intake']) $filter_intakes[] = $i['fyp_intake']; }
 
 // ----------------------------------------------------
-// 4. 处理搜索、筛选和视图范围参数
+// 4. 处理搜索和筛选参数
 // ----------------------------------------------------
 $search_keyword = $_GET['search'] ?? '';
 $selected_year = $_GET['filter_year'] ?? '';
 $selected_intake = $_GET['filter_intake'] ?? '';
-$view_scope = $_GET['view_scope'] ?? 'my'; // 默认为 'my' (My Projects)
 
 // ----------------------------------------------------
 // 5. 处理编辑提交 (UPDATE Project)
@@ -82,8 +78,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_project'])) {
     if ($up_stmt = $conn->prepare($update_sql)) {
         $up_stmt->bind_param("sssssi", $new_title, $new_cat, $new_desc, $new_req, $new_archive, $target_pid);
         if ($up_stmt->execute()) {
-            // 保持当前的视图状态
-            echo "<script>alert('Project details updated successfully!'); window.location.href='Coordinator_manage_project.php?auth_user_id=" . urlencode($auth_user_id) . "&view_scope=" . $view_scope . "';</script>";
+            echo "<script>alert('Project details updated successfully!'); window.location.href='Coordinator_manage_project.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
         } else {
             echo "<script>alert('Update failed: " . $up_stmt->error . "');</script>";
         }
@@ -92,7 +87,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_project'])) {
 }
 
 // ----------------------------------------------------
-// 6. 获取项目列表 (带筛选 + 视图逻辑)
+// 6. 获取项目列表 (带筛选功能)
 // ----------------------------------------------------
 $all_projects = [];
 
@@ -108,21 +103,13 @@ $sql = "SELECT p.*, ay.fyp_acdyear, ay.fyp_intake,
         LEFT JOIN academic_year ay ON p.fyp_academicid = ay.fyp_academicid
         LEFT JOIN supervisor s ON p.fyp_staffid = s.fyp_staffid
         LEFT JOIN coordinator c ON p.fyp_staffid = c.fyp_staffid
-        WHERE 1=1 "; 
+        WHERE 1=1 "; // 1=1 方便后续拼接 AND
 
 // 动态参数绑定
 $params = [];
 $types = "";
 
-// A. 视图范围过滤 (My Projects vs All)
-if ($view_scope == 'my') {
-    // 强制只看自己的项目
-    $sql .= " AND p.fyp_staffid = ? ";
-    $params[] = $my_staff_id;
-    $types .= "s";
-}
-
-// B. 搜索 (Title 或 Owner Name)
+// A. 搜索 (Title 或 Owner Name)
 if (!empty($search_keyword)) {
     $sql .= " AND (p.fyp_projecttitle LIKE ? OR s.fyp_name LIKE ? OR c.fyp_name LIKE ?)";
     $like_term = "%" . $search_keyword . "%";
@@ -132,14 +119,14 @@ if (!empty($search_keyword)) {
     $types .= "sss";
 }
 
-// C. 筛选 Year
+// B. 筛选 Year
 if (!empty($selected_year)) {
     $sql .= " AND ay.fyp_acdyear = ?";
     $params[] = $selected_year;
     $types .= "s";
 }
 
-// D. 筛选 Intake
+// C. 筛选 Intake
 if (!empty($selected_intake)) {
     $sql .= " AND ay.fyp_intake = ?";
     $params[] = $selected_intake;
@@ -170,6 +157,7 @@ $menu_items = [
         'name' => 'User Management',
         'icon' => 'fa-users-cog',
         'sub_items' => [
+            // 两个链接都指向同一个管理页面，通过 tab 参数区分默认显示
             'manage_students' => ['name' => 'Student List', 'icon' => 'fa-user-graduate', 'link' => 'Coordinator_manage_users.php?tab=student'],
             'manage_supervisors' => ['name' => 'Supervisor List', 'icon' => 'fa-chalkboard-teacher', 'link' => 'Coordinator_manage_users.php?tab=supervisor'],
             'manage_quota' => ['name' => 'Supervisor Quota', 'icon' => 'fa-chalkboard-teacher', 'link' => 'Coordinator_manage_quota.php'],
@@ -325,7 +313,7 @@ $menu_items = [
                                         $separator = (strpos($subLinkUrl, '?') !== false) ? '&' : '?';
                                         $subLinkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
                                     }
-                                    $isSubActive = ($sub_key == 'project_list'); 
+                                    $isSubActive = ($sub_key == 'manage_projects'); 
                                 ?>
                                     <li><a href="<?php echo $subLinkUrl; ?>" class="menu-link <?php echo $isSubActive ? 'active' : ''; ?>">
                                         <span class="menu-icon"><i class="fa <?php echo $sub_item['icon']; ?>"></i></span> <?php echo $sub_item['name']; ?>
@@ -353,14 +341,6 @@ $menu_items = [
                 <form method="GET" class="filter-bar">
                     <input type="hidden" name="auth_user_id" value="<?php echo htmlspecialchars($auth_user_id); ?>">
                     
-                    <div class="filter-group">
-                        <label>Scope</label>
-                        <select name="view_scope" class="filter-select" style="font-weight:600; color:var(--primary-color);" onchange="this.form.submit()">
-                            <option value="my" <?php echo ($view_scope == 'my') ? 'selected' : ''; ?>>My Projects (Supervising)</option>
-                            <option value="all" <?php echo ($view_scope == 'all') ? 'selected' : ''; ?>>All System Projects</option>
-                        </select>
-                    </div>
-
                     <div class="filter-group" style="flex: 2;">
                         <label>Search Keyword</label>
                         <input type="text" name="search" class="filter-input" placeholder="Project Title or Owner Name..." value="<?php echo htmlspecialchars($search_keyword); ?>">
@@ -391,7 +371,7 @@ $menu_items = [
                     </div>
 
                     <button type="submit" class="btn-filter"><i class="fa fa-search"></i> Filter</button>
-                    <a href="Coordinator_manage_project.php?auth_user_id=<?php echo $auth_user_id; ?>&view_scope=my" class="btn-reset">Reset</a>
+                    <a href="Coordinator_manage_project.php?auth_user_id=<?php echo $auth_user_id; ?>" class="btn-reset">Reset</a>
                 </form>
 
                 <?php if (count($all_projects) > 0): ?>
@@ -456,9 +436,6 @@ $menu_items = [
                     <div style="text-align:center; padding:50px; color:#999;">
                         <i class="fa fa-search" style="font-size:48px; opacity:0.3; margin-bottom:15px;"></i>
                         <p>No projects found matching your criteria.</p>
-                        <?php if($view_scope == 'my'): ?>
-                            <p style="font-size:13px; color:#777;">Tip: Switch Scope to "All System Projects" to see others.</p>
-                        <?php endif; ?>
                     </div>
                 <?php endif; ?>
             </div>
