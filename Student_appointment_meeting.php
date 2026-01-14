@@ -1,6 +1,6 @@
 <?php
 // ====================================================
-// student_appointment_meeting.php - 预约导师会议 (统一使用 fyp_staffid 版)
+// student_appointment_meeting.php - 预约导师会议 (Staff ID 字符串修复版)
 // ====================================================
 include("connect.php");
 
@@ -12,18 +12,15 @@ if (!$auth_user_id) { header("location: login.php"); exit; }
 $stud_data = [];
 $current_stud_id = '';
 $user_name = 'Student';
-// 默认头像，稍后会被数据库覆盖
 $user_avatar = 'image/user.png'; 
 
 if (isset($conn)) {
-    // 获取 USER 表名字
     $sql_user = "SELECT fyp_username FROM `USER` WHERE fyp_userid = ?";
     if ($stmt = $conn->prepare($sql_user)) { 
         $stmt->bind_param("i", $auth_user_id); $stmt->execute(); 
         $res = $stmt->get_result(); if ($row = $res->fetch_assoc()) $user_name = $row['fyp_username']; 
         $stmt->close(); 
     }
-    // 获取 STUDENT 表详细信息
     $sql_stud = "SELECT * FROM STUDENT WHERE fyp_userid = ?";
     if ($stmt = $conn->prepare($sql_stud)) { 
         $stmt->bind_param("i", $auth_user_id); $stmt->execute(); 
@@ -39,13 +36,13 @@ if (isset($conn)) {
 }
 
 // ====================================================
-// 3. 核心逻辑：获取我的 Supervisor (不通过 Pairing)
+// 3. 核心逻辑：获取我的 Supervisor
 // ====================================================
 $my_supervisor = null;
-$sv_id = 0;
+$sv_id = ""; // 改为字符串初始值
 
 if ($current_stud_id) {
-    // 从注册表中查找已批准的导师，使用 fyp_staffid
+    // 从注册表中查找 fyp_staffid
     $sql_reg = "SELECT fyp_staffid FROM fyp_registration WHERE fyp_studid = ? LIMIT 1";
     if ($stmt = $conn->prepare($sql_reg)) {
         $stmt->bind_param("s", $current_stud_id);
@@ -58,12 +55,12 @@ if ($current_stud_id) {
     }
 }
 
-// 如果找到了导师 ID，获取导师详细资料
-if ($sv_id > 0) {
-    // 【修正点】：查询导师信息也统一使用 fyp_staffid
+// 获取导师详细资料
+if (!empty($sv_id)) {
+    // 【修复 1】: bind_param 改为 "s" (String)，因为 Staff ID 是字符串
     $sql_sv = "SELECT * FROM supervisor WHERE fyp_staffid = ?";
     if ($stmt = $conn->prepare($sql_sv)) {
-        $stmt->bind_param("i", $sv_id);
+        $stmt->bind_param("s", $sv_id);
         $stmt->execute();
         $res = $stmt->get_result();
         if ($res->num_rows > 0) {
@@ -77,9 +74,8 @@ if ($sv_id > 0) {
 // 4. 获取可用时间段 (Available Slots)
 // ====================================================
 $available_slots = [];
-if ($sv_id > 0) {
-    // 【修正点】：查询 schedule_meeting 表，使用 fyp_staffid
-    // 之前报错 Unknown column 'fyp_supervisorid' 就是因为这里
+if (!empty($sv_id)) {
+    // 【修复 2】: bind_param 改为 "s"，查询 schedule_meeting 也要用字符串匹配
     $sql_sch = "SELECT * FROM schedule_meeting 
                 WHERE fyp_staffid = ? 
                 AND fyp_status = 'Available' 
@@ -87,7 +83,7 @@ if ($sv_id > 0) {
                 ORDER BY fyp_date ASC, fyp_fromtime ASC";
                 
     if ($stmt = $conn->prepare($sql_sch)) {
-        $stmt->bind_param("i", $sv_id);
+        $stmt->bind_param("s", $sv_id);
         $stmt->execute();
         $res = $stmt->get_result();
         while ($row = $res->fetch_assoc()) {
@@ -96,7 +92,6 @@ if ($sv_id > 0) {
         $stmt->close();
     }
 }
-// 将 Slots 数据转为 JSON 供前端日历使用
 $slots_json = json_encode($available_slots);
 
 // ====================================================
@@ -104,16 +99,20 @@ $slots_json = json_encode($available_slots);
 // ====================================================
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['confirm_booking'])) {
     $target_schedule_id = $_POST['schedule_id'];
-    $reason = $_POST['reason'] ?? ''; // 获取咨询原因
+    $reason = $_POST['reason'] ?? ''; 
     
-    // 【修正点】：插入 appointment_meeting 表，使用 fyp_staffid
+    // 【关键修复 3】: bind_param 改为 "siss"
+    // fyp_studid (s)
+    // fyp_scheduleid (i)
+    // fyp_staffid (s)  <-- 之前这里是 i，导致存进去变成了 0
+    // fyp_reason (s)
     $sql_book = "INSERT INTO appointment_meeting (fyp_studid, fyp_scheduleid, fyp_staffid, fyp_status, fyp_reason, fyp_datecreated) 
                  VALUES (?, ?, ?, 'Pending', ?, NOW())";
                  
     if ($stmt = $conn->prepare($sql_book)) {
-        $stmt->bind_param("siis", $current_stud_id, $target_schedule_id, $sv_id, $reason);
+        $stmt->bind_param("siss", $current_stud_id, $target_schedule_id, $sv_id, $reason);
         if ($stmt->execute()) {
-            // 预约后将 schedule 锁住 (变 Booked)
+            // 锁住时间段
             $conn->query("UPDATE schedule_meeting SET fyp_status = 'Booked' WHERE fyp_scheduleid = '$target_schedule_id'");
             
             echo "<script>alert('Appointment Requested Successfully!'); window.location.href='student_appointment_meeting.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
@@ -125,11 +124,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['confirm_booking'])) {
 }
 
 // ====================================================
-// 6. 获取我的预约历史 (My History)
+// 6. 获取我的预约历史
 // ====================================================
 $my_history = [];
 if ($current_stud_id) {
-    // 这里的查询主要是基于 studid 和 scheduleid，不需要改动 staffid
     $sql_hist = "SELECT am.*, sm.fyp_date, sm.fyp_day, sm.fyp_fromtime, sm.fyp_totime, sm.fyp_location 
                  FROM appointment_meeting am
                  JOIN schedule_meeting sm ON am.fyp_scheduleid = sm.fyp_scheduleid
@@ -147,7 +145,7 @@ if ($current_stud_id) {
 }
 
 // 菜单定义
-$current_page = 'book_session'; // 标记当前页面，用于高亮
+$current_page = 'book_session'; 
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Student_mainpage.php?page=dashboard'],
     'profile' => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'std_profile.php'], 

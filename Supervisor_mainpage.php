@@ -144,7 +144,7 @@ $menu_items = [
         'icon' => 'fa-bullhorn',
         'sub_items' => [
             'post_announcement' => ['name' => 'Post Announcement', 'icon' => 'fa-pen-square', 'link' => 'supervisor_announcement.php'],
-            'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => '?page=view_announcements'],
+            'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Supervisor_announcement_view.php'],
         ]
     ],
     'schedule'  => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'supervisor_meeting.php'],

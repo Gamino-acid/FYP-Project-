@@ -1,6 +1,6 @@
 <?php
 // ----------------------------------------------------
-// Login Page - FYP Management System
+// Login Page - FYP Management System (With Status Check)
 // ----------------------------------------------------
 include("connect.php"); 
 
@@ -18,7 +18,8 @@ if ($_SERVER["REQUEST_METHOD"] == 'POST') {
 
     if (empty($login_err)) {
         
-        $sql = "SELECT fyp_userid, fyp_passwordhash, fyp_usertype FROM `user` WHERE fyp_username = ? LIMIT 1";
+        // 修改点 1: 在查询中增加 fyp_status 字段
+        $sql = "SELECT fyp_userid, fyp_passwordhash, fyp_usertype, fyp_status FROM `user` WHERE fyp_username = ? LIMIT 1";
         
         if (isset($conn) && $stmt = $conn->prepare($sql)) {
             
@@ -34,23 +35,28 @@ if ($_SERVER["REQUEST_METHOD"] == 'POST') {
                     
                     if ($password === $user['fyp_passwordhash']) { 
                         
-                        $user_id = $user['fyp_userid'];
-                        $user_type = $user['fyp_usertype'];
-
-                        if ($user_type === 'student') {
-                            header("location: Student_mainpage.php?auth_user_id=" . urlencode($user_id));
-                            
-                        } else if ($user_type === 'lecturer') {
-                            header("location: Supervisor_mainpage.php?auth_user_id=" . urlencode($user_id));
-                            
-                        } else if ($user_type === 'coordinator') {
-                            header("location: Coordinator_mainpage.php?auth_user_id=" . urlencode($user_id));
-                            
+                        // 修改点 2: 检查账号状态
+                        if ($user['fyp_status'] === 'Archived') {
+                            $login_err = "Your account has been archived. Please contact the coordinator.";
                         } else {
-                            $login_err = "Login failed: Unknown user type.";
+                            // 状态正常 (Active)，允许登录
+                            $user_id = $user['fyp_userid'];
+                            $user_type = $user['fyp_usertype'];
+
+                            if ($user_type === 'student') {
+                                header("location: Student_mainpage.php?auth_user_id=" . urlencode($user_id));
+                                
+                            } else if ($user_type === 'lecturer') {
+                                header("location: Supervisor_mainpage.php?auth_user_id=" . urlencode($user_id));
+                                
+                            } else if ($user_type === 'coordinator') {
+                                header("location: Coordinator_mainpage.php?auth_user_id=" . urlencode($user_id));
+                                
+                            } else {
+                                $login_err = "Login failed: Unknown user type.";
+                            }
+                            exit;
                         }
-                        
-                        exit;
                         
                     } else {
                         $login_err = "Incorrect password.";
