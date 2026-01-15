@@ -1,73 +1,314 @@
 <?php
-include("db_connect.php");
+ini_set('session.cookie_httponly', 1);
+ini_set('session.use_strict_mode', 1);
+ini_set('session.cookie_samesite', 'Strict');
 
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $fullname = $_POST['fullname'];
-    $student_id = $_POST['student_id'];
-    $password = $_POST['password'];
-    $confirm_password = $_POST['confirm_password'];
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src 'self' data:;");
 
-    if ($password !== $confirm_password) {
-        echo "<script>alert('Passwords do not match!'); window.history.back();</script>";
-        exit();
+session_start();
+include("connect.php");
+
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+function clean_input($data) {
+    $data = trim($data);
+    $data = strip_tags($data);
+    return htmlspecialchars($data, ENT_QUOTES, 'UTF-8');
+}
+
+$message = '';
+$message_type = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
+
+    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        die("Security Warning: CSRF Token mismatch. Please refresh the page.");
     }
 
-    $hashed_password = password_hash($password, PASSWORD_DEFAULT);
-
-    $sql = "INSERT INTO students (fullname, student_id, password) VALUES (?, ?, ?)";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("sss", $fullname, $student_id, $hashed_password);
-
-    if ($stmt->execute()) {
-        echo "<script>alert('Registration successful! Redirecting to login...'); window.location='Login.php';</script>";
+    $first_name = clean_input($_POST['first_name']);
+    $last_name = clean_input($_POST['last_name']);
+    
+    $email_raw = trim($_POST['email']);
+    
+    if (empty($first_name) || empty($last_name)) {
+        $message = "Please enter your first name and last name.";
+        $message_type = 'error';
+    } elseif (!filter_var($email_raw, FILTER_VALIDATE_EMAIL)) {
+        $message = "Please enter a valid email address.";
+        $message_type = 'error';
     } else {
-        echo "<script>alert('Error: Student ID already exists or database issue.'); window.history.back();</script>";
+        $stmt = $conn->prepare("SELECT id FROM pending_registration WHERE email = ? AND status = 'pending'");
+        $stmt->bind_param("s", $email_raw);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        
+        if ($result->num_rows > 0) {
+            $message = "You have already submitted a request. Please wait for approval.";
+            $message_type = 'warning';
+        } else {
+            $stmt->close();
+            
+            $stmt2 = $conn->prepare("SELECT fyp_userid FROM user WHERE fyp_username = ?");
+            $stmt2->bind_param("s", $email_raw);
+            $stmt2->execute();
+            $result2 = $stmt2->get_result();
+            
+            if ($result2->num_rows > 0) {
+                $message = "This email is already registered. Please login instead.";
+                $message_type = 'error';
+            } else {
+                $stmt3 = $conn->prepare("INSERT INTO pending_registration (first_name, last_name, email, status, created_at) VALUES (?, ?, ?, 'pending', NOW())");
+                $stmt3->bind_param("sss", $first_name, $last_name, $email_raw);
+                
+                if ($stmt3->execute()) {
+                    $message = "Registration request submitted! Check your email later for login credentials.";
+                    $message_type = 'success';
+                } else {
+                    $message = "System error. Please try again later.";
+                    $message_type = 'error';
+                }
+                $stmt3->close();
+            }
+            $stmt2->close();
+        }
     }
-
-    $stmt->close();
-    $conn->close();
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Student Registration</title>
-    <link rel="stylesheet" href="css/Registration.css"> 
+    <title>Student Registration - FYP Portal</title>
+    <!-- Updated Logo -->
+    <link rel="icon" type="image/png" href="image/ladybug.png?v=<?php echo time(); ?>">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap');
+        
+        :root {
+            --primary: #0056b3;
+            --primary-hover: #004494;
+            --bg-color: #f4f7fc;
+            --card-bg: #ffffff;
+            --text-color: #333;
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            margin: 0;
+            background-color: var(--bg-color);
+            background-image: radial-gradient(#e0e7ff 1px, transparent 1px);
+            background-size: 20px 20px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .topbar {
+            padding: 20px 40px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .logo-img {
+            height: 50px;
+            width: auto;
+            object-fit: contain;
+        }
+
+        .system-title {
+            font-size: 22px;
+            font-weight: 600;
+            color: var(--primary);
+            letter-spacing: 0.5px;
+        }
+
+        .main-wrapper {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .register-card {
+            background: var(--card-bg);
+            padding: 50px 40px;
+            border-radius: 16px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+            width: 100%;
+            max-width: 500px;
+            text-align: center;
+        }
+
+        .register-card h1 {
+            font-size: 26px;
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .register-card p {
+            color: #7f8c8d;
+            margin-bottom: 35px;
+            font-size: 14px;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+            text-align: left;
+        }
+
+        .input-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: #34495e;
+            margin-bottom: 8px;
+        }
+
+        .input-field {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 15px;
+            font-family: inherit;
+            box-sizing: border-box;
+            transition: all 0.3s;
+            background: #fdfdfd;
+        }
+
+        .input-field:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(0, 86, 179, 0.1);
+            background: #fff;
+        }
+
+        .row {
+            display: flex;
+            gap: 15px;
+        }
+        
+        .col {
+            flex: 1;
+        }
+
+        .btn-submit {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #0056b3, #004494);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(0, 86, 179, 0.3);
+            margin-top: 10px;
+        }
+
+        .btn-submit:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 86, 179, 0.4);
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-top: 25px;
+            color: #666;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .back-link:hover {
+            color: var(--primary);
+        }
+
+        .info-box {
+            background: #e3f2fd;
+            border: 1px solid #bbdefb;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            text-align: left;
+            font-size: 13px;
+            color: #0d47a1;
+        }
+        
+        .info-box i { margin-right: 5px; }
+    </style>
 </head>
 <body>
-    <div class="login-wrapper">
-        <form class="login-form" action="Registration.php" method="post">
-            <h2>Student Registration</h2>
 
-            <div class="input-group">
-                <label for="fullname">Full Name</label>
-                <input type="text" id="fullname" name="fullname" required>
-            </div>
-
-            <div class="input-group">
-                <label for="student-id">Student ID</label>
-                <input type="text" id="student-id" name="student_id" required>
-            </div>
-
-            <div class="input-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" name="password" required>
-            </div>
-
-            <div class="input-group">
-                <label for="confirm-password">Confirm Password</label>
-                <input type="password" id="confirm-password" name="confirm_password" required>
-            </div>
-
-            <button type="submit" class="login-button">Register</button>
-
-            <div class="form-links" style="justify-content: center; margin-top: 2rem;">
-                <a href="Login.php">Already have an account? Login</a>
-            </div>
-        </form>
+    <div class="topbar">
+        <!-- Updated Logo -->
+        <img src="image/ladybug.png?v=<?php echo time(); ?>" alt="FYP Logo" class="logo-img" onerror="this.onerror=null; this.src='https://via.placeholder.com/150x50?text=FYP+Logo';">
+        <div class="system-title">FYP Portal</div>
     </div>
+
+    <div class="main-wrapper">
+        <div class="register-card">
+            <h1>Student Registration</h1>
+            <p>Request access to the FYP Management System</p>
+
+            <div class="info-box">
+                <i class="fas fa-info-circle"></i> 
+                <strong>Note:</strong> Your account will be reviewed by the coordinator. Login credentials will be sent to your email upon approval.
+            </div>
+
+            <form method="POST" action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>">
+                <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+
+                <div class="row">
+                    <div class="col">
+                        <div class="input-group">
+                            <label>First Name</label>
+                            <input type="text" name="first_name" class="input-field" placeholder="John" required>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="input-group">
+                            <label>Last Name</label>
+                            <input type="text" name="last_name" class="input-field" placeholder="Doe" required>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label>Email Address</label>
+                    <input type="email" name="email" class="input-field" placeholder="your.email@example.com" required>
+                </div>
+
+                <button type="submit" name="register" class="btn-submit">
+                    <i class="fas fa-paper-plane" style="margin-right:8px;"></i> Submit Request
+                </button>
+            </form>
+
+            <a href="Login.php" class="back-link">
+                <i class="fas fa-arrow-left"></i> Back to Login
+            </a>
+        </div>
+    </div>
+
+    <script>
+        <?php if ($message): ?>
+        Swal.fire({
+            icon: '<?php echo $message_type; ?>',
+            title: '<?php echo $message_type == "success" ? "Success!" : "Oops..."; ?>',
+            text: '<?php echo $message; ?>',
+            confirmButtonColor: '#0056b3'
+        });
+        <?php endif; ?>
+    </script>
+
 </body>
 </html>

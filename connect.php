@@ -2,7 +2,7 @@
 $servername = "localhost";  
 $username = "root";        
 $password = "";            
-$database = "fyp_management"; 
+$database = "testing"; 
 
 $conn = new mysqli($servername, $username, $password, $database);
 
