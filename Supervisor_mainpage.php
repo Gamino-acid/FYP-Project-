@@ -129,7 +129,6 @@ $menu_items = [
             'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'supervisor_purpose.php'],
             'my_projects'     => ['name' => 'My Projects', 'icon' => 'fa-folder-open', 'link' => 'Supervisor_manage_project.php'],
             'propose_assignment' => ['name' => 'Propose Assignment', 'icon' => 'fa-tasks','link' => 'supervisor_assignment_purpose.php'],
-             'all_project' => ['name' => 'All Project', 'icon' => 'fa-tasks', 'link' => 'supervisor_project_list.php']
         ]
     ],
     'grading' => [
@@ -137,6 +136,7 @@ $menu_items = [
         'icon' => 'fa-marker',
         'sub_items' => [
             'grade_assignment' => ['name' => 'Grade Assignments', 'icon' => 'fa-check-square', 'link' => 'Supervisor_assignment_grade.php'],
+            'grade_mod' => ['name' => 'Moderator Grading', 'icon' => 'fa-gavel', 'link' => 'Moderator_assignment_grade.php'],
         ]
     ],
     'announcement' => [

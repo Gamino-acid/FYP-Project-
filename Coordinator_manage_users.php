@@ -1,12 +1,17 @@
 <?php
+// ====================================================
+// Coordinator_manage_users.php - 完整修正版
+// ====================================================
 include("connect.php");
 
+// 引入邮件配置
 if (file_exists('Email_config_SMTP.php')) {
     include("Email_config_SMTP.php");
 } else {
     include("email_config.php");
 }
 
+// 输入清理函数
 function clean_input($data) {
     if (is_array($data)) {
         return array_map('clean_input', $data);
@@ -16,6 +21,7 @@ function clean_input($data) {
     return htmlspecialchars($data, ENT_QUOTES, 'UTF-8');
 }
 
+// 下载 CSV 模板
 if (isset($_GET['action']) && $_GET['action'] == 'download_template') {
     header('Content-Type: text/csv');
     header('Content-Disposition: attachment; filename="student_import_template.csv"');
@@ -28,6 +34,7 @@ if (isset($_GET['action']) && $_GET['action'] == 'download_template') {
 
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
+// 获取参数
 $auth_user_id = filter_input(INPUT_GET, 'auth_user_id', FILTER_VALIDATE_INT);
 $tab = clean_input($_GET['tab'] ?? 'student'); 
 $sort_order = clean_input($_GET['sort'] ?? 'newest'); 
@@ -41,6 +48,7 @@ if (!$auth_user_id) {
     exit; 
 }
 
+// 获取 Coordinator 信息
 $user_name = "Coordinator";
 $user_avatar = "image/user.png"; 
 $coordinator_id = null;
@@ -55,6 +63,7 @@ if ($row = $res->fetch_assoc()) {
 }
 $stmt->close();
 
+// 辅助函数
 function generateNextStudentId($conn) {
     $sql = "SELECT MAX(CAST(SUBSTRING(fyp_studid, 3) AS UNSIGNED)) as max_num FROM student WHERE fyp_studid LIKE 'TP%'";
     $result = $conn->query($sql); 
@@ -69,11 +78,13 @@ if (!function_exists('generateRandomPassword')) {
     }
 }
 
+// 初始化 SweetAlert 变量
 $swal_icon = '';
 $swal_title = '';
 $swal_text = '';
 $approved_list = []; 
 
+// 获取下拉菜单选项
 $academic_options = [];
 $res_acd = $conn->query("SELECT * FROM academic_year ORDER BY fyp_acdyear DESC");
 while ($r = $res_acd->fetch_assoc()) $academic_options[] = $r;
@@ -82,6 +93,11 @@ $programme_options = [];
 $res_prog = $conn->query("SELECT * FROM programme ORDER BY fyp_progname ASC");
 while ($r = $res_prog->fetch_assoc()) $programme_options[] = $r;
 
+// ====================================================
+// POST 请求处理区域
+// ====================================================
+
+// 1. 切换用户状态 (Active <-> Archived)
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['toggle_status'])) {
     $target_uid = intval($_POST['user_id']);
     $current_status = $_POST['current_status'];
@@ -99,6 +115,26 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['toggle_status'])) {
     $stmt->close();
 }
 
+// 2. 【新增】切换 Moderator 身份 (1 <-> 0)
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['toggle_moderator'])) {
+    $target_uid = intval($_POST['user_id']);
+    $new_mod_status = intval($_POST['new_mod_status']); // 1 或 0
+    
+    // 更新 supervisor 表
+    $stmt = $conn->prepare("UPDATE supervisor SET fyp_ismoderator = ? WHERE fyp_userid = ?");
+    $stmt->bind_param("ii", $new_mod_status, $target_uid);
+    
+    if ($stmt->execute()) {
+        $swal_icon = "success"; 
+        $swal_title = "Role Updated"; 
+        $swal_text = "Supervisor is " . ($new_mod_status == 1 ? "now a Moderator." : "no longer a Moderator.");
+    } else {
+        $swal_icon = "error"; $swal_title = "Error"; $swal_text = "Failed to update role.";
+    }
+    $stmt->close();
+}
+
+// 3. 批准密码重置
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['approve_reset'])) {
     $req_id = intval($_POST['request_id']);
     $stmt = $conn->prepare("SELECT student_id, email FROM password_reset_requests WHERE request_id = ? AND status = 'Pending'");
@@ -134,6 +170,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['approve_reset'])) {
     }
 }
 
+// 4. 拒绝密码重置
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['reject_reset'])) {
     $req_id = intval($_POST['request_id']);
     $stmt = $conn->prepare("UPDATE password_reset_requests SET status = 'Rejected', reviewed_by = ?, reviewed_at = NOW() WHERE request_id = ?");
@@ -142,6 +179,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['reject_reset'])) {
     $stmt->close();
 }
 
+// 5. 批量批准学生注册
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['bulk_approve'])) {
     $selected_ids = $_POST['selected_registrations'] ?? [];
     if (empty($selected_ids)) { $swal_icon = "error"; $swal_title = "Oops..."; $swal_text = "Please select at least one registration."; } else {
@@ -179,6 +217,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['bulk_approve'])) {
     }
 }
 
+// 6. 批量归档学生
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['bulk_archive_students'])) {
     $del_ids = $_POST['archive_user_ids'] ?? [];
     if (empty($del_ids)) { $swal_icon = "error"; $swal_title = "Oops..."; $swal_text = "Please select students to archive."; } else {
@@ -194,6 +233,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['bulk_archive_students'
     }
 }
 
+// 7. 添加单个学生
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_single_student'])) {
     try {
         $fname = clean_input($_POST['first_name']); $lname = clean_input($_POST['last_name']);
@@ -221,6 +261,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_single_student']))
     } catch (Exception $e) { $swal_icon = "error"; $swal_title = "Error"; $swal_text = $e->getMessage(); }
 }
 
+// 8. CSV 导入学生
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['import_students']) && is_uploaded_file($_FILES['csv_file']['tmp_name'])) {
     $file = fopen($_FILES['csv_file']['tmp_name'], "r"); fgetcsv($file); $count = 0;
     while (($data = fgetcsv($file, 1000, ",")) !== FALSE) {
@@ -231,38 +272,53 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['import_students']) && 
     $swal_icon = "success"; $swal_title = "Imported"; $swal_text = "Processed CSV import.";
 }
 
+// 9. 【修正】添加 Supervisor
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_supervisor'])) {
     try {
         $uname = clean_input($_POST['username']); 
         if (!filter_var($uname, FILTER_VALIDATE_EMAIL)) throw new Exception("Invalid email format.");
         $pass = clean_input($_POST['password']); $name = clean_input($_POST['full_name']); $sid = clean_input($_POST['staff_id']);
         
+        // 检查用户名是否存在
         $stmtCheck = $conn->prepare("SELECT fyp_userid FROM `user` WHERE fyp_username = ?");
         $stmtCheck->bind_param("s", $uname); $stmtCheck->execute();
         if ($stmtCheck->get_result()->num_rows > 0) throw new Exception("Username exists!");
         
+        // A. 插入 USER 表
         $stmt = $conn->prepare("INSERT INTO `user` (fyp_username, fyp_passwordhash, fyp_usertype, fyp_status, fyp_datecreated) VALUES (?, ?, 'lecturer', 'Active', NOW())");
         $stmt->bind_param("ss", $uname, $pass); $stmt->execute(); $nid = $conn->insert_id; 
 
-        $stmt2 = $conn->prepare("INSERT INTO supervisor (fyp_userid, fyp_name, fyp_staffid, fyp_email, fyp_ismoderator) VALUES (?, ?, ?, ?, 0)");
-        $stmt2->bind_param("isss", $nid, $name, $sid, $uname); $stmt2->execute(); $new_sup_id = $conn->insert_id; 
+        // B. 插入 SUPERVISOR 表 (加入 datecreated 和 moderator)
+        $is_mod = isset($_POST['is_moderator']) ? 1 : 0; 
         
+        $stmt2 = $conn->prepare("INSERT INTO supervisor (fyp_userid, fyp_name, fyp_staffid, fyp_email, fyp_ismoderator, fyp_datecreated) VALUES (?, ?, ?, ?, ?, NOW())");
+        $stmt2->bind_param("isssi", $nid, $name, $sid, $uname, $is_mod); 
+        $stmt2->execute(); 
+        $new_sup_id = $conn->insert_id; 
+        
+        // C. 插入 Quota
         $stmtQ = $conn->prepare("INSERT INTO quota (fyp_supervisorid, fyp_numofstudent) VALUES (?, 3)");
         $stmtQ->bind_param("i", $new_sup_id); $stmtQ->execute();
         
         sendLecturerCredentialsEmail($uname, $name, $pass, $sid);
-        $swal_icon = "success"; $swal_title = "Success"; $swal_text = "Supervisor added!";
+        $swal_icon = "success"; $swal_title = "Success"; $swal_text = "Supervisor added successfully!";
     } catch (Exception $e) { 
         $swal_icon = "error"; $swal_title = "Error"; $swal_text = $e->getMessage();
     }
 }
 
+// 10. 拒绝注册
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['reject_registration'])) {
     $reg_id = intval($_POST['reg_id']);
     $conn->query("UPDATE pending_registration SET status='rejected' WHERE id=$reg_id");
     $swal_icon = "info"; $swal_title = "Rejected"; $swal_text = "Registration rejected.";
 }
 
+// ====================================================
+// 数据获取区域
+// ====================================================
+
+// 获取待定注册列表
 $pending_registrations = [];
 if ($tab == 'student') {
     $checkTable = $conn->query("SHOW TABLES LIKE 'pending_registration'");
@@ -272,6 +328,7 @@ if ($tab == 'student') {
     }
 }
 
+// 获取密码重置请求
 $pending_resets = [];
 $checkResetTable = $conn->query("SHOW TABLES LIKE 'password_reset_requests'");
 if ($checkResetTable && $checkResetTable->num_rows > 0) {
@@ -279,6 +336,7 @@ if ($checkResetTable && $checkResetTable->num_rows > 0) {
     if($res_pwd) while($r = $res_pwd->fetch_assoc()) $pending_resets[] = $r;
 }
 
+// 主数据列表获取
 $data_list = [];
 $orderBy = "s.fyp_studname ASC"; 
 $colName = ($tab == 'student') ? "s.fyp_studname" : "s.fyp_name";
@@ -334,6 +392,7 @@ if ($tab == 'student') {
     $res = $stmt->get_result();
     
 } else {
+    // SUPERVISOR 查询
     $countSql = "SELECT COUNT(*) as total FROM `user` u
                  LEFT JOIN supervisor s ON u.fyp_userid = s.fyp_userid 
                  WHERE u.fyp_usertype = 'lecturer' $status_filter";
@@ -666,6 +725,9 @@ if ($res) while ($r = $res->fetch_assoc()) $data_list[] = $r;
                             <th>Name</th>
                             <th>ID / Staff ID</th>
                             <th>Email</th>
+                            
+                            <?php if($tab == 'supervisor'): ?><th>Role</th><?php endif; ?>
+                            
                             <th>Status</th>
                             <?php if($tab == 'student'): ?>
                                 <th>Programme</th>
@@ -693,6 +755,18 @@ if ($res) while ($r = $res->fetch_assoc()) $data_list[] = $r;
                             <td><span style="font-family: monospace; background: #f8f9fa; padding: 4px 8px; border-radius: 4px; font-weight: 600;"><?php echo htmlspecialchars($row[$tab=='student'?'fyp_studid':'fyp_staffid'] ?? '-'); ?></span></td>
                             <td><?php echo htmlspecialchars($row['fyp_username']); ?></td>
                             
+                            <?php if($tab == 'supervisor'): 
+                                $isMod = isset($row['fyp_ismoderator']) && $row['fyp_ismoderator'] == 1;
+                            ?>
+                                <td>
+                                    <?php if($isMod): ?>
+                                        <span class="badge" style="background:#6f42c1; color:white;"><i class="fas fa-gavel"></i> Moderator</span>
+                                    <?php else: ?>
+                                        <span class="badge" style="background:#e9ecef; color:#666;">Supervisor</span>
+                                    <?php endif; ?>
+                                </td>
+                            <?php endif; ?>
+                            
                             <td>
                                 <span class="status-badge status-<?php echo $status; ?>">
                                     <?php echo $status; ?>
@@ -710,6 +784,17 @@ if ($res) while ($r = $res->fetch_assoc()) $data_list[] = $r;
                                         title="<?php echo ($status == 'Active') ? 'Archive User' : 'Activate User'; ?>">
                                     <i class="fas <?php echo ($status == 'Active') ? 'fa-archive' : 'fa-undo'; ?>"></i>
                                 </button>
+                                
+                                <?php if($tab == 'supervisor'): 
+                                    $isMod = isset($row['fyp_ismoderator']) && $row['fyp_ismoderator'] == 1;
+                                ?>
+                                    <button type="button" onclick="toggleModerator(<?php echo $row['fyp_userid']; ?>, <?php echo $isMod ? 0 : 1; ?>)" 
+                                            class="btn-icon" 
+                                            style="background: <?php echo $isMod ? '#6c757d' : '#6f42c1'; ?>; color: white; margin-left: 5px;"
+                                            title="<?php echo $isMod ? 'Remove Moderator Role' : 'Assign as Moderator'; ?>">
+                                        <i class="fas <?php echo $isMod ? 'fa-user-minus' : 'fa-user-plus'; ?>"></i>
+                                    </button>
+                                <?php endif; ?>
                             </td>
                         </tr>
                         <?php endforeach; ?>
@@ -793,6 +878,12 @@ if ($res) while ($r = $res->fetch_assoc()) $data_list[] = $r;
                         <div class="input-group"><label>Staff ID</label><input type="text" name="staff_id" class="form-control" required></div>
                         <div class="input-group"><label>Password</label><input type="password" name="password" class="form-control" required></div>
                     </div>
+
+                    <div class="input-group" style="display:flex; align-items:center; gap:10px; background:#f8f9fa; padding:10px; border-radius:8px;">
+                        <input type="checkbox" name="is_moderator" id="chk_mod" value="1" style="width:auto; transform:scale(1.2);">
+                        <label for="chk_mod" style="margin:0; cursor:pointer;">Assign as <strong>Moderator</strong> (Can grade other groups)</label>
+                    </div>
+
                     <button name="add_supervisor" class="btn-action btn-blue btn-block">Save Supervisor</button>
                 <?php endif; ?>
             </form>
@@ -813,6 +904,12 @@ if ($res) while ($r = $res->fetch_assoc()) $data_list[] = $r;
         <input type="hidden" name="user_id" id="status_user_id">
         <input type="hidden" name="current_status" id="status_current_val">
         <input type="hidden" name="toggle_status" value="1">
+    </form>
+
+    <form id="modForm" method="POST" style="display:none;">
+        <input type="hidden" name="user_id" id="mod_user_id">
+        <input type="hidden" name="new_mod_status" id="mod_new_status">
+        <input type="hidden" name="toggle_moderator" value="1">
     </form>
 
     <script>
@@ -888,6 +985,30 @@ if ($res) while ($r = $res->fetch_assoc()) $data_list[] = $r;
                     document.getElementById('status_user_id').value = userId;
                     document.getElementById('status_current_val').value = currentStatus;
                     document.getElementById('statusForm').submit();
+                }
+            });
+        }
+
+        // 【新增】Toggle Moderator Function
+        function toggleModerator(userId, newStatus) {
+            let actionText = (newStatus === 1) ? 'Promote to Moderator' : 'Demote to Supervisor';
+            let confirmText = (newStatus === 1) 
+                ? 'They will be able to grade assignments for other groups.' 
+                : 'They will lose moderator privileges.';
+            
+            Swal.fire({
+                title: actionText + '?',
+                text: confirmText,
+                icon: 'info',
+                showCancelButton: true,
+                confirmButtonColor: '#6f42c1',
+                confirmButtonText: 'Yes, Confirm',
+                cancelButtonColor: '#d33'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    document.getElementById('mod_user_id').value = userId;
+                    document.getElementById('mod_new_status').value = newStatus;
+                    document.getElementById('modForm').submit();
                 }
             });
         }

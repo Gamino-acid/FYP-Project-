@@ -1,24 +1,64 @@
 <?php
-// ====================================================
-// std_projectreg.php - 学生申请项目 (分页版 2x3 Grid)
-// ====================================================
 include("connect.php");
 
-// 1. 验证用户登录
 $auth_user_id = $_GET['auth_user_id'] ?? null;
-if (!$auth_user_id) { header("location: login.php"); exit; }
+if (!$auth_user_id) { 
+    header("Content-Type: application/json");
+    echo json_encode(['success' => false, 'message' => 'Unauthorized']);
+    exit;
+}
 
-// 2. 获取当前学生信息
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_project_confirm'])) {
+    header('Content-Type: application/json');
+    
+    date_default_timezone_set('Asia/Kuala_Lumpur');
+    $proj_id = $_POST['project_id'];
+    $stud_id = $_POST['student_id'];
+    $date_now = date('Y-m-d H:i:s');
+
+    $chk_proj_sql = "SELECT fyp_projecttype, fyp_staffid, fyp_projectstatus FROM PROJECT WHERE fyp_projectid = ?";
+    $stmt_p = $conn->prepare($chk_proj_sql);
+    $stmt_p->bind_param("i", $proj_id);
+    $stmt_p->execute();
+    $res_p = $stmt_p->get_result();
+    $proj_info = $res_p->fetch_assoc();
+    $stmt_p->close();
+
+    if (!$proj_info) {
+        echo json_encode(['success' => false, 'message' => 'Project not found.']);
+        exit;
+    }
+    
+    $target_sv_id = $proj_info['fyp_staffid'];
+    $proj_status = $proj_info['fyp_projectstatus'];
+
+    if ($proj_status == 'Taken') {
+        echo json_encode(['success' => false, 'message' => 'Sorry, this project is already TAKEN.']);
+        exit;
+    }
+
+    $sql_ins = "INSERT INTO project_request (fyp_studid, fyp_staffid, fyp_projectid, fyp_requeststatus, fyp_datecreated) VALUES (?, ?, ?, 'Pending', ?)";
+    if ($stmt = $conn->prepare($sql_ins)) {
+        $stmt->bind_param("ssis", $stud_id, $target_sv_id, $proj_id, $date_now);
+        if ($stmt->execute()) {
+            echo json_encode(['success' => true, 'message' => 'Application Submitted Successfully!']);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Error: ' . $stmt->error]);
+        }
+        $stmt->close();
+    }
+    exit;
+}
+
 $stud_data = [];
 $my_stud_id = '';
-$my_group_status = 'Individual'; 
+$my_group_status = 'Individual';
 $user_name = 'Student';
-$is_leader = false; 
-$my_group_id = 0; 
-$my_academic_id = 0; 
+$is_leader = false;
+$my_group_id = 0;
+$my_academic_id = 0;
 
 if (isset($conn)) {
-    // 获取 USER 表名字
     $sql_user = "SELECT fyp_username FROM `USER` WHERE fyp_userid = ?";
     if ($stmt = $conn->prepare($sql_user)) { 
         $stmt->bind_param("i", $auth_user_id); 
@@ -28,7 +68,6 @@ if (isset($conn)) {
         $stmt->close(); 
     }
     
-    // 获取 STUDENT 表详细信息
     $sql_stud = "SELECT * FROM STUDENT WHERE fyp_userid = ?";
     if ($stmt = $conn->prepare($sql_stud)) { 
         $stmt->bind_param("i", $auth_user_id); 
@@ -44,8 +83,7 @@ if (isset($conn)) {
         $stmt->close(); 
     }
 
-    // 检查 Group Leader 状态
-    $target_applicant_id = $my_stud_id; 
+    $target_applicant_id = $my_stud_id;
 
     if ($my_group_status == 'Group') {
         $chk_leader = "SELECT group_id FROM student_group WHERE leader_id = '$my_stud_id'";
@@ -67,9 +105,6 @@ if (isset($conn)) {
     }
 }
 
-// ----------------------------------------------------
-// 全局检查：是否有 Active 申请
-// ----------------------------------------------------
 $has_active_application = false;
 $active_app_status = '';
 
@@ -84,9 +119,6 @@ if ($res_app && $res_app->num_rows > 0) {
     $active_app_status = $row_app['fyp_requeststatus'];
 }
 
-// ----------------------------------------------------
-// 拒绝名单检查
-// ----------------------------------------------------
 $rejected_project_ids = [];
 $chk_rej_sql = "SELECT fyp_projectid FROM project_request 
                 WHERE fyp_studid = '$target_applicant_id' 
@@ -98,83 +130,7 @@ if ($res_rej) {
     }
 }
 
-// ----------------------------------------------------
-// 3. 处理申请提交 (POST)
-// ----------------------------------------------------
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register_project_confirm'])) {
-    
-    if ($has_active_application) {
-        echo "<script>alert('You already have an active project application ($active_app_status).'); window.history.back();</script>"; exit;
-    }
-    
-    date_default_timezone_set('Asia/Kuala_Lumpur');
-    $proj_id = $_POST['project_id'];
-    $date_now = date('Y-m-d H:i:s');
-
-    if (in_array($proj_id, $rejected_project_ids)) {
-        echo "<script>alert('You cannot re-apply to a project that has already rejected you.'); window.history.back();</script>"; exit;
-    }
-
-    $chk_proj_sql = "SELECT fyp_projecttype, fyp_staffid, fyp_projectstatus FROM PROJECT WHERE fyp_projectid = ?";
-    $stmt_p = $conn->prepare($chk_proj_sql);
-    $stmt_p->bind_param("i", $proj_id);
-    $stmt_p->execute();
-    $res_p = $stmt_p->get_result();
-    $proj_info = $res_p->fetch_assoc();
-    $stmt_p->close();
-
-    if (!$proj_info) {
-        echo "<script>alert('Project not found.'); window.history.back();</script>"; exit;
-    }
-    
-    $target_sv_id = $proj_info['fyp_staffid'];
-    $proj_type = $proj_info['fyp_projecttype'];
-    $proj_status = $proj_info['fyp_projectstatus'];
-
-    if ($proj_status == 'Taken') {
-        echo "<script>alert('Sorry, this project is already TAKEN.'); window.history.back();</script>"; exit;
-    }
-
-    if ($my_group_status != $proj_type) {
-        $msg = ($my_group_status == 'Individual') 
-            ? "You are currently an 'Individual' student. You cannot apply for a 'Group' project." 
-            : "You are currently in a 'Group'. You cannot apply for an 'Individual' project.";
-        echo "<script>alert(\"$msg\"); window.history.back();</script>"; exit;
-    }
-
-    if ($proj_type == 'Group' && !$is_leader) {
-        echo "<script>alert('Only the Team Leader can apply for a Group Project.'); window.history.back();</script>"; exit;
-    }
-    
-    if ($proj_type == 'Group' && $is_leader) {
-        $count_mem_sql = "SELECT count(*) as member_count FROM group_request WHERE group_id = '$my_group_id' AND request_status = 'Accepted'";
-        $cnt_res = $conn->query($count_mem_sql);
-        $cnt_row = $cnt_res->fetch_assoc();
-        $member_count = $cnt_row['member_count'];
-        $total_size = 1 + $member_count;
-
-        if ($total_size < 3) {
-            echo "<script>alert('Application Failed: Your team must have exactly 3 members (Accepted) to apply. Current size: " . $total_size . "'); window.history.back();</script>"; exit;
-        }
-    }
-
-    $sql_ins = "INSERT INTO project_request (fyp_studid, fyp_staffid, fyp_projectid, fyp_requeststatus, fyp_datecreated) VALUES (?, ?, ?, 'Pending', ?)";
-    if ($stmt = $conn->prepare($sql_ins)) {
-        $stmt->bind_param("ssis", $my_stud_id, $target_sv_id, $proj_id, $date_now);
-        if ($stmt->execute()) {
-            echo "<script>alert('Application Submitted Successfully!'); window.location.href='std_projectreg.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
-        } else {
-            echo "<script>alert('Error submitting request: " . $stmt->error . "');</script>";
-        }
-        $stmt->close();
-    }
-}
-
-// ----------------------------------------------------
-// 4. 获取项目列表 (查询 & 筛选)
-// ----------------------------------------------------
-$all_projects = []; // 存储所有符合条件的项目
-
+$available_projects = [];
 $filter_status = $_GET['filter_status'] ?? '';
 $search_title = $_GET['search_title'] ?? '';
 $search_sv = $_GET['search_sv'] ?? '';
@@ -184,20 +140,18 @@ $sql = "SELECT p.*, s.fyp_name as sv_name, s.fyp_email as sv_email, s.fyp_contac
         LEFT JOIN supervisor s ON p.fyp_staffid = s.fyp_staffid 
         WHERE 1=1";
 
-// 强制条件
 if ($my_academic_id > 0) {
     $sql .= " AND p.fyp_academicid = '$my_academic_id'";
 }
-// 只显示 Active
-$sql .= " AND (p.fyp_archive_status = 'Active' OR p.fyp_archive_status IS NULL)";
 
-// 筛选条件
 if (!empty($filter_status)) {
     $sql .= " AND p.fyp_projectstatus = '" . $conn->real_escape_string($filter_status) . "'";
 }
+
 if (!empty($search_title)) {
     $sql .= " AND p.fyp_projecttitle LIKE '%" . $conn->real_escape_string($search_title) . "%'";
 }
+
 if (!empty($search_sv)) {
     $sv_term = $conn->real_escape_string($search_sv);
     $sql .= " AND (s.fyp_name LIKE '%$sv_term%' OR p.fyp_contactpersonname LIKE '%$sv_term%')";
@@ -208,357 +162,468 @@ $sql .= " ORDER BY p.fyp_datecreated DESC";
 $res = $conn->query($sql);
 if ($res) {
     while ($row = $res->fetch_assoc()) {
-        $all_projects[] = $row;
+        $available_projects[] = $row;
     }
 }
-
-// ----------------------------------------------------
-// 5. 分页逻辑 (Pagination Logic)
-// ----------------------------------------------------
-$items_per_page = 6; // 每页 6 个 (2列 x 3行)
-$total_items = count($all_projects);
-$total_pages = ceil($total_items / $items_per_page);
-
-// 获取当前页码
-$current_page_num = isset($_GET['page_num']) ? (int)$_GET['page_num'] : 1;
-if ($current_page_num < 1) $current_page_num = 1;
-if ($current_page_num > $total_pages && $total_pages > 0) $current_page_num = $total_pages;
-
-// 切割数组
-$offset = ($current_page_num - 1) * $items_per_page;
-$display_projects = array_slice($all_projects, $offset, $items_per_page);
-
-// 6. 菜单定义
-$current_page = 'group_setup';
-$menu_items = [
-    'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Student_mainpage.php?page=dashboard'],
-    'profile' => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'std_profile.php'],
-    'project_mgmt' => [
-        'name' => 'Final Year Project',
-        'icon' => 'fa-project-diagram',
-        'sub_items' => [
-            'group_setup' => ['name' => 'Project Registration', 'icon' => 'fa-users', 'link' => 'std_projectreg.php'], 
-            'team_invitations' => ['name' => 'Request & Team Status', 'icon' => 'fa-tasks', 'link' => 'std_request_status.php'],
-            'assignment' => ['name' => 'Assignment', 'icon' => 'fa-file-alt', 'link' => 'student_assignment.php'],
-            'doc_submission' => ['name' => 'Document Upload', 'icon' => 'fa-cloud-upload-alt', 'link' => '?page=doc_submission'],
-        ]
-    ],
-    'grades' => ['name' => 'My Grades', 'icon' => 'fa-star', 'link' => 'Student_mainpage.php?page=grades'],
-];
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Project Registration</title>
-    <?php $favicon = !empty($stud_data['fyp_profileimg']) ? $stud_data['fyp_profileimg'] : "image/user.png"; ?>
+    <link rel="icon" type="image/png" href="image/ladybug.png?v=<?php echo time(); ?>">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap');
-        :root { --primary-color: #0056b3; --primary-hover: #004494; --secondary-color: #f4f4f9; --text-color: #333; --border-color: #e0e0e0; --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); --gradient-start: #eef2f7; --gradient-end: #ffffff; --sidebar-width: 260px; }
-        body { font-family: 'Poppins', sans-serif; margin: 0; background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end)); color: var(--text-color); min-height: 100vh; display: flex; flex-direction: column; }
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap');
         
-        .layout-container { display: flex; flex: 1; max-width: 1400px; margin: 0 auto; width: 100%; padding: 20px; box-sizing: border-box; gap: 20px; }
-        .sidebar { width: var(--sidebar-width); background: #fff; border-radius: 12px; box-shadow: var(--card-shadow); padding: 20px 0; flex-shrink: 0; }
-        .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; }
+        :root {
+            --primary-color: #0056b3;
+            --primary-hover: #004494;
+            --secondary-color: #f8f9fa;
+            --text-color: #333;
+            --sidebar-bg: #004085; 
+            --sidebar-hover: #003366;
+            --sidebar-text: #e0e0e0;
+            --card-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: #f4f6f9;
+            min-height: 100vh;
+            display: flex;
+            overflow-x: hidden;
+        }
+
+        .main-menu {
+            background: var(--sidebar-bg);
+            border-right: 1px solid rgba(255,255,255,0.1);
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            height: 100%;
+            left: 0;
+            width: 60px;
+            overflow: hidden;
+            transition: width .05s linear;
+            z-index: 1000;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+        }
+
+        .main-menu:hover, nav.main-menu.expanded { width: 250px; overflow: visible; }
+        .main-menu > ul { margin: 7px 0; padding: 0; list-style: none; }
+        .main-menu li { position: relative; display: block; width: 250px; }
+        .main-menu li > a {
+            position: relative; display: table; border-collapse: collapse;
+            border-spacing: 0; color: var(--sidebar-text); font-size: 14px;
+            text-decoration: none; transition: all .1s linear; width: 100%;
+        }
+        .main-menu .nav-icon {
+            position: relative; display: table-cell; width: 60px; height: 46px;
+            text-align: center; vertical-align: middle; font-size: 18px;
+        }
+        .main-menu .nav-text {
+            position: relative; display: table-cell; vertical-align: middle;
+            width: 190px; padding-left: 10px; white-space: nowrap;
+        }
+        .main-menu li:hover > a, nav.main-menu li.active > a {
+            color: #fff; background-color: var(--sidebar-hover); border-left: 4px solid #fff;
+        }
+        .main-menu > ul.logout { position: absolute; left: 0; bottom: 0; width: 100%; }
         
-        /* Topbar & Sidebar Styles */
-        .topbar { display: flex; justify-content: space-between; align-items: center; padding: 15px 40px; background-color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); z-index: 100; position: sticky; top: 0; }
-        .logo { font-size: 22px; font-weight: 600; color: var(--primary-color); display: flex; align-items: center; gap: 10px; }
-        .topbar-right { display: flex; align-items: center; gap: 20px; }
-        .user-name-display { font-weight: 600; font-size: 14px; }
-        .user-avatar-circle { width: 40px; height: 40px; border-radius: 50%; overflow: hidden; border: 2px solid #e3effd; }
-        .user-avatar-circle img { width: 100%; height: 100%; object-fit: cover; }
-        .logout-btn { color: #d93025; text-decoration: none; font-size: 14px; font-weight: 500; }
-        
-        .menu-list { list-style: none; padding: 0; margin: 0; }
-        .menu-item { margin-bottom: 5px; }
-        .menu-link { display: flex; align-items: center; padding: 12px 25px; text-decoration: none; color: #555; font-weight: 500; font-size: 15px; border-left: 4px solid transparent; transition: all 0.3s; }
-        .menu-link:hover { background-color: var(--secondary-color); color: var(--primary-color); }
-        .menu-link.active { background-color: #e3effd; color: var(--primary-color); border-left-color: var(--primary-color); }
-        .menu-icon { width: 24px; margin-right: 10px; text-align: center; }
-        .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: none; }
-        .menu-item.has-active-child .submenu, .menu-item:hover .submenu { display: block; }
-        .submenu .menu-link { padding-left: 58px; font-size: 14px; padding-top: 10px; padding-bottom: 10px; }
-
-        /* Page Specific */
-        .welcome-card { background: #fff; padding: 30px; border-radius: 12px; box-shadow: var(--card-shadow); border-left: 5px solid var(--primary-color); display: flex; justify-content: space-between; align-items: center; }
-        .page-title { font-size: 24px; margin: 0 0 5px 0; color: var(--text-color); }
-        .my-status-box { text-align: right; }
-        .status-pill { background: #e3effd; color: var(--primary-color); padding: 5px 15px; border-radius: 20px; font-weight: 600; font-size: 13px; display: inline-block; margin-top: 5px; }
-
-        /* Filter Bar */
-        .filter-card { background: #fff; padding: 20px; border-radius: 12px; box-shadow: var(--card-shadow); margin-bottom: 5px; display: flex; gap: 15px; flex-wrap: wrap; align-items: flex-end; }
-        .filter-group { flex: 1; min-width: 150px; }
-        .filter-group label { display: block; font-size: 12px; font-weight: 600; color: #666; margin-bottom: 5px; }
-        .filter-input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-family: inherit; font-size: 14px; box-sizing: border-box; }
-        .btn-filter { background-color: var(--primary-color); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; height: 40px; display: inline-flex; align-items: center; gap: 5px; }
-        .btn-filter:hover { background-color: var(--primary-hover); }
-        .btn-reset { background-color: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; height: 40px; box-sizing: border-box; }
-        .btn-reset:hover { background-color: #5a6268; }
-
-        /* GRID SYSTEM: 2 Columns */
-        .project-grid { 
-            display: grid; 
-            grid-template-columns: repeat(2, 1fr); /* 强制 2 列 */
-            gap: 25px; 
-            margin-top: 20px; 
+        .main-content-wrapper {
+            margin-left: 60px; flex: 1; padding: 20px;
+            width: calc(100% - 60px); transition: margin-left .05s linear;
         }
         
-        .project-card { background: #fff; border-radius: 12px; padding: 25px; box-shadow: var(--card-shadow); display: flex; flex-direction: column; transition: transform 0.3s; border-top: 4px solid #ddd; position: relative; }
+        .page-header {
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center;
+            margin-bottom: 25px; 
+            background: white; 
+            padding: 20px;
+            border-radius: 12px; 
+            box-shadow: var(--card-shadow);
+            position: relative;
+        }
+        
+        .welcome-text h1 { margin: 0; font-size: 24px; color: var(--primary-color); font-weight: 600; }
+        .welcome-text p { margin: 5px 0 0; color: #666; font-size: 14px; }
+
+        .logo-section { 
+            display: flex; 
+            align-items: center; 
+            gap: 12px;
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        .logo-img { height: 40px; width: auto; background: white; padding: 2px; border-radius: 6px; }
+        .system-title { font-size: 20px; font-weight: 600; color: var(--primary-color); letter-spacing: 0.5px; }
+
+        .user-section { display: flex; align-items: center; gap: 10px; }
+        .user-badge {
+            font-size: 13px; color: #666; background: #f0f0f0;
+            padding: 5px 10px; border-radius: 20px;
+        }
+        .user-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
+        .user-avatar-placeholder {
+            width: 40px; height: 40px; border-radius: 50%; background: #0056b3;
+            color: white; display: flex; align-items: center; justify-content: center; font-weight: bold;
+        }
+
+        .status-pill {
+            background: #e3effd; color: var(--primary-color);
+            padding: 5px 15px; border-radius: 20px; font-weight: 600;
+            font-size: 13px; display: inline-block; margin-left: 10px;
+        }
+
+        .filter-card {
+            background: #fff; padding: 20px; border-radius: 12px;
+            box-shadow: var(--card-shadow); margin-bottom: 20px;
+            display: flex; gap: 15px; flex-wrap: wrap; align-items: flex-end;
+        }
+        .filter-group { flex: 1; min-width: 150px; }
+        .filter-group label {
+            display: block; font-size: 12px; font-weight: 600;
+            color: #666; margin-bottom: 5px;
+        }
+        .filter-input, .filter-select {
+            width: 100%; padding: 10px; border: 1px solid #ddd;
+            border-radius: 6px; font-family: inherit; font-size: 14px; box-sizing: border-box;
+        }
+        .btn-filter {
+            background-color: var(--primary-color); color: white; border: none;
+            padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600;
+            height: 40px; display: inline-flex; align-items: center; gap: 5px;
+        }
+        .btn-filter:hover { background-color: var(--primary-hover); }
+        .btn-reset {
+            background-color: #6c757d; color: white; border: none;
+            padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600;
+            text-decoration: none; display: inline-flex; align-items: center;
+            justify-content: center; height: 40px; box-sizing: border-box;
+        }
+        .btn-reset:hover { background-color: #5a6268; }
+
+        .project-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 25px; margin-top: 20px;
+        }
+        .project-card {
+            background: #fff; border-radius: 12px; padding: 25px;
+            box-shadow: var(--card-shadow); display: flex; flex-direction: column;
+            transition: transform 0.3s; border-top: 4px solid #ddd; position: relative;
+        }
         .project-card:hover { transform: translateY(-5px); box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
         .card-Group { border-top-color: #7b1fa2; }
         .card-Individual { border-top-color: #0288d1; }
 
-        .p-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px; }
-        .p-title { font-size: 18px; font-weight: 600; color: #333; line-height: 1.4; flex: 1; margin-right: 10px; }
-        .p-status { font-size: 11px; padding: 3px 8px; border-radius: 4px; font-weight: 600; text-transform: uppercase; white-space: nowrap; }
+        .p-header {
+            display: flex; justify-content: space-between;
+            align-items: flex-start; margin-bottom: 15px;
+        }
+        .p-title {
+            font-size: 18px; font-weight: 600; color: #333;
+            line-height: 1.4; flex: 1; margin-right: 10px;
+        }
+        .p-status {
+            font-size: 11px; padding: 3px 8px; border-radius: 4px;
+            font-weight: 600; text-transform: uppercase; white-space: nowrap;
+        }
         .st-Open { background: #e8f5e9; color: #2e7d32; }
         .st-Taken { background: #ffebee; color: #c62828; }
 
         .p-meta { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; }
-        .badge { font-size: 11px; padding: 4px 10px; border-radius: 12px; font-weight: 500; }
+        .badge {
+            font-size: 11px; padding: 4px 10px; border-radius: 12px; font-weight: 500;
+        }
         .badge-cat { background: #fff3e0; color: #ef6c00; }
         .badge-type { background: #f3e5f5; color: #7b1fa2; }
         
-        .p-desc { font-size: 13px; color: #666; margin-bottom: 20px; line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; height: 63px; }
+        .p-desc {
+            font-size: 13px; color: #666; margin-bottom: 20px; line-height: 1.6;
+            display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+            overflow: hidden; height: 63px;
+        }
         
-        .sv-info { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; padding-top: 15px; border-top: 1px solid #f0f0f0; }
-        .sv-avatar { width: 30px; height: 30px; background: #eee; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #888; font-size: 12px; }
+        .sv-info {
+            display: flex; align-items: center; gap: 10px; margin-bottom: 20px;
+            padding-top: 15px; border-top: 1px solid #f0f0f0;
+        }
+        .sv-avatar {
+            width: 30px; height: 30px; background: #eee; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            color: #888; font-size: 12px;
+        }
         .sv-name { font-size: 13px; font-weight: 500; color: #444; }
 
-        .btn-view { background: #fff; border: 1px solid var(--primary-color); color: var(--primary-color); padding: 10px; border-radius: 6px; width: 100%; cursor: pointer; font-weight: 500; transition: all 0.2s; }
+        .btn-view {
+            background: #fff; border: 1px solid var(--primary-color);
+            color: var(--primary-color); padding: 10px; border-radius: 6px;
+            width: 100%; cursor: pointer; font-weight: 500; transition: all 0.2s;
+        }
         .btn-view:hover { background: var(--primary-color); color: #fff; }
+
         .project-card.disabled { opacity: 0.6; }
-        .project-card.disabled .btn-view { border-color: #ccc; color: #999; cursor: not-allowed; background: #f9f9f9; }
+        .project-card.disabled .btn-view {
+            border-color: #ccc; color: #999; cursor: not-allowed; background: #f9f9f9;
+        }
         .project-card.disabled:hover { transform: none; }
 
-        /* Pagination Styles */
-        .pagination-container { display: flex; justify-content: space-between; align-items: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; }
-        .page-btn { text-decoration: none; color: #555; background: #fff; border: 1px solid #ddd; padding: 8px 15px; border-radius: 6px; font-size: 14px; font-weight: 500; transition: all 0.2s; display: flex; align-items: center; gap: 5px; }
-        .page-btn:hover:not(.disabled) { background: #f0f0f0; color: var(--primary-color); border-color: var(--primary-color); }
-        .page-btn.disabled { color: #ccc; border-color: #eee; cursor: not-allowed; background: #f9f9f9; pointer-events: none; }
-        .page-info { font-size: 14px; color: #666; font-weight: 500; }
-
-        /* Modal Styles */
-        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; }
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); z-index: 1100; justify-content: center; align-items: center;
+        }
         .modal-overlay.show { display: flex; }
-        .modal-box { background: #fff; width: 90%; max-width: 700px; border-radius: 12px; padding: 30px; position: relative; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 50px rgba(0,0,0,0.2); }
-        .close-modal { position: absolute; top: 20px; right: 20px; font-size: 24px; cursor: pointer; color: #999; }
+        .modal-box {
+            background: #fff; width: 90%; max-width: 700px; border-radius: 12px;
+            padding: 30px; position: relative; max-height: 90vh; overflow-y: auto;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.2);
+        }
+        .close-modal {
+            position: absolute; top: 20px; right: 20px; font-size: 24px;
+            cursor: pointer; color: #999;
+        }
+        
         .m-section { margin-bottom: 20px; }
-        .m-label { font-size: 12px; color: #888; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; margin-bottom: 5px; }
+        .m-label {
+            font-size: 12px; color: #888; text-transform: uppercase;
+            font-weight: 600; letter-spacing: 0.5px; margin-bottom: 5px;
+        }
         .m-value { font-size: 15px; color: #333; line-height: 1.6; }
-        .m-title { font-size: 22px; font-weight: 600; color: var(--primary-color); margin-bottom: 5px; }
-        .sv-card-mini { background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #eee; display: flex; gap: 15px; align-items: center; }
-        .btn-confirm { background: var(--primary-color); color: white; border: none; padding: 12px 30px; border-radius: 6px; font-size: 16px; font-weight: 600; cursor: pointer; width: 100%; margin-top: 10px; }
-        .btn-confirm:hover { background: var(--primary-hover); }
+        .m-title {
+            font-size: 22px; font-weight: 600; color: var(--primary-color); margin-bottom: 5px;
+        }
 
-        @media (max-width: 900px) { 
-            .layout-container { flex-direction: column; } 
-            .sidebar { width: 100%; } 
-            .project-grid { grid-template-columns: 1fr; } /* 移动端改为 1 列 */
+        .sv-card-mini {
+            background: #f8f9fa; padding: 15px; border-radius: 8px;
+            border: 1px solid #eee; display: flex; gap: 15px; align-items: center;
+        }
+        
+        .btn-confirm {
+            background: var(--primary-color); color: white; border: none;
+            padding: 12px 30px; border-radius: 6px; font-size: 16px;
+            font-weight: 600; cursor: pointer; width: 100%; margin-top: 10px;
+        }
+        .btn-confirm:hover { background: var(--primary-hover); }
+        .btn-confirm:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .alert-banner {
+            background: #fff3cd; border: 1px solid #ffeeba; padding: 15px;
+            border-radius: 8px; margin-bottom: 20px; display: flex;
+            align-items: center; gap: 15px; color: #856404;
+        }
+
+        .toast {
+            position: fixed; top: 20px; right: 20px; background: white;
+            padding: 15px 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            display: none; align-items: center; gap: 10px; z-index: 2000;
+            animation: slideIn 0.3s ease;
+        }
+        .toast.show { display: flex; }
+        .toast.success { border-left: 4px solid #28a745; }
+        .toast.error { border-left: 4px solid #dc3545; }
+
+        @keyframes slideIn {
+            from { transform: translateX(400px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
         }
     </style>
 </head>
 <body>
 
-    <header class="topbar">
-        <div class="logo">FYP System</div>
-        <div class="topbar-right">
-            <span class="user-name-display"><?php echo htmlspecialchars($user_name); ?></span>
-            <div class="user-avatar-circle"><img src="<?php echo $favicon; ?>" alt="User"></div>
-            <a href="login.php" class="logout-btn"><i class="fa fa-sign-out-alt"></i> Logout</a>
-        </div>
-    </header>
+    <nav class="main-menu">
+        <ul>
+            <li>
+                <a href="Student_mainpage.php?page=dashboard&auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-home nav-icon"></i>
+                    <span class="nav-text">Dashboard</span>
+                </a>
+            </li>
+            <li>
+                <a href="std_profile.php?auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-user nav-icon"></i>
+                    <span class="nav-text">My Profile</span>
+                </a>
+            </li>
+            <li class="active">
+                <a href="std_projectreg.php?auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-users nav-icon"></i>
+                    <span class="nav-text">Project Registration</span>
+                </a>
+            </li>
+            <li>
+                <a href="std_request_status.php?auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-tasks nav-icon"></i>
+                    <span class="nav-text">Request Status</span>
+                </a>
+            </li>
+            <li>
+                <a href="student_assignment.php?auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-file-text nav-icon"></i>
+                    <span class="nav-text">Assignments</span>
+                </a>
+            </li>
+            <li>
+                <a href="Student_mainpage.php?page=doc_submission&auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-cloud-upload nav-icon"></i>
+                    <span class="nav-text">Document Upload</span>
+                </a>
+            </li>
+            <li>
+                <a href="student_appointment_meeting.php?auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-calendar nav-icon"></i>
+                    <span class="nav-text">Book Appointment</span>
+                </a>
+            </li>
+            <li>
+                <a href="Student_mainpage.php?page=presentation&auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-desktop nav-icon"></i>
+                    <span class="nav-text">Presentation</span>
+                </a>
+            </li>
+            <li>
+                <a href="Student_mainpage.php?page=grades&auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-star nav-icon"></i>
+                    <span class="nav-text">My Grades</span>
+                </a>
+            </li>
+        </ul>
 
-    <div class="layout-container">
-        <aside class="sidebar">
-            <ul class="menu-list">
-                <?php foreach ($menu_items as $key => $item): ?>
-                    <?php 
-                        $isActive = ($key == $current_page);
-                        $linkUrl = isset($item['link']) ? $item['link'] : "#";
-                        if (strpos($linkUrl, '.php') !== false) {
-                             $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?';
-                             $linkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
-                        }
-                    ?>
-                    <li class="menu-item <?php echo $hasActiveChild ? 'has-active-child' : ''; ?>">
-                        <a href="<?php echo $linkUrl; ?>" class="menu-link <?php echo $isActive ? 'active' : ''; ?>">
-                            <span class="menu-icon"><i class="fa <?php echo $item['icon']; ?>"></i></span>
-                            <?php echo $item['name']; ?>
-                        </a>
-                        <?php if (isset($item['sub_items'])): ?>
-                            <ul class="submenu">
-                                <?php foreach ($item['sub_items'] as $sub_key => $sub_item): 
-                                    $subLinkUrl = isset($sub_item['link']) ? $sub_item['link'] : "#";
-                                    if (strpos($subLinkUrl, '.php') !== false) {
-                                        $separator = (strpos($subLinkUrl, '?') !== false) ? '&' : '?';
-                                        $subLinkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
-                                    }
-                                ?>
-                                    <li><a href="<?php echo $subLinkUrl; ?>" class="menu-link <?php echo ($sub_key == $current_page) ? 'active' : ''; ?>">
-                                        <span class="menu-icon"><i class="fa <?php echo $sub_item['icon']; ?>"></i></span> <?php echo $sub_item['name']; ?>
-                                    </a></li>
-                                <?php endforeach; ?>
-                            </ul>
-                        <?php endif; ?>
-                    </li>
-                <?php endforeach; ?>
-            </ul>
-        </aside>
+        <ul class="logout">
+            <li>
+                <a href="login.php">
+                    <i class="fa fa-power-off nav-icon"></i>
+                    <span class="nav-text">Logout</span>
+                </a>
+            </li>  
+        </ul>
+    </nav>
 
-        <main class="main-content">
-            <div class="welcome-card">
-                <div>
-                    <h1 class="page-title">Available Projects</h1>
-                    <p style="color: #666; margin: 0;">Browse and apply for Final Year Projects.</p>
-                </div>
-                <div class="my-status-box">
-                    <div style="font-size:12px; color:#888;">Your Current Status</div>
-                    <span class="status-pill"><?php echo $my_group_status; ?></span>
-                    <?php if ($is_leader) echo '<span class="status-pill" style="background:#fff3cd; color:#856404; margin-left:5px;">Leader</span>'; ?>
-                </div>
+    <div class="main-content-wrapper">
+        
+        <div class="page-header">
+            <div class="welcome-text">
+                <h1>Available Projects</h1>
+                <p>Browse and apply for Final Year Projects - Status: <span class="status-pill"><?php echo $my_group_status; ?></span><?php if($is_leader) echo '<span class="status-pill" style="background:#fff3cd; color:#856404;">Leader</span>'; ?></p>
+            </div>
+            
+            <div class="logo-section">
+                <img src="image/ladybug.png?v=<?php echo time(); ?>" alt="Logo" class="logo-img">
+                <span class="system-title">FYP Portal</span>
             </div>
 
-            <?php if ($has_active_application): ?>
-                <div class="alert-banner">
-                    <i class="fa fa-info-circle" style="font-size: 18px;"></i>
-                    <div>
-                        <strong>Action Required:</strong> You (or your team) already have a project application status: 
-                        <span style="font-weight:bold; text-transform:uppercase;"><?php echo $active_app_status; ?></span>.
-                        <br>You cannot apply for another project until the current one is rejected or withdrawn.
-                    </div>
-                </div>
-            <?php endif; ?>
-            
-            <form method="GET" action="" class="filter-card">
-                <input type="hidden" name="auth_user_id" value="<?php echo htmlspecialchars($auth_user_id); ?>">
-                
-                <div class="filter-group">
-                    <label>Status</label>
-                    <select name="filter_status" class="filter-select">
-                        <option value="">All</option>
-                        <option value="Open" <?php if($filter_status == 'Open') echo 'selected'; ?>>Open</option>
-                        <option value="Taken" <?php if($filter_status == 'Taken') echo 'selected'; ?>>Taken</option>
-                    </select>
-                </div>
-                
-                <div class="filter-group" style="flex: 2;">
-                    <label>Search Title</label>
-                    <input type="text" name="search_title" class="filter-input" placeholder="e.g. AI Chatbot" value="<?php echo htmlspecialchars($search_title); ?>">
-                </div>
-                
-                <div class="filter-group" style="flex: 2;">
-                    <label>Search Supervisor</label>
-                    <input type="text" name="search_sv" class="filter-input" placeholder="e.g. Dr. Smith" value="<?php echo htmlspecialchars($search_sv); ?>">
-                </div>
-                
-                <button type="submit" class="btn-filter"><i class="fa fa-search"></i> Filter</button>
-                <a href="std_projectreg.php?auth_user_id=<?php echo urlencode($auth_user_id); ?>" class="btn-reset">Reset</a>
-            </form>
-
-            <div class="project-grid">
-                <?php if (count($display_projects) > 0): ?>
-                    <?php foreach ($display_projects as $proj): ?>
-                        <?php 
-                            // 逻辑检查
-                            $isTaken = ($proj['fyp_projectstatus'] == 'Taken');
-                            $isMismatch = ($my_group_status != $proj['fyp_projecttype']);
-                            $isMemberRestrict = ($my_group_status == 'Group' && !$is_leader && $proj['fyp_projecttype'] == 'Group');
-                            $isAlreadyApplied = $has_active_application;
-                            $isRejected = in_array($proj['fyp_projectid'], $rejected_project_ids);
-                            $isDisabled = $isTaken || $isMismatch || $isMemberRestrict || $isAlreadyApplied || $isRejected;
-                            
-                            $btnText = "View & Apply";
-                            if ($isTaken) $btnText = "Taken";
-                            else if ($isRejected) $btnText = "Application Rejected"; 
-                            else if ($isAlreadyApplied) $btnText = "Already Applied"; 
-                            else if ($isMismatch) $btnText = "Type Mismatch";
-                            else if ($isMemberRestrict) $btnText = "Leader Only"; 
-                        ?>
-                        
-                        <div class="project-card card-<?php echo $proj['fyp_projecttype']; ?> <?php echo $isDisabled ? 'disabled' : ''; ?>">
-                            <div class="p-header">
-                                <div class="p-title"><?php echo htmlspecialchars($proj['fyp_projecttitle']); ?></div>
-                                <span class="p-status st-<?php echo $proj['fyp_projectstatus']; ?>"><?php echo $proj['fyp_projectstatus']; ?></span>
-                            </div>
-                            
-                            <div class="p-meta">
-                                <span class="badge badge-cat"><?php echo htmlspecialchars($proj['fyp_projectcat']); ?></span>
-                                <span class="badge badge-type"><?php echo htmlspecialchars($proj['fyp_projecttype']); ?></span>
-                            </div>
-
-                            <div class="p-desc"><?php echo htmlspecialchars($proj['fyp_description']); ?></div>
-
-                            <div class="sv-info">
-                                <div class="sv-avatar"><i class="fa fa-user-tie"></i></div>
-                                <div class="sv-name">
-                                    SV: <?php echo htmlspecialchars(!empty($proj['sv_name']) ? $proj['sv_name'] : $proj['fyp_contactpersonname']); ?>
-                                </div>
-                            </div>
-
-                            <button type="button" class="btn-view" 
-                                <?php if (!$isDisabled): ?>
-                                    onclick="openModal(<?php echo htmlspecialchars(json_encode($proj)); ?>)" 
-                                <?php endif; ?>
-                                <?php echo $isDisabled ? 'disabled' : ''; ?>>
-                                <?php echo $btnText; ?>
-                            </button>
-                        </div>
-                    <?php endforeach; ?>
+            <div class="user-section">
+                <span class="user-badge">Student</span>
+                <?php if(!empty($stud_data['fyp_profileimg'])): ?>
+                    <img src="<?php echo htmlspecialchars($stud_data['fyp_profileimg']); ?>" class="user-avatar" alt="User Avatar">
                 <?php else: ?>
-                    <div style="text-align:center; padding:40px; color:#999; grid-column: 1/-1;">No projects match your criteria.</div>
+                    <div class="user-avatar-placeholder"><?php echo strtoupper(substr($user_name, 0, 1)); ?></div>
                 <?php endif; ?>
             </div>
+        </div>
 
-            <?php if ($total_pages > 1): ?>
-                <div class="pagination-container">
-                    <?php 
-                        // 构建基础 URL 参数
-                        $queryParams = $_GET;
-                        // 当前页 - 1
-                        $prevPage = $current_page_num - 1;
-                        $queryParams['page_num'] = $prevPage;
-                        $prevLink = '?' . http_build_query($queryParams);
-                        
-                        // 当前页 + 1
-                        $nextPage = $current_page_num + 1;
-                        $queryParams['page_num'] = $nextPage;
-                        $nextLink = '?' . http_build_query($queryParams);
-                    ?>
-
-                    <?php if ($current_page_num > 1): ?>
-                        <a href="<?php echo $prevLink; ?>" class="page-btn">
-                            <i class="fa fa-chevron-left"></i> Previous
-                        </a>
-                    <?php else: ?>
-                        <span class="page-btn disabled"><i class="fa fa-chevron-left"></i> Previous</span>
-                    <?php endif; ?>
-
-                    <span class="page-info">Page <?php echo $current_page_num; ?> of <?php echo $total_pages; ?></span>
-
-                    <?php if ($current_page_num < $total_pages): ?>
-                        <a href="<?php echo $nextLink; ?>" class="page-btn">
-                            Next <i class="fa fa-chevron-right"></i>
-                        </a>
-                    <?php else: ?>
-                        <span class="page-btn disabled">Next <i class="fa fa-chevron-right"></i></span>
-                    <?php endif; ?>
+        <?php if ($has_active_application): ?>
+            <div class="alert-banner">
+                <i class="fa fa-info-circle" style="font-size: 18px;"></i>
+                <div>
+                    <strong>Action Required:</strong> You already have a project application with status: 
+                    <span style="font-weight:bold; text-transform:uppercase;"><?php echo $active_app_status; ?></span>.
+                    You cannot apply for another project.
                 </div>
-            <?php endif; ?>
+            </div>
+        <?php endif; ?>
+        
+        <div class="filter-card">
+            <div class="filter-group">
+                <label>Status</label>
+                <select id="filterStatus" class="filter-select">
+                    <option value="">All</option>
+                    <option value="Open" <?php if($filter_status == 'Open') echo 'selected'; ?>>Open</option>
+                    <option value="Taken" <?php if($filter_status == 'Taken') echo 'selected'; ?>>Taken</option>
+                </select>
+            </div>
+            
+            <div class="filter-group" style="flex: 2;">
+                <label>Search Title</label>
+                <input type="text" id="searchTitle" class="filter-input" placeholder="e.g. AI Chatbot" value="<?php echo htmlspecialchars($search_title); ?>">
+            </div>
+            
+            <div class="filter-group" style="flex: 2;">
+                <label>Search Supervisor</label>
+                <input type="text" id="searchSv" class="filter-input" placeholder="e.g. Dr. Smith" value="<?php echo htmlspecialchars($search_sv); ?>">
+            </div>
+            
+            <button onclick="applyFilter()" class="btn-filter"><i class="fa fa-search"></i> Filter</button>
+            <button onclick="resetFilter()" class="btn-reset">Reset</button>
+        </div>
 
-        </main>
+        <div class="project-grid" id="projectGrid">
+            <?php if (count($available_projects) > 0): ?>
+                <?php foreach ($available_projects as $proj): ?>
+                    <?php 
+                        $isTaken = ($proj['fyp_projectstatus'] == 'Taken');
+                        $isMismatch = ($my_group_status != $proj['fyp_projecttype']);
+                        $isMemberRestrict = ($my_group_status == 'Group' && !$is_leader && $proj['fyp_projecttype'] == 'Group');
+                        $isAlreadyApplied = $has_active_application;
+                        $isRejected = in_array($proj['fyp_projectid'], $rejected_project_ids);
+                        $isDisabled = $isTaken || $isMismatch || $isMemberRestrict || $isAlreadyApplied || $isRejected;
+                        
+                        $btnText = "View & Apply";
+                        if ($isTaken) $btnText = "Taken";
+                        else if ($isRejected) $btnText = "Application Rejected"; 
+                        else if ($isAlreadyApplied) $btnText = "Already Applied"; 
+                        else if ($isMismatch) $btnText = "Type Mismatch";
+                        else if ($isMemberRestrict) $btnText = "Leader Only"; 
+                    ?>
+                    
+                    <div class="project-card card-<?php echo $proj['fyp_projecttype']; ?> <?php echo $isDisabled ? 'disabled' : ''; ?>">
+                        <div class="p-header">
+                            <div class="p-title"><?php echo htmlspecialchars($proj['fyp_projecttitle']); ?></div>
+                            <span class="p-status st-<?php echo $proj['fyp_projectstatus']; ?>"><?php echo $proj['fyp_projectstatus']; ?></span>
+                        </div>
+                        
+                        <div class="p-meta">
+                            <span class="badge badge-cat"><?php echo htmlspecialchars($proj['fyp_projectcat']); ?></span>
+                            <span class="badge badge-type"><?php echo htmlspecialchars($proj['fyp_projecttype']); ?></span>
+                        </div>
+
+                        <div class="p-desc"><?php echo htmlspecialchars($proj['fyp_description']); ?></div>
+
+                        <div class="sv-info">
+                            <div class="sv-avatar"><i class="fa fa-user-tie"></i></div>
+                            <div class="sv-name">
+                                SV: <?php echo htmlspecialchars(!empty($proj['sv_name']) ? $proj['sv_name'] : $proj['fyp_contactpersonname']); ?>
+                            </div>
+                        </div>
+
+                        <button type="button" class="btn-view" 
+                            <?php if (!$isDisabled): ?>
+                                onclick='openModal(<?php echo json_encode($proj); ?>)' 
+                            <?php endif; ?>
+                            <?php echo $isDisabled ? 'disabled' : ''; ?>>
+                            <?php echo $btnText; ?>
+                        </button>
+                    </div>
+                <?php endforeach; ?>
+            <?php else: ?>
+                <div style="text-align:center; padding:40px; color:#999; grid-column: 1/-1;">No projects match your criteria.</div>
+            <?php endif; ?>
+        </div>
     </div>
 
     <div id="detailModal" class="modal-overlay">
         <div class="modal-box">
             <span class="close-modal" onclick="closeModal()">&times;</span>
             
-            <form method="POST">
+            <form id="applicationForm">
                 <input type="hidden" name="project_id" id="modalProjId">
+                <input type="hidden" name="student_id" value="<?php echo $my_stud_id; ?>">
                 
                 <div class="m-title" id="mTitle"></div>
                 <div style="margin-bottom:20px;">
@@ -596,15 +661,24 @@ $menu_items = [
                     </div>
                 </div>
 
-                <button type="submit" name="register_project_confirm" class="btn-confirm">
+                <button type="submit" id="submitBtn" class="btn-confirm">
                     <i class="fa fa-paper-plane"></i> Apply for this Project
                 </button>
             </form>
         </div>
     </div>
 
+    <div id="toast" class="toast">
+        <i class="fa fa-check-circle" style="font-size: 20px; color: #28a745;"></i>
+        <span id="toastMessage"></span>
+    </div>
+
     <script>
         const modal = document.getElementById('detailModal');
+        const applicationForm = document.getElementById('applicationForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const toast = document.getElementById('toast');
+        const toastMessage = document.getElementById('toastMessage');
 
         function openModal(proj) {
             document.getElementById('modalProjId').value = proj.fyp_projectid;
@@ -638,6 +712,92 @@ $menu_items = [
         window.onclick = function(e) {
             if (e.target == modal) closeModal();
         }
+
+        applicationForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Submitting...';
+            
+            const formData = new FormData(applicationForm);
+            formData.append('register_project_confirm', '1');
+            
+            try {
+                const response = await fetch('std_projectreg.php?auth_user_id=<?php echo $auth_user_id; ?>', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    closeModal();
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1500);
+                } else {
+                    showToast(data.message, 'error');
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fa fa-paper-plane"></i> Apply for this Project';
+                }
+            } catch (error) {
+                showToast('An error occurred. Please try again.', 'error');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fa fa-paper-plane"></i> Apply for this Project';
+            }
+        });
+
+        function applyFilter() {
+            const status = document.getElementById('filterStatus').value;
+            const title = document.getElementById('searchTitle').value;
+            const sv = document.getElementById('searchSv').value;
+            
+            const params = new URLSearchParams({
+                auth_user_id: '<?php echo $auth_user_id; ?>',
+                filter_status: status,
+                search_title: title,
+                search_sv: sv
+            });
+            
+            window.location.href = 'std_projectreg.php?' + params.toString();
+        }
+
+        function resetFilter() {
+            window.location.href = 'std_projectreg.php?auth_user_id=<?php echo $auth_user_id; ?>';
+        }
+
+        function showToast(message, type) {
+            toastMessage.textContent = message;
+            toast.className = 'toast show ' + type;
+            
+            const icon = toast.querySelector('i');
+            if (type === 'success') {
+                icon.className = 'fa fa-check-circle';
+                icon.style.color = '#28a745';
+            } else {
+                icon.className = 'fa fa-exclamation-circle';
+                icon.style.color = '#dc3545';
+            }
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        document.getElementById('searchTitle').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                applyFilter();
+            }
+        });
+
+        document.getElementById('searchSv').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                applyFilter();
+            }
+        });
     </script>
 </body>
 </html>

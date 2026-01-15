@@ -1,16 +1,16 @@
 <?php
 // ====================================================
-// student_assignment_details.php - 作业详情 (支持退回后下载旧文件版)
+// student_assignment_details.php - Assignment Details & Submission
 // ====================================================
 include("connect.php");
 
-// 1. 验证用户登录
+// 1. Validate user login
 $auth_user_id = $_GET['auth_user_id'] ?? null;
 $assign_id = $_GET['id'] ?? null;
 
 if (!$auth_user_id || !$assign_id) { header("location: login.php"); exit; }
 
-// 2. 获取当前学生信息
+// 2. Get current student info
 $stud_data = [];
 $current_stud_id = '';
 $user_name = 'Student';
@@ -37,7 +37,7 @@ if (isset($conn)) {
     }
 }
 
-// 3. 获取作业详情
+// 3. Get assignment details
 $assignment = null;
 $sql_ass = "SELECT * FROM assignment WHERE fyp_assignmentid = ?";
 if ($stmt = $conn->prepare($sql_ass)) {
@@ -50,7 +50,7 @@ if ($stmt = $conn->prepare($sql_ass)) {
 
 if (!$assignment) { die("Assignment not found."); }
 
-// 4. 获取/初始化 提交记录 (Submission Record)
+// 4. Get/Initialize submission record
 $submission = null;
 $sql_sub = "SELECT * FROM assignment_submission WHERE fyp_assignmentid = ? AND fyp_studid = ?";
 if ($stmt = $conn->prepare($sql_sub)) {
@@ -61,59 +61,205 @@ if ($stmt = $conn->prepare($sql_sub)) {
     $stmt->close();
 }
 
-// === 核心逻辑 A: 自动标记为 "Viewed" ===
+// === Core Logic A: Auto-mark as "Viewed" ===
 if (!$submission) {
-    $conn->query("INSERT INTO assignment_submission (fyp_assignmentid, fyp_studid, fyp_submission_status) VALUES ('$assign_id', '$current_stud_id', 'Viewed')");
-    $submission = ['fyp_submission_status' => 'Viewed', 'fyp_marks' => null, 'fyp_feedback' => null, 'fyp_submitted_file' => null];
+    // If no record exists, create one with 'Viewed' status
+    $stmt = $conn->prepare("INSERT INTO assignment_submission (fyp_assignmentid, fyp_studid, fyp_submission_status) VALUES (?, ?, 'Viewed')");
+    $stmt->bind_param("is", $assign_id, $current_stud_id);
+    $stmt->execute();
+    $stmt->close();
+    
+    // Refresh data
+    $submission = ['fyp_submission_status' => 'Viewed', 'fyp_marks' => null, 'fyp_feedback' => null, 'fyp_submitted_file' => null, 'fyp_submission_date' => null, 'fyp_submissionid' => $conn->insert_id];
 } elseif ($submission['fyp_submission_status'] == 'Not Turned In') {
-    $conn->query("UPDATE assignment_submission SET fyp_submission_status = 'Viewed' WHERE fyp_submissionid = '{$submission['fyp_submissionid']}'");
+    // If status is 'Not Turned In', update to 'Viewed'
+    $stmt = $conn->prepare("UPDATE assignment_submission SET fyp_submission_status = 'Viewed' WHERE fyp_submissionid = ?");
+    $stmt->bind_param("i", $submission['fyp_submissionid']);
+    $stmt->execute();
+    $stmt->close();
+    
     $submission['fyp_submission_status'] = 'Viewed';
 }
 
-// === 核心逻辑 B: 处理文件上传 (Submit / Resubmit) ===
+// === Core Logic B: Handle file upload (Submit/Resubmit) ===
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['submit_assignment'])) {
-    
     if (isset($_FILES['file_upload']) && $_FILES['file_upload']['error'] == 0) {
-        $upload_dir = "uploads/assignments/";
-        if (!is_dir($upload_dir)) mkdir($upload_dir, 0777, true);
         
-        $file_name = time() . "_" . basename($_FILES['file_upload']['name']);
-        $target_file = $upload_dir . $file_name;
-        
-        if (move_uploaded_file($_FILES['file_upload']['tmp_name'], $target_file)) {
-            $date_now = date('Y-m-d H:i:s');
-            
-            $new_status = 'Turned In';
-            
-            // 1. 检查是否迟交
-            if ($date_now > $assignment['fyp_deadline']) {
-                $new_status = 'Late Turned In';
-            }
-            
-            // 2. 检查是否是 Revision 后的重新提交
-            if ($submission['fyp_submission_status'] == 'Need Revision') {
-                $new_status = 'Resubmitted';
-            }
-
-            $sql_upd = "UPDATE assignment_submission 
-                        SET fyp_submitted_file = ?, fyp_submission_status = ?, fyp_submission_date = ? 
-                        WHERE fyp_assignmentid = ? AND fyp_studid = ?";
-            if ($stmt = $conn->prepare($sql_upd)) {
-                $stmt->bind_param("sssis", $target_file, $new_status, $date_now, $assign_id, $current_stud_id);
-                $stmt->execute();
-                $stmt->close();
-                
-                echo "<script>alert('Assignment submitted successfully!'); window.location.href='student_assignment_details.php?id=$assign_id&auth_user_id=" . urlencode($auth_user_id) . "';</script>";
-            }
+        // Security Check 1: File size validation (20MB max)
+        $maxFileSize = 20 * 1024 * 1024; // 20MB in bytes
+        if ($_FILES['file_upload']['size'] > $maxFileSize) {
+            $fileSizeMB = round($_FILES['file_upload']['size'] / 1024 / 1024, 2);
+            echo "<script>
+                document.addEventListener('DOMContentLoaded', function() {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'File Too Large!',
+                        text: 'Maximum file size is 20MB. Your file is {$fileSizeMB}MB',
+                        confirmButtonColor: '#d93025',
+                        draggable: true
+                    });
+                });
+            </script>";
         } else {
-            echo "<script>alert('File upload failed.');</script>";
+            
+            // Security Check 2: Validate file type
+            $allowedExtensions = ['pdf', 'doc', 'docx', 'zip', 'rar'];
+            $allowedMimeTypes = [
+                'application/pdf',
+                'application/msword',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'application/zip',
+                'application/x-zip-compressed',
+                'application/x-rar-compressed',
+                'application/octet-stream'
+            ];
+            
+            $fileExtension = strtolower(pathinfo($_FILES['file_upload']['name'], PATHINFO_EXTENSION));
+            $fileMimeType = mime_content_type($_FILES['file_upload']['tmp_name']);
+            
+            if (!in_array($fileExtension, $allowedExtensions)) {
+                echo "<script>
+                    document.addEventListener('DOMContentLoaded', function() {
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'Invalid File Type!',
+                            text: 'Only PDF, DOC, DOCX, ZIP, and RAR files are allowed.',
+                            footer: '<small>File extension detected: <strong>" . strtoupper($fileExtension) . "</strong></small>',
+                            confirmButtonColor: '#d93025',
+                            draggable: true
+                        });
+                    });
+                </script>";
+            } elseif (!in_array($fileMimeType, $allowedMimeTypes)) {
+                echo "<script>
+                    document.addEventListener('DOMContentLoaded', function() {
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'Security Warning!',
+                            text: 'File validation failed. The file may be corrupted or malicious.',
+                            footer: '<small>Please ensure your file is a genuine document.</small>',
+                            confirmButtonColor: '#d93025',
+                            draggable: true
+                        });
+                    });
+                </script>";
+            } else {
+                
+                // Security Check 3: Sanitize filename
+                $originalName = basename($_FILES['file_upload']['name']);
+                $safeName = preg_replace('/[^a-zA-Z0-9_.-]/', '_', $originalName);
+                $uniqueName = time() . "_" . uniqid() . "_" . $safeName;
+                
+                $upload_dir = "uploads/assignments/";
+                if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
+                
+                $target_file = $upload_dir . $uniqueName;
+                
+                // Security Check 4: Additional file content validation
+                $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                $detectedMime = finfo_file($finfo, $_FILES['file_upload']['tmp_name']);
+                finfo_close($finfo);
+                
+                if (!in_array($detectedMime, $allowedMimeTypes)) {
+                    echo "<script>
+                        document.addEventListener('DOMContentLoaded', function() {
+                            Swal.fire({
+                                icon: 'error',
+                                title: 'Security Alert!',
+                                text: 'File content does not match its extension. Upload blocked for security.',
+                                footer: '<a href=\"#\" onclick=\"alert(\'Files must be genuine documents. Renamed executables or suspicious files are not allowed.\'); return false;\">Why is this blocked?</a>',
+                                confirmButtonColor: '#d93025',
+                                draggable: true
+                            });
+                        });
+                    </script>";
+                } elseif (move_uploaded_file($_FILES['file_upload']['tmp_name'], $target_file)) {
+                    
+                    // Set proper file permissions
+                    chmod($target_file, 0644);
+                    
+                    $date_now = date('Y-m-d H:i:s');
+                    $new_status = 'Turned In';
+                    
+                    if ($date_now > $assignment['fyp_deadline']) {
+                        $new_status = 'Late Turned In';
+                    }
+                    
+                    if ($submission['fyp_submission_status'] == 'Need Revision') {
+                        $new_status = 'Resubmitted';
+                    }
+
+                    $sql_upd = "UPDATE assignment_submission 
+                                SET fyp_submitted_file = ?, fyp_submission_status = ?, fyp_submission_date = ? 
+                                WHERE fyp_assignmentid = ? AND fyp_studid = ?";
+                    if ($stmt = $conn->prepare($sql_upd)) {
+                        $stmt->bind_param("sssis", $target_file, $new_status, $date_now, $assign_id, $current_stud_id);
+                        $stmt->execute();
+                        $stmt->close();
+                        
+                        echo "<script>
+                            document.addEventListener('DOMContentLoaded', function() {
+                                Swal.fire({
+                                    icon: 'success',
+                                    title: 'Success!',
+                                    text: 'Assignment submitted successfully!',
+                                    confirmButtonColor: '#28a745',
+                                    draggable: true
+                                }).then(() => {
+                                    window.location.href='student_assignment_details.php?id=$assign_id&auth_user_id=" . urlencode($auth_user_id) . "';
+                                });
+                            });
+                        </script>";
+                    }
+                } else {
+                    echo "<script>
+                        document.addEventListener('DOMContentLoaded', function() {
+                            Swal.fire({
+                                icon: 'error',
+                                title: 'Upload Failed!',
+                                text: 'Unable to upload file. Please check server permissions.',
+                                footer: '<a href=\"#\" onclick=\"alert(\'Server may have insufficient permissions. Contact administrator.\'); return false;\">Why did this fail?</a>',
+                                confirmButtonColor: '#d93025',
+                                draggable: true
+                            });
+                        });
+                    </script>";
+                }
+            }
         }
     } else {
-        echo "<script>alert('Please select a file.');</script>";
+        $errorMessage = 'Please select a file to upload.';
+        if (isset($_FILES['file_upload']['error'])) {
+            switch ($_FILES['file_upload']['error']) {
+                case UPLOAD_ERR_INI_SIZE:
+                case UPLOAD_ERR_FORM_SIZE:
+                    $errorMessage = 'File exceeds maximum size limit (20MB).';
+                    break;
+                case UPLOAD_ERR_PARTIAL:
+                    $errorMessage = 'File was only partially uploaded. Please try again.';
+                    break;
+                case UPLOAD_ERR_NO_FILE:
+                    $errorMessage = 'No file was selected for upload.';
+                    break;
+                default:
+                    $errorMessage = 'An error occurred during upload. Please try again.';
+            }
+        }
+        echo "<script>
+            document.addEventListener('DOMContentLoaded', function() {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'No File Selected',
+                    text: '$errorMessage',
+                    confirmButtonColor: '#ffc107',
+                    draggable: true
+                });
+            });
+        </script>";
     }
 }
 
-// === 核心逻辑 C: 处理撤销 (Undo) ===
+// === Core Logic C: Handle undo ===
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['undo_submission'])) {
     $current_status = $submission['fyp_submission_status'];
     
@@ -125,31 +271,34 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['undo_submission'])) {
             $stmt->bind_param("is", $assign_id, $current_stud_id);
             $stmt->execute();
             $stmt->close();
-             echo "<script>alert('Submission undone. You can now submit again.'); window.location.href='student_assignment_details.php?id=$assign_id&auth_user_id=" . urlencode($auth_user_id) . "';</script>";
+            echo "<script>
+                document.addEventListener('DOMContentLoaded', function() {
+                    Swal.fire({
+                        title: 'Undone!',
+                        text: 'Your submission has been withdrawn.',
+                        icon: 'success',
+                        confirmButtonColor: '#3085d6'
+                    }).then(() => {
+                        window.location.href='student_assignment_details.php?id=$assign_id&auth_user_id=" . urlencode($auth_user_id) . "';
+                    });
+                });
+            </script>";
         }
     } else {
-        echo "<script>alert('Cannot undo: Assignment has already been graded.');</script>";
+        echo "<script>
+            document.addEventListener('DOMContentLoaded', function() {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Cannot Undo',
+                    text: 'Assignment has already been graded and cannot be withdrawn.',
+                    footer: '<small>Graded assignments are finalized and cannot be changed.</small>',
+                    confirmButtonColor: '#d93025',
+                    draggable: true
+                });
+            });
+        </script>";
     }
 }
-
-// 菜单定义
-$current_page = 'assignments'; 
-$menu_items = [
-    'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Student_mainpage.php?page=dashboard'],
-    'profile' => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'std_profile.php'], 
-    'project_mgmt' => [
-        'name' => 'Final Year Project',
-        'icon' => 'fa-project-diagram',
-        'sub_items' => [
-            'group_setup' => ['name' => 'Project Registration', 'icon' => 'fa-users', 'link' => 'std_projectreg.php'], 
-            'team_invitations' => ['name' => 'Request & Team Status', 'icon' => 'fa-tasks', 'link' => 'std_request_status.php'], 
-            'proposals' => ['name' => 'Proposal Submission', 'icon' => 'fa-file-alt', 'link' => 'Student_mainpage.php?page=proposals'],
-            'doc_submission' => ['name' => 'Document Upload', 'icon' => 'fa-cloud-upload-alt', 'link' => 'Student_mainpage.php?page=doc_submission'],
-        ]
-    ],
-    'assignments' => ['name' => 'Assignments', 'icon' => 'fa-tasks', 'link' => 'student_assignment.php'],
-    'grades' => ['name' => 'My Grades', 'icon' => 'fa-star', 'link' => 'Student_mainpage.php?page=grades'],
-];
 ?>
 
 <!DOCTYPE html>
@@ -158,228 +307,794 @@ $menu_items = [
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Assignment Details</title>
-    <link rel="icon" type="image/png" href="<?php echo $user_avatar; ?>">
+    <link rel="icon" type="image/png" href="image/ladybug.png?v=<?php echo time(); ?>">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     
     <style>
-        /* 复用样式 */
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap');
-        :root { --primary-color: #0056b3; --primary-hover: #004494; --secondary-color: #f4f4f9; --text-color: #333; --border-color: #e0e0e0; --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); }
-        body { font-family: 'Poppins', sans-serif; margin: 0; background: linear-gradient(135deg, #eef2f7, #ffffff); color: var(--text-color); min-height: 100vh; display: flex; flex-direction: column; }
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap');
         
-        /* Topbar & Sidebar (Standard) */
-        .topbar { display: flex; justify-content: space-between; align-items: center; padding: 15px 40px; background-color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); z-index: 100; position: sticky; top: 0; }
-        .logo { font-size: 22px; font-weight: 600; color: var(--primary-color); display: flex; align-items: center; gap: 10px; }
-        .topbar-right { display: flex; align-items: center; gap: 20px; }
-        .user-name-display { font-weight: 600; font-size: 14px; display: block; }
-        .user-role-badge { font-size: 11px; background-color: #e3effd; color: var(--primary-color); padding: 2px 8px; border-radius: 12px; font-weight: 500; }
-        .user-avatar-circle { width: 40px; height: 40px; border-radius: 50%; overflow: hidden; border: 2px solid #e3effd; margin-left: 10px; }
-        .user-avatar-circle img { width: 100%; height: 100%; object-fit: cover; }
-        .logout-btn { color: #d93025; text-decoration: none; font-size: 14px; font-weight: 500; padding: 8px 15px; border-radius: 6px; transition: background 0.2s; }
-        .logout-btn:hover { background-color: #fff0f0; }
-        .layout-container { display: flex; flex: 1; max-width: 1400px; margin: 0 auto; width: 100%; padding: 20px; box-sizing: border-box; gap: 20px; }
-        .sidebar { width: 260px; background: #fff; border-radius: 12px; box-shadow: var(--card-shadow); padding: 20px 0; flex-shrink: 0; min-height: calc(100vh - 120px); }
-        .menu-list { list-style: none; padding: 0; margin: 0; }
-        .menu-item { margin-bottom: 5px; }
-        .menu-link { display: flex; align-items: center; padding: 12px 25px; text-decoration: none; color: #555; font-weight: 500; font-size: 15px; transition: all 0.3s; border-left: 4px solid transparent; }
-        .menu-link:hover { background-color: var(--secondary-color); color: var(--primary-color); }
-        .menu-link.active { background-color: #e3effd; color: var(--primary-color); border-left-color: var(--primary-color); }
-        .menu-icon { width: 24px; margin-right: 10px; text-align: center; }
-        .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: none; }
-        .menu-item.has-active-child .submenu, .menu-item:hover .submenu { display: block; }
-        .submenu .menu-link { padding-left: 58px; font-size: 14px; padding-top: 10px; padding-bottom: 10px; }
-        
-        .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; }
+        :root {
+            --primary-color: #0056b3;
+            --primary-hover: #004494;
+            --secondary-color: #f8f9fa;
+            --text-color: #333;
+            --sidebar-bg: #004085; 
+            --sidebar-hover: #003366;
+            --sidebar-text: #e0e0e0;
+            --card-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
 
-        /* Detail Page Styles */
-        .header-card { background: #fff; padding: 30px; border-radius: 12px; box-shadow: var(--card-shadow); border-left: 5px solid var(--primary-color); }
-        .ass-title { font-size: 24px; margin: 0 0 10px 0; color: var(--text-color); }
-        .ass-meta { display: flex; gap: 20px; font-size: 14px; color: #666; margin-bottom: 10px; }
-        .ass-badge { padding: 4px 10px; background: #f0f0f0; border-radius: 4px; font-weight: 600; font-size: 12px; text-transform: uppercase; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
-        .content-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
-        .desc-card { background: #fff; padding: 25px; border-radius: 12px; box-shadow: var(--card-shadow); }
-        .submission-card { background: #fff; padding: 25px; border-radius: 12px; box-shadow: var(--card-shadow); border-top: 4px solid #ddd; }
-        
-        .section-h { font-size: 16px; font-weight: 600; margin-bottom: 15px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 10px; }
-        .desc-text { color: #444; line-height: 1.6; white-space: pre-wrap; font-size: 15px; }
-        
-        /* Submission Status Colors */
-        .status-Viewed { border-top-color: #ccc; } /* Neutral color for hidden status context */
-        .status-TurnedIn { border-top-color: #28a745; }
-        .status-LateTurnedIn { border-top-color: #ffc107; }
-        .status-Resubmitted { border-top-color: #28a745; }
-        .status-Graded { border-top-color: #17a2b8; }
-        .status-NeedRevision { border-top-color: #fd7e14; }
+        body {
+            font-family: 'Poppins', sans-serif;
+            margin: 0;
+            background-color: #f4f6f9;
+            min-height: 100vh;
+            display: flex;
+            overflow-x: hidden;
+        }
 
-        .status-label { font-size: 14px; font-weight: 600; margin-bottom: 20px; display: block; }
-        .status-tag { padding: 5px 12px; border-radius: 20px; color: white; font-size: 12px; }
-        .tag-Viewed { background: #ccc; }
+        /* Sidebar */
+        .main-menu {
+            background: var(--sidebar-bg);
+            border-right: 1px solid rgba(255,255,255,0.1);
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            height: 100%;
+            left: 0;
+            width: 60px;
+            overflow: hidden;
+            transition: width .05s linear;
+            z-index: 1000;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+        }
+
+        .main-menu:hover, nav.main-menu.expanded {
+            width: 250px;
+            overflow: visible;
+        }
+
+        .main-menu > ul {
+            margin: 7px 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .main-menu li {
+            position: relative;
+            display: block;
+            width: 250px;
+        }
+
+        .main-menu li > a {
+            position: relative;
+            display: table;
+            border-collapse: collapse;
+            border-spacing: 0;
+            color: var(--sidebar-text);
+            font-size: 14px;
+            text-decoration: none;
+            transition: all .1s linear;
+            width: 100%;
+        }
+
+        .main-menu .nav-icon {
+            position: relative;
+            display: table-cell;
+            width: 60px;
+            height: 46px; 
+            text-align: center;
+            vertical-align: middle;
+            font-size: 18px;
+        }
+
+        .main-menu .nav-text {
+            position: relative;
+            display: table-cell;
+            vertical-align: middle;
+            width: 190px;
+            padding-left: 10px;
+            white-space: nowrap;
+        }
+
+        .main-menu li:hover > a, nav.main-menu li.active > a {
+            color: #fff;
+            background-color: var(--sidebar-hover);
+            border-left: 4px solid #fff; 
+        }
+
+        .main-menu > ul.logout {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            width: 100%;
+        }
+        
+        .main-content-wrapper {
+            margin-left: 60px;
+            flex: 1;
+            padding: 20px;
+            width: calc(100% - 60px);
+            transition: margin-left .05s linear;
+        }
+        
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: var(--card-shadow);
+        }
+        
+        .welcome-text h1 {
+            margin: 0;
+            font-size: 24px;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        
+        .welcome-text p {
+            margin: 5px 0 0;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .logo-img {
+            height: 40px;
+            width: auto;
+            background: white;
+            padding: 2px;
+            border-radius: 6px;
+        }
+        
+        .system-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--primary-color);
+            letter-spacing: 0.5px;
+        }
+
+        /* Back Button */
+        .back-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 20px;
+            background: white;
+            color: var(--primary-color);
+            text-decoration: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            box-shadow: var(--card-shadow);
+            transition: all 0.2s;
+            margin-bottom: 20px;
+            border: 2px solid var(--primary-color);
+        }
+
+        .back-btn:hover {
+            background: var(--primary-color);
+            color: white;
+            transform: translateX(-3px);
+        }
+
+        /* Assignment Header Card */
+        .header-card {
+            background: linear-gradient(135deg, #0056b3 0%, #004494 100%);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: var(--card-shadow);
+            color: white;
+            margin-bottom: 25px;
+        }
+
+        .ass-title {
+            font-size: 28px;
+            margin: 0 0 15px 0;
+            font-weight: 600;
+        }
+
+        .ass-meta {
+            display: flex;
+            gap: 20px;
+            font-size: 14px;
+            flex-wrap: wrap;
+        }
+
+        .ass-badge {
+            padding: 6px 14px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            backdrop-filter: blur(10px);
+        }
+
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Content Grid */
+        .content-grid {
+            display: grid;
+            grid-template-columns: 1.5fr 1fr;
+            gap: 20px;
+        }
+
+        .desc-card, .submission-card {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: var(--card-shadow);
+        }
+
+        .section-h {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #333;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .desc-text {
+            color: #555;
+            line-height: 1.8;
+            white-space: pre-wrap;
+            font-size: 15px;
+        }
+
+        /* Status Colors */
+        .status-Viewed { border-top: 4px solid #ffc107; }
+        .status-TurnedIn { border-top: 4px solid #28a745; }
+        .status-LateTurnedIn { border-top: 4px solid #ff9800; }
+        .status-Resubmitted { border-top: 4px solid #28a745; }
+        .status-Graded { border-top: 4px solid #17a2b8; }
+        .status-NeedRevision { border-top: 4px solid #fd7e14; }
+
+        .status-label {
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 20px;
+            display: block;
+            color: #666;
+        }
+
+        .status-tag {
+            padding: 8px 16px;
+            border-radius: 20px;
+            color: white;
+            font-size: 13px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .tag-Viewed { background: #ffc107; color: #333; }
         .tag-TurnedIn { background: #28a745; }
-        .tag-LateTurnedIn { background: #ffc107; color: #333; }
+        .tag-LateTurnedIn { background: #ff9800; color: white; }
         .tag-Resubmitted { background: #28a745; }
         .tag-Graded { background: #17a2b8; }
         .tag-NeedRevision { background: #fd7e14; }
 
-        .upload-area { border: 2px dashed #ccc; padding: 20px; text-align: center; border-radius: 8px; background: #f9f9f9; margin-bottom: 15px; transition: 0.2s; }
-        .upload-area:hover { border-color: var(--primary-color); background: #eef2f7; }
-        .file-input { width: 100%; margin-bottom: 10px; }
-        
-        .btn-submit { width: 100%; padding: 10px; background: var(--primary-color); color: white; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; transition: 0.2s; }
-        .btn-submit:hover { background: #004494; }
-        .btn-undo { width: 100%; padding: 10px; background: #f8f9fa; color: #d93025; border: 1px solid #d93025; border-radius: 6px; font-weight: 600; cursor: pointer; transition: 0.2s; margin-top: 10px; }
-        .btn-undo:hover { background: #fff5f5; }
+        /* Custom File Upload */
+        .upload-area {
+            border: 3px dashed #d0d0d0;
+            padding: 40px 20px;
+            text-align: center;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+            margin-bottom: 20px;
+            transition: all 0.3s;
+            cursor: pointer;
+            position: relative;
+        }
 
-        .submitted-file { background: #e3effd; padding: 10px; border-radius: 6px; display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--primary-color); text-decoration: none; margin-bottom: 15px; }
-        .submitted-file:hover { background: #d0e4ff; }
+        .upload-area:hover {
+            border-color: var(--primary-color);
+            background: linear-gradient(135deg, #e3effd 0%, #f8f9fa 100%);
+            transform: translateY(-2px);
+        }
 
-        .feedback-box { background: #fff3cd; border: 1px solid #ffeeba; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; color: #856404; }
-        .marks-box { font-size: 24px; font-weight: 700; color: #28a745; margin-bottom: 10px; text-align: center; }
+        .upload-area i {
+            font-size: 48px;
+            color: var(--primary-color);
+            margin-bottom: 15px;
+            display: block;
+        }
 
-        @media (max-width: 900px) { .layout-container { flex-direction: column; } .sidebar { width: 100%; min-height: auto; } .content-grid { grid-template-columns: 1fr; } }
+        .file-input-wrapper {
+            position: relative;
+            margin-bottom: 15px;
+        }
+
+        .file-input {
+            position: absolute;
+            opacity: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+
+        .file-input-label {
+            display: inline-block;
+            padding: 12px 30px;
+            background: var(--primary-color);
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+            font-size: 14px;
+        }
+
+        .file-input-label:hover {
+            background: var(--primary-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 86, 179, 0.3);
+        }
+
+        .file-name-display {
+            margin-top: 15px;
+            font-size: 13px;
+            color: #666;
+            font-weight: 500;
+        }
+
+        .btn-submit {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-submit:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(40, 167, 69, 0.3);
+        }
+
+        .btn-undo {
+            width: 100%;
+            padding: 12px;
+            background: white;
+            color: #dc3545;
+            border: 2px solid #dc3545;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-undo:hover {
+            background: #dc3545;
+            color: white;
+            transform: translateY(-2px);
+        }
+
+        .submitted-file {
+            background: linear-gradient(135deg, #e3effd 0%, #d0e4ff 100%);
+            padding: 15px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 14px;
+            color: var(--primary-color);
+            text-decoration: none;
+            margin-bottom: 15px;
+            border: 2px solid #b8d4ff;
+            transition: all 0.3s;
+        }
+
+        .submitted-file:hover {
+            background: linear-gradient(135deg, #d0e4ff 0%, #b8d4ff 100%);
+            transform: translateX(5px);
+        }
+
+        .submitted-file i {
+            font-size: 24px;
+        }
+
+        .feedback-box {
+            background: linear-gradient(135deg, #fff3cd 0%, #ffe69c 100%);
+            border: 2px solid #ffc107;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #856404;
+            line-height: 1.6;
+        }
+
+        .feedback-box strong {
+            display: block;
+            margin-bottom: 10px;
+            font-size: 15px;
+        }
+
+        .marks-box {
+            font-size: 48px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        @media (max-width: 900px) {
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .page-header {
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
+            }
+        }
     </style>
 </head>
 <body>
-    <header class="topbar">
-        <div class="logo">FYP System</div>
-        <div class="topbar-right">
-            <span class="user-name-display"><?php echo htmlspecialchars($user_name); ?></span>
-            <div class="user-avatar-circle"><img src="<?php echo $user_avatar; ?>" alt="User Avatar"></div>
-            <a href="login.php" class="logout-btn"><i class="fa fa-sign-out-alt"></i> Logout</a>
+
+    <!-- Sidebar Navigation -->
+    <nav class="main-menu">
+        <ul>
+            <li>
+                <a href="Student_mainpage.php?page=dashboard&auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-home nav-icon"></i>
+                    <span class="nav-text">Dashboard</span>
+                </a>
+            </li>
+            <li>
+                <a href="std_profile.php?auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-user nav-icon"></i>
+                    <span class="nav-text">My Profile</span>
+                </a>
+            </li>
+            <li>
+                <a href="std_projectreg.php?auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-users nav-icon"></i>
+                    <span class="nav-text">Project Registration</span>
+                </a>
+            </li>
+            <li>
+                <a href="std_request_status.php?auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-tasks nav-icon"></i>
+                    <span class="nav-text">Request Status</span>
+                </a>
+            </li>
+            <li class="active">
+                <a href="student_assignment.php?auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-file-text nav-icon"></i>
+                    <span class="nav-text">Assignments</span>
+                </a>
+            </li>
+            <li>
+                <a href="Student_mainpage.php?page=doc_submission&auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-cloud-upload nav-icon"></i>
+                    <span class="nav-text">Document Upload</span>
+                </a>
+            </li>
+            <li>
+                <a href="student_appointment_meeting.php?auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-calendar nav-icon"></i>
+                    <span class="nav-text">Book Appointment</span>
+                </a>
+            </li>
+            <li>
+                <a href="Student_mainpage.php?page=presentation&auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-desktop nav-icon"></i>
+                    <span class="nav-text">Presentation</span>
+                </a>
+            </li>
+            <li>
+                <a href="Student_mainpage.php?page=grades&auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-star nav-icon"></i>
+                    <span class="nav-text">My Grades</span>
+                </a>
+            </li>
+        </ul>
+
+        <ul class="logout">
+            <li>
+                <a href="login.php">
+                    <i class="fa fa-power-off nav-icon"></i>
+                    <span class="nav-text">Logout</span>
+                </a>
+            </li>  
+        </ul>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="main-content-wrapper">
+        
+        <!-- Page Header -->
+        <div class="page-header">
+            <div class="welcome-text">
+                <h1>Assignment Details</h1>
+                <p>Welcome back, <?php echo htmlspecialchars($user_name); ?></p>
+            </div>
+            
+            <div class="logo-section">
+                <img src="image/ladybug.png?v=<?php echo time(); ?>" alt="Logo" class="logo-img">
+                <span class="system-title">FYP Portal</span>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:10px;">
+                <span style="font-size:13px; color:#666; background:#f0f0f0; padding:5px 10px; border-radius:20px;">Student</span>
+                <?php if(!empty($user_avatar) && $user_avatar != 'image/user.png'): ?>
+                    <img src="<?php echo htmlspecialchars($user_avatar); ?>" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">
+                <?php else: ?>
+                    <div style="width:40px;height:40px;border-radius:50%;background:#0056b3;color:white;display:flex;align-items:center;justify-content:center;font-weight:bold;">
+                        <?php echo strtoupper(substr($user_name, 0, 1)); ?>
+                    </div>
+                <?php endif; ?>
+            </div>
         </div>
-    </header>
 
-    <div class="layout-container">
-        <aside class="sidebar">
-            <ul class="menu-list">
-                <?php foreach ($menu_items as $key => $item): ?>
-                    <?php 
-                        $isActive = ($key == $current_page);
-                        $linkUrl = isset($item['link']) ? $item['link'] : "#";
-                        if (strpos($linkUrl, '.php') !== false) {
-                             $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?';
-                             $linkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
-                        }
-                    ?>
-                    <li class="menu-item <?php echo $hasActiveChild ? 'has-active-child' : ''; ?>">
-                        <a href="<?php echo $linkUrl; ?>" class="menu-link <?php echo $isActive ? 'active' : ''; ?>">
-                            <span class="menu-icon"><i class="fa <?php echo $item['icon']; ?>"></i></span>
-                            <?php echo $item['name']; ?>
-                        </a>
-                        <?php if (isset($item['sub_items'])): ?>
-                            <ul class="submenu">
-                                <?php foreach ($item['sub_items'] as $sub_key => $sub_item): 
-                                    $subLinkUrl = isset($sub_item['link']) ? $sub_item['link'] : "#";
-                                    if (strpos($subLinkUrl, '.php') !== false) {
-                                        $separator = (strpos($subLinkUrl, '?') !== false) ? '&' : '?';
-                                        $subLinkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
-                                    }
-                                ?>
-                                    <li><a href="<?php echo $subLinkUrl; ?>" class="menu-link <?php echo ($sub_key == $current_page) ? 'active' : ''; ?>">
-                                        <span class="menu-icon"><i class="fa <?php echo $sub_item['icon']; ?>"></i></span> <?php echo $sub_item['name']; ?>
-                                    </a></li>
-                                <?php endforeach; ?>
-                            </ul>
-                        <?php endif; ?>
-                    </li>
-                <?php endforeach; ?>
-            </ul>
-        </aside>
+        <!-- Back Button -->
+        <a href="student_assignment.php?auth_user_id=<?php echo $auth_user_id; ?>" class="back-btn">
+            <i class="fa fa-arrow-left"></i> Back to Assignments
+        </a>
 
-        <main class="main-content">
-            <div class="header-card">
-                <a href="student_assignment.php?auth_user_id=<?php echo $auth_user_id; ?>" style="color:#666; text-decoration:none; font-size:13px; margin-bottom:10px; display:inline-block;"><i class="fa fa-arrow-left"></i> Back to List</a>
-                <h1 class="ass-title"><?php echo htmlspecialchars($assignment['fyp_title']); ?></h1>
-                <div class="ass-meta">
-                    <span class="ass-badge"><?php echo $assignment['fyp_assignment_type']; ?></span>
-                    <span><i class="fa fa-calendar-alt"></i> Deadline: <?php echo date('M d, Y h:i A', strtotime($assignment['fyp_deadline'])); ?></span>
+        <!-- Assignment Header -->
+        <div class="header-card">
+            <h1 class="ass-title"><?php echo htmlspecialchars($assignment['fyp_title']); ?></h1>
+            <div class="ass-meta">
+                <span class="ass-badge"><?php echo htmlspecialchars($assignment['fyp_assignment_type']); ?></span>
+                <div class="meta-item">
+                    <i class="fa fa-calendar-alt"></i>
+                    <span>Due: <?php echo date('M d, Y h:i A', strtotime($assignment['fyp_deadline'])); ?></span>
                 </div>
             </div>
+        </div>
 
-            <div class="content-grid">
-                <div class="desc-card">
-                    <div class="section-h">Instructions</div>
-                    <div class="desc-text"><?php echo nl2br(htmlspecialchars($assignment['fyp_description'])); ?></div>
-                </div>
+        <!-- Content Grid -->
+        <div class="content-grid">
+            <!-- Left: Description -->
+            <div class="desc-card">
+                <div class="section-h"><i class="fa fa-info-circle"></i> Instructions</div>
+                <div class="desc-text"><?php echo nl2br(htmlspecialchars($assignment['fyp_description'])); ?></div>
+            </div>
 
-                <?php 
-                    $status = $submission['fyp_submission_status'];
-                    $statusClass = 'status-' . str_replace(' ', '', $status);
-                    $tagClass = 'tag-' . str_replace(' ', '', $status);
-                    
-                    // Logic: 
-                    // $canSubmit: when to show the upload form
-                    $canSubmit = ($status == 'Viewed' || $status == 'Not Turned In' || $status == 'Need Revision');
-                    
-                    // $isSubmitted: mostly used for the undo logic
-                    $isSubmitted = ($status == 'Turned In' || $status == 'Late Turned In' || $status == 'Resubmitted' || $status == 'Graded');
-                    
-                    $isGraded = ($status == 'Graded');
-                ?>
-                <div class="submission-card <?php echo $statusClass; ?>">
-                    <div class="section-h">Your Work</div>
-                    
-                    <?php if ($status != 'Viewed' && $status != 'Not Turned In'): ?>
-                        <span class="status-label">
-                            Status: <span class="status-tag <?php echo $tagClass; ?>"><?php echo $status; ?></span>
-                        </span>
-                    <?php endif; ?>
+            <!-- Right: Submission Box -->
+            <?php 
+                $status = $submission['fyp_submission_status'];
+                $statusClass = 'status-' . str_replace(' ', '', $status);
+                $tagClass = 'tag-' . str_replace(' ', '', $status);
+                
+                $canSubmit = ($status == 'Viewed' || $status == 'Not Turned In' || $status == 'Need Revision');
+                $isSubmitted = ($status == 'Turned In' || $status == 'Late Turned In' || $status == 'Resubmitted' || $status == 'Graded');
+                $isGraded = ($status == 'Graded');
+            ?>
+            <div class="submission-card <?php echo $statusClass; ?>">
+                <div class="section-h"><i class="fa fa-upload"></i> Your Work</div>
+                
+                <span class="status-label">
+                    Status: <span class="status-tag <?php echo $tagClass; ?>">
+                        <i class="fa fa-circle"></i>
+                        <?php echo $status; ?>
+                    </span>
+                </span>
 
-                    <?php if (!empty($submission['fyp_feedback'])): ?>
-                        <div class="feedback-box">
-                            <strong><i class="fa fa-comment-dots"></i> Feedback:</strong><br>
-                            <?php echo htmlspecialchars($submission['fyp_feedback']); ?>
+                <!-- Feedback Display -->
+                <?php if (!empty($submission['fyp_feedback'])): ?>
+                    <div class="feedback-box">
+                        <strong><i class="fa fa-comment-dots"></i> Teacher's Feedback:</strong>
+                        <?php echo nl2br(htmlspecialchars($submission['fyp_feedback'])); ?>
+                    </div>
+                <?php endif; ?>
+
+                <!-- Marks Display -->
+                <?php if ($isGraded && $submission['fyp_marks'] !== null): ?>
+                    <div class="marks-box">
+                        <?php echo $submission['fyp_marks']; ?> / 100
+                    </div>
+                    <div style="text-align:center; color:#666; font-size:14px; margin-bottom:20px;">Your Grade</div>
+                <?php endif; ?>
+
+                <!-- View Submitted File -->
+                <?php if ($isSubmitted && !empty($submission['fyp_submitted_file'])): ?>
+                    <a href="<?php echo $submission['fyp_submitted_file']; ?>" target="_blank" class="submitted-file">
+                        <i class="fa fa-file-pdf"></i>
+                        <div style="flex:1;">
+                            <div style="font-weight:600;"><?php echo basename($submission['fyp_submitted_file']); ?></div>
+                            <div style="font-size:11px; opacity:0.8;">Submitted on: <?php echo date('M d, Y h:i A', strtotime($submission['fyp_submission_date'])); ?></div>
                         </div>
-                    <?php endif; ?>
+                        <i class="fa fa-external-link-alt"></i>
+                    </a>
+                <?php endif; ?>
 
-                    <?php if ($isGraded && $submission['fyp_marks'] !== null): ?>
-                        <div class="marks-box">
-                            <?php echo $submission['fyp_marks']; ?> / 100
-                        </div>
-                    <?php endif; ?>
-
-                    <?php 
-                        // 【核心修改】: 这里增加了 OR $status == 'Need Revision'
-                        // 这样即使状态是 "Need Revision"，也能看到文件下载链接
-                        if (($isSubmitted || $status == 'Need Revision') && !empty($submission['fyp_submitted_file'])): 
-                    ?>
-                        <a href="<?php echo $submission['fyp_submitted_file']; ?>" target="_blank" class="submitted-file">
-                            <i class="fa fa-file-pdf fa-lg"></i> 
-                            <?php 
-                                echo basename($submission['fyp_submitted_file']); 
-                                if ($status == 'Need Revision') echo " (Previous File)"; 
-                            ?>
-                        </a>
-                        <div style="font-size:12px; color:#888; text-align:right; margin-bottom:15px;">
-                            Submitted on: <?php echo $submission['fyp_submission_date']; ?>
-                        </div>
-                    <?php endif; ?>
-
-                    <?php if ($canSubmit): ?>
-                        <form method="POST" enctype="multipart/form-data">
-                            <div class="upload-area">
-                                <i class="fa fa-cloud-upload-alt" style="font-size:32px; color:#ccc; margin-bottom:10px;"></i>
-                                <input type="file" name="file_upload" class="file-input" required>
-                                <div style="font-size:12px; color:#888;">Supported: PDF, DOCX, ZIP</div>
+                <!-- Submission Form -->
+                <?php if ($canSubmit): ?>
+                    <form method="POST" enctype="multipart/form-data" id="uploadForm">
+                        <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+                            <i class="fa fa-cloud-upload-alt"></i>
+                            <div class="file-input-wrapper">
+                                <input type="file" name="file_upload" id="fileInput" class="file-input" required onchange="displayFileName()">
+                                <label for="fileInput" class="file-input-label">
+                                    <i class="fa fa-folder-open"></i> Choose File
+                                </label>
                             </div>
-                            <button type="submit" name="submit_assignment" class="btn-submit">
-                                <?php echo ($status == 'Need Revision') ? 'Resubmit' : 'Turn In'; ?>
-                            </button>
-                        </form>
-                    <?php endif; ?>
+                            <div id="fileNameDisplay" class="file-name-display">No file selected</div>
+                            <div style="font-size:12px; color:#999; margin-top:10px;">
+                                <i class="fa fa-shield-alt"></i> Supported: PDF, DOC, DOCX, ZIP, RAR • Max: 20MB
+                            </div>
+                        </div>
+                        <button type="submit" name="submit_assignment" class="btn-submit">
+                            <i class="fa fa-paper-plane"></i>
+                            <?php echo ($status == 'Need Revision') ? 'Resubmit Assignment' : 'Turn In Assignment'; ?>
+                        </button>
+                    </form>
+                <?php endif; ?>
 
-                    <?php if ($isSubmitted && !$isGraded): ?>
-                        <form method="POST" onsubmit="return confirm('Are you sure you want to unsubmit?');">
-                            <button type="submit" name="undo_submission" class="btn-undo">
-                                <i class="fa fa-undo"></i> Undo Turn In
-                            </button>
-                        </form>
-                    <?php endif; ?>
-                    
-                </div>
+                <!-- Undo Button -->
+                <?php if ($isSubmitted && !$isGraded): ?>
+                    <form method="POST" onsubmit="return confirm('Are you sure you want to unsubmit this assignment?');">
+                        <button type="submit" name="undo_submission" class="btn-undo">
+                            <i class="fa fa-undo"></i> Undo Submission
+                        </button>
+                    </form>
+                <?php endif; ?>
+                
             </div>
+        </div>
 
-        </main>
     </div>
+
+    <script>
+        // Confirm undo submission with SweetAlert2 - NO BROWSER DIALOG!
+        function confirmUndo(event) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation();
+            }
+            
+            Swal.fire({
+                title: "Are you sure?",
+                text: "You won't be able to revert this!",
+                icon: "warning",
+                showCancelButton: true,
+                confirmButtonColor: "#3085d6",
+                cancelButtonColor: "#d33",
+                confirmButtonText: "Yes, delete it!"
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    Swal.fire({
+                        title: "Deleted!",
+                        text: "Your file has been deleted.",
+                        icon: "success"
+                    }).then(() => {
+                        // Submit the form after showing success
+                        const form = document.createElement('form');
+                        form.method = 'POST';
+                        form.action = '';
+                        form.innerHTML = '<input type="hidden" name="undo_submission" value="1">';
+                        document.body.appendChild(form);
+                        form.submit();
+                    });
+                }
+            });
+            
+            return false;
+        }
+        
+        // Override any window.confirm calls
+        window.confirm = function(msg) {
+            return true;
+        };
+        
+        function displayFileName() {
+            const input = document.getElementById('fileInput');
+            const display = document.getElementById('fileNameDisplay');
+            
+            if (input.files && input.files[0]) {
+                const file = input.files[0];
+                const fileName = file.name;
+                const fileSize = (file.size / 1024 / 1024).toFixed(2); // Convert to MB
+                const maxSize = 20; // 20MB
+                
+                if (file.size > maxSize * 1024 * 1024) {
+                    display.innerHTML = `<i class="fa fa-exclamation-triangle" style="color:#dc3545;"></i> File too large! (${fileSize} MB > ${maxSize} MB)`;
+                    display.style.color = '#dc3545';
+                    display.style.fontWeight = '600';
+                    
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'File Too Large!',
+                        text: `Your file is ${fileSize}MB. Maximum allowed size is ${maxSize}MB.`,
+                        confirmButtonColor: '#d93025',
+                        draggable: true
+                    });
+                    
+                    input.value = ''; // Clear the input
+                } else {
+                    display.innerHTML = `<i class="fa fa-check-circle" style="color:#28a745;"></i> ${fileName} (${fileSize} MB)`;
+                    display.style.color = '#28a745';
+                    display.style.fontWeight = '600';
+                }
+            } else {
+                display.innerHTML = '<i class="fa fa-info-circle"></i> No file selected';
+                display.style.color = '#666';
+                display.style.fontWeight = 'normal';
+            }
+        }
+
+        // Prevent form submission if no file selected or file too large
+        document.getElementById('uploadForm')?.addEventListener('submit', function(e) {
+            const fileInput = document.getElementById('fileInput');
+            
+            if (!fileInput.files || !fileInput.files[0]) {
+                e.preventDefault();
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'No File Selected',
+                    text: 'Please select a file to upload!',
+                    confirmButtonColor: '#ffc107',
+                    draggable: true
+                });
+                return false;
+            }
+            
+            const fileSize = fileInput.files[0].size / 1024 / 1024; // MB
+            if (fileSize > 20) {
+                e.preventDefault();
+                Swal.fire({
+                    icon: 'error',
+                    title: 'File Too Large!',
+                    text: `Your file is ${fileSize.toFixed(2)}MB. Maximum allowed size is 20MB.`,
+                    confirmButtonColor: '#d93025',
+                    draggable: true
+                });
+                return false;
+            }
+            
+            // Show loading
+            Swal.fire({
+                title: 'Uploading...',
+                text: 'Please wait while we upload your file',
+                allowOutsideClick: false,
+                allowEscapeKey: false,
+                didOpen: () => {
+                    Swal.showLoading();
+                }
+            });
+        });
+    </script>
 </body>
 </html>

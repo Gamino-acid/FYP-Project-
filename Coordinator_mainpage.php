@@ -135,10 +135,11 @@ $menu_items = [
         'icon' => 'fa-bullhorn', 
         'sub_items' => [
             'post_announcement' => ['name' => 'Post New', 'icon' => 'fa-pen', 'link' => 'Coordinator_announcement.php'], 
+            'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Coordinator_announcement_view.php'],
         ]
     ],
     'schedule' => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'Coordinator_meeting.php'], 
-    'data_io' => ['name' => 'Data Management', 'icon' => 'fa-database', 'link' => 'Coordinator_data_io.php'],
+    'allocation' => ['name' => 'Moderator & Schedule Management', 'icon' => 'fa-database', 'link' => 'Coordinator_allocation.php'],
     'reports' => ['name' => 'System Reports', 'icon' => 'fa-chart-bar', 'link' => 'Coordinator_history.php'],
 ];
 ?>

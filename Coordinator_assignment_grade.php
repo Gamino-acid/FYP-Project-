@@ -1,41 +1,41 @@
 <?php
 // ====================================================
-// Coordinator_assignment_grade.php - UI适配版
-// (功能同步: 包含小组继承逻辑、筛选、统计、Staff ID适配)
+// Coordinator_assignment_grade.php - 最终修复版
+// (修复: 增加 Coordinator 表的 ID 获取逻辑，解决列表为空问题)
 // ====================================================
 include("connect.php");
 
 // 1. 验证用户登录
 $auth_user_id = $_GET['auth_user_id'] ?? null;
-$current_page = 'grade_assignment'; // 对应 Coordinator 菜单的高亮 ID
+$current_page = 'grade_assignment'; 
 
 if (!$auth_user_id) { header("location: login.php"); exit; }
 
-// 2. 获取 Coordinator 信息
+// 2. 获取 Coordinator 信息 (核心修复部分)
 $user_name = "Coordinator"; 
 $user_avatar = "image/user.png"; 
-$sv_id = 0; // 这里代表 Coordinator 作为 Staff 的 ID
+$sv_id = ""; // 改为字符串，用于存储 Staff ID
 
 if (isset($conn)) {
-    // 获取用户名
+    // A. 获取用户名
     $sql_user = "SELECT fyp_username FROM `USER` WHERE fyp_userid = ?";
     if ($stmt = $conn->prepare($sql_user)) {
         $stmt->bind_param("i", $auth_user_id); $stmt->execute();
         $res = $stmt->get_result(); if ($row = $res->fetch_assoc()) $user_name = $row['fyp_username'];
         $stmt->close();
     }
-    // 获取 Supervisor/Coordinator 详情表信息
+
+    // B. 尝试从 SUPERVISOR 表获取 Staff ID
     $sql_sv = "SELECT * FROM supervisor WHERE fyp_userid = ?";
     if ($stmt = $conn->prepare($sql_sv)) {
         $stmt->bind_param("i", $auth_user_id); $stmt->execute();
         $res = $stmt->get_result();
         if ($res->num_rows > 0) {
             $row = $res->fetch_assoc();
-            
-            // 自动检测列名: 优先使用 fyp_staffid，兼容 fyp_supervisorid
-            if (isset($row['fyp_staffid'])) {
+            // 优先用 fyp_staffid
+            if (!empty($row['fyp_staffid'])) {
                 $sv_id = $row['fyp_staffid'];
-            } elseif (isset($row['fyp_supervisorid'])) {
+            } elseif (!empty($row['fyp_supervisorid'])) {
                 $sv_id = $row['fyp_supervisorid'];
             }
             
@@ -44,10 +44,31 @@ if (isset($conn)) {
         }
         $stmt->close();
     }
+
+    // C. 【关键修复】如果在 Supervisor 表没找到或者是空，尝试从 COORDINATOR 表获取
+    if (empty($sv_id)) {
+        $sql_coor = "SELECT * FROM coordinator WHERE fyp_userid = ?";
+        if ($stmt = $conn->prepare($sql_coor)) {
+            $stmt->bind_param("i", $auth_user_id); $stmt->execute();
+            $res = $stmt->get_result();
+            if ($res->num_rows > 0) {
+                $row = $res->fetch_assoc();
+                // 同样优先查找 staffid
+                if (!empty($row['fyp_staffid'])) {
+                    $sv_id = $row['fyp_staffid'];
+                } elseif (!empty($row['fyp_coordinatorid'])) {
+                    $sv_id = $row['fyp_coordinatorid'];
+                }
+                
+                if (!empty($row['fyp_name'])) $user_name = $row['fyp_name'];
+            }
+            $stmt->close();
+        }
+    }
 }
 
 // ====================================================
-// 3. 处理打分/退回提交 (POST) - 与 Supervisor 逻辑同步
+// 3. 处理打分/退回提交 (POST)
 // ====================================================
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $date_now = date('Y-m-d H:i:s');
@@ -94,7 +115,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 }
 
 // ====================================================
-// 4. 获取数据 (逻辑同步)
+// 4. 获取数据
 // ====================================================
 $view_assignment_id = $_GET['view_id'] ?? null;
 $assignments_list = [];
@@ -104,12 +125,12 @@ $current_assignment = null;
 $sort_by = $_GET['sort_by'] ?? 'DESC'; 
 $filter_type = $_GET['filter_type'] ?? 'All';
 
-if ($sv_id > 0) {
+// 确保 sv_id 不为空才执行查询
+if (!empty($sv_id)) {
     if (!$view_assignment_id) {
-        // --- VIEW A: List Assignments (Coordinator Dashboard Style) ---
+        // --- VIEW A: List Assignments ---
+        // 这里的查询使用 fyp_staffid 过滤
         
-        // 注意：这里假设 Coordinator 也是作为 Supervisor 给自己的学生布置作业
-        // 这里的 SQL 逻辑与 Supervisor_assignment_grade.php 保持一致，统计各种状态
         $sql_list = "SELECT a.*,
                             (SELECT COUNT(*) FROM fyp_registration r JOIN student s ON r.fyp_studid = s.fyp_studid 
                              WHERE r.fyp_staffid = a.fyp_staffid 
@@ -131,16 +152,24 @@ if ($sv_id > 0) {
                             (SELECT COUNT(*) FROM assignment_submission sub WHERE sub.fyp_assignmentid = a.fyp_assignmentid AND sub.fyp_submission_status = 'Need Revision') as revision_count
                             
                      FROM assignment a 
-                     WHERE a.fyp_staffid = '$sv_id'"; // 使用 staffid 过滤
+                     WHERE a.fyp_staffid = ?"; // 使用参数绑定
+
+        $types = "s";
+        $params = [$sv_id];
 
         if ($filter_type != 'All') {
-            $sql_list .= " AND a.fyp_assignment_type = '$filter_type'";
+            $sql_list .= " AND a.fyp_assignment_type = ?";
+            $types .= "s";
+            $params[] = $filter_type;
         }
         $sql_list .= " ORDER BY a.fyp_datecreated $sort_by";
 
-        $res = $conn->query($sql_list);
-        if($res) {
+        if ($stmt = $conn->prepare($sql_list)) {
+            $stmt->bind_param($types, ...$params);
+            $stmt->execute();
+            $res = $stmt->get_result();
             while ($row = $res->fetch_assoc()) {
+                // ... 统计逻辑 ...
                 $target_display_name = 'All Students'; 
                 $target_id = $row['fyp_target_id'];
                 $target_type = $row['fyp_assignment_type'];
@@ -161,7 +190,6 @@ if ($sv_id > 0) {
                 
                 $row['target_display_name'] = $target_display_name;
                 
-                // 计算统计数据
                 $total_count = $row['total_students'];
                 $submitted_count = $row['submitted_count'];
                 $graded_count = $row['graded_count'];
@@ -173,14 +201,21 @@ if ($sv_id > 0) {
                 $row['stats'] = ['not_submitted' => $not_submitted, 'submitted' => $submitted_count, 'graded' => $graded_count, 'revision' => $revision_count];
                 $assignments_list[] = $row;
             }
+            $stmt->close();
         }
 
     } else {
-        // --- VIEW B: Grade Students (Detail with Inheritance Logic) ---
+        // --- VIEW B: Grade Students (Detail) ---
         
-        $sql_detail = "SELECT * FROM assignment WHERE fyp_assignmentid = '$view_assignment_id' AND fyp_staffid = '$sv_id'";
-        $res_d = $conn->query($sql_detail);
-        $current_assignment = $res_d->fetch_assoc();
+        // 1. 获取当前作业详情
+        $sql_detail = "SELECT * FROM assignment WHERE fyp_assignmentid = ? AND fyp_staffid = ?";
+        if ($stmt = $conn->prepare($sql_detail)) {
+            $stmt->bind_param("is", $view_assignment_id, $sv_id);
+            $stmt->execute();
+            $res_d = $stmt->get_result();
+            $current_assignment = $res_d->fetch_assoc();
+            $stmt->close();
+        }
 
         if ($current_assignment) {
             $target_type = $current_assignment['fyp_assignment_type'];
@@ -191,10 +226,25 @@ if ($sv_id > 0) {
             
             $join_part = "LEFT JOIN assignment_submission g ON (s.fyp_studid = g.fyp_studid AND g.fyp_assignmentid = '$view_assignment_id')";
 
-            // 根据 Target 筛选学生，并确保是该 Coordinator 的学生 (通过 fyp_registration)
+            $sql_studs = "";
+            
             if ($target_id == 'ALL') {
-                $sql_studs = "SELECT $base_fields FROM fyp_registration r JOIN student s ON r.fyp_studid = s.fyp_studid $join_part WHERE r.fyp_staffid = '$sv_id'";
+                // 如果是 ALL，查询 Registration 表，匹配 Staff ID
+                $sql_studs = "SELECT $base_fields 
+                              FROM fyp_registration r 
+                              JOIN student s ON r.fyp_studid = s.fyp_studid 
+                              $join_part 
+                              WHERE r.fyp_staffid = '$sv_id'";
+                              
+                // 可选：如果 Assignment 类型是 Group，可以过滤掉 Individual 学生，反之亦然
+                if ($target_type == 'Individual') {
+                    $sql_studs .= " AND s.fyp_group = 'Individual'";
+                } elseif ($target_type == 'Group') {
+                    $sql_studs .= " AND s.fyp_group = 'Group'";
+                }
+                
             } else {
+                // 如果是 Specific Target，直接查 Student 表，不需要 Registration
                 if ($target_type == 'Individual') {
                     $sql_studs = "SELECT $base_fields FROM student s $join_part WHERE s.fyp_studid = '$target_id'";
                 } else {
@@ -206,12 +256,12 @@ if ($sv_id > 0) {
                 }
             }
             
-            if (isset($sql_studs)) {
+            if (!empty($sql_studs)) {
                 $res_s = $conn->query($sql_studs);
                 if($res_s) {
                     while ($row = $res_s->fetch_assoc()) {
                         
-                        // 获取小组名称用于显示
+                        // 获取小组名
                         $row['display_group_name'] = '';
                         $g_query = "SELECT group_name FROM student_group WHERE leader_id = '{$row['fyp_studid']}' UNION SELECT sg.group_name FROM group_request gr JOIN student_group sg ON gr.group_id = sg.group_id WHERE gr.invitee_id = '{$row['fyp_studid']}' AND gr.request_status = 'Accepted' LIMIT 1";
                         $g_result = $conn->query($g_query);
@@ -219,20 +269,17 @@ if ($sv_id > 0) {
                              $row['display_group_name'] = $g_data['group_name'];
                         }
 
-                        // --- 核心逻辑: 小组组员继承组长提交 ---
+                        // --- 继承逻辑 ---
                         $inherited = false;
                         if ($target_type == 'Group' && (empty($row['fyp_submission_status']) || $row['fyp_submission_status'] == 'Not Turned In' || $row['fyp_submission_status'] == 'Viewed')) {
                             $leader_id = null;
-                            // 检查自己是否是组长
                             $chk_l = $conn->query("SELECT leader_id FROM student_group WHERE leader_id = '{$row['fyp_studid']}'");
                             if ($chk_l->num_rows > 0) $leader_id = $row['fyp_studid']; 
                             else {
-                                // 查找自己的组长
                                 $chk_m = $conn->query("SELECT sg.leader_id FROM group_request gr JOIN student_group sg ON gr.group_id = sg.group_id WHERE gr.invitee_id = '{$row['fyp_studid']}' AND gr.request_status = 'Accepted' LIMIT 1");
                                 if ($lm = $chk_m->fetch_assoc()) $leader_id = $lm['leader_id'];
                             }
 
-                            // 如果找到了组长且组长不是自己，检查组长的提交
                             if ($leader_id && $leader_id != $row['fyp_studid']) {
                                 $l_sub = $conn->query("SELECT fyp_submission_status, fyp_submission_date, fyp_submitted_file FROM assignment_submission WHERE fyp_assignmentid = '$view_assignment_id' AND fyp_studid = '$leader_id'");
                                 if ($l_row = $l_sub->fetch_assoc()) {
@@ -246,7 +293,6 @@ if ($sv_id > 0) {
                             }
                         }
 
-                        // 状态展示处理
                         $raw_status = $row['fyp_submission_status'];
                         if (empty($raw_status)) $raw_status = 'Not Turned In';
                         
@@ -269,11 +315,22 @@ if ($sv_id > 0) {
 }
 
 // ====================================================
-// Coordinator 专属菜单定义 (保持 Coordinator 的结构)
+// Coordinator 专属菜单定义
 // ====================================================
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Coordinator_mainpage.php?page=dashboard'],
     'profile'   => ['name' => 'Profile', 'icon' => 'fa-user', 'link' => 'Coordinator_profile.php'], 
+    
+     'management' => [
+        'name' => 'User Management',
+        'icon' => 'fa-users-cog',
+        'sub_items' => [
+            'manage_students' => ['name' => 'Student List', 'icon' => 'fa-user-graduate', 'link' => 'Coordinator_manage_users.php?tab=student'],
+            'manage_supervisors' => ['name' => 'Supervisor List', 'icon' => 'fa-chalkboard-teacher', 'link' => 'Coordinator_manage_users.php?tab=supervisor'],
+            'manage_quota' => ['name' => 'Supervisor Quota', 'icon' => 'fa-chalkboard-teacher', 'link' => 'Coordinator_manage_quota.php'],
+        ]
+    ],
+    
     'project_mgmt' => [
         'name' => 'Project Mgmt', 
         'icon' => 'fa-tasks', 
@@ -295,11 +352,13 @@ $menu_items = [
         'name' => 'Announcements', 
         'icon' => 'fa-bullhorn', 
         'sub_items' => [
-            'post_announcement' => ['name' => 'Post New', 'icon' => 'fa-pen', 'link' => 'Coordinator_announcement.php']
+            'post_announcement' => ['name' => 'Post New', 'icon' => 'fa-pen', 'link' => 'Coordinator_announcement.php'], 
+            'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Coordinator_announcement_view.php'],
         ]
     ],
     'schedule' => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'Coordinator_meeting.php'], 
-    'data_io' => ['name' => 'Data Management', 'icon' => 'fa-database', 'link' => 'Coordinator_mainpage.php?page=data_io'],
+    'data_io' => ['name' => 'Data Management', 'icon' => 'fa-database', 'link' => 'Coordinator_data_io.php'],
+    'reports' => ['name' => 'System Reports', 'icon' => 'fa-chart-bar', 'link' => 'Coordinator_history.php'],
 ];
 ?>
 <!DOCTYPE html>
@@ -311,7 +370,7 @@ $menu_items = [
     <link rel="icon" type="image/png" href="<?php echo $user_avatar; ?>">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        /* 复用 Supervisor 的优质 UI 样式 */
+        /* CSS 样式 (保持原样) */
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap');
         :root { --primary-color: #0056b3; --primary-hover: #004494; --secondary-color: #f4f4f9; --text-color: #333; --border-color: #e0e0e0; --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); }
         body { font-family: 'Poppins', sans-serif; margin: 0; background: linear-gradient(135deg, #eef2f7, #ffffff); color: var(--text-color); min-height: 100vh; display: flex; flex-direction: column; }
@@ -332,8 +391,7 @@ $menu_items = [
         .menu-link:hover { background-color: var(--secondary-color); color: var(--primary-color); }
         .menu-link.active { background-color: #e3effd; color: var(--primary-color); border-left-color: var(--primary-color); }
         .menu-icon { width: 24px; margin-right: 10px; text-align: center; }
-        .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: none; }
-        .menu-item.has-active-child .submenu, .menu-item:hover .submenu { display: block; }
+        .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: block; }
         .submenu .menu-link { padding-left: 58px; font-size: 14px; padding-top: 10px; padding-bottom: 10px; }
         .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; }
 
@@ -341,14 +399,12 @@ $menu_items = [
         .card { background: #fff; padding: 25px; border-radius: 12px; box-shadow: var(--card-shadow); margin-bottom: 20px; }
         .card-header { font-size: 18px; font-weight: 600; color: #333; border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
         
-        /* Filter Bar */
         .filter-bar { display: flex; gap: 10px; align-items: center; background: #f8f9fa; padding: 10px 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #eee; }
         .filter-group { display: flex; align-items: center; gap: 8px; }
         .filter-label { font-size: 13px; font-weight: 600; color: #555; }
         .filter-select { padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; cursor: pointer; }
         .btn-apply { padding: 6px 15px; background: var(--primary-color); color: white; border: none; border-radius: 4px; font-size: 13px; cursor: pointer; }
 
-        /* Stats in List View */
         .ass-card { border: 1px solid #eee; border-radius: 8px; padding: 15px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; transition: all 0.2s; }
         .ass-card:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
         .ass-info { flex: 1; }
@@ -362,7 +418,6 @@ $menu_items = [
         .stat-pending { color: #856404; background: #fff3cd; }
         .stat-revision { color: #721c24; background: #f8d7da; }
 
-        /* Student Card */
         .student-card { background: #fff; border: 1px solid #eee; border-radius: 8px; padding: 20px; margin-bottom: 20px; display: flex; gap: 20px; flex-wrap: wrap; box-shadow: 0 2px 5px rgba(0,0,0,0.02); }
         .stud-info { width: 240px; border-right: 1px solid #eee; padding-right: 20px; }
         .stud-status-badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; text-transform: uppercase; margin-top: 5px; }
@@ -419,7 +474,6 @@ $menu_items = [
             <ul class="menu-list">
                 <?php foreach ($menu_items as $key => $item): ?>
                     <?php 
-                        // 判断是否激活当前菜单组
                         $isActive = ($key == 'assessment'); 
                         $linkUrl = isset($item['link']) ? $item['link'] : "#";
                         if (strpos($linkUrl, '.php') !== false) {
