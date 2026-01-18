@@ -1,25 +1,17 @@
 <?php
-// ====================================================
-// Coordinator_mainpage.php - Student-Style UI
-// ====================================================
-
 include("connect.php");
 
-// 1. Basic Verification
 $auth_user_id = $_GET['auth_user_id'] ?? null;
 $current_page = $_GET['page'] ?? 'dashboard';
 
-// Security Check
 if (!$auth_user_id) { header("location: login.php"); exit; }
 
-// 2. Data Query (Coordinator Info)
 $coor_data = [];
 $user_name = "Coordinator"; 
 $user_avatar = "image/user.png"; 
 $my_staff_id = ""; 
 
 if (isset($conn)) {
-    // Get USER table info
     $sql_user = "SELECT fyp_username FROM `USER` WHERE fyp_userid = ?";
     if ($stmt = $conn->prepare($sql_user)) {
         $stmt->bind_param("i", $auth_user_id); $stmt->execute();
@@ -27,7 +19,6 @@ if (isset($conn)) {
         $stmt->close();
     }
     
-    // Get COORDINATOR details
     $sql_coor = "SELECT * FROM coordinator WHERE fyp_userid = ?";
     if ($stmt = $conn->prepare($sql_coor)) {
         $stmt->bind_param("i", $auth_user_id); $stmt->execute();
@@ -43,7 +34,6 @@ if (isset($conn)) {
     }
 }
 
-// 3. DASHBOARD STATS LOGIC
 $stats = [
     'total_students' => 0,
     'pending_req' => 0,
@@ -52,7 +42,6 @@ $stats = [
 $active_projects_list = [];
 
 if (!empty($my_staff_id)) {
-    // A. Pending Requests (Personal)
     $p_sql = "SELECT COUNT(*) as cnt 
               FROM project_request pr
               JOIN project p ON pr.fyp_projectid = p.fyp_projectid
@@ -63,7 +52,6 @@ if (!empty($my_staff_id)) {
         $stats['pending_req'] = $p_row['cnt'];
     }
 
-    // B. Active Projects & Students (Personal Supervision)
     $act_sql = "SELECT r.fyp_projectid, 
                         p.fyp_projecttitle, 
                         p.fyp_projecttype, 
@@ -89,7 +77,6 @@ if (!empty($my_staff_id)) {
     }
 }
 
-// 4. Menu Definitions
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Coordinator_mainpage.php?page=dashboard'],
     'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'Coordinator_profile.php'], 
@@ -131,6 +118,7 @@ $menu_items = [
     ],
     'schedule' => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'Coordinator_meeting.php'], 
     'allocation' => ['name' => 'Moderator Allocation', 'icon' => 'fa-people-arrows', 'link' => 'Coordinator_allocation.php'],
+    'data_mgmt' => ['name' => 'Data Management', 'icon' => 'fa-database', 'link' => 'Coordinator_data_io.php'],
    
 ];
 ?>
@@ -149,12 +137,31 @@ $menu_items = [
         :root {
             --primary-color: #0056b3;
             --primary-hover: #004494;
-            --secondary-color: #f8f9fa;
+            --bg-color: #f4f6f9;
+            --card-bg: #ffffff;
             --text-color: #333;
+            --text-secondary: #666;
             --sidebar-bg: #004085; 
             --sidebar-hover: #003366;
             --sidebar-text: #e0e0e0;
             --card-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            --border-color: #e0e0e0;
+            --slot-bg: #f8f9fa;
+        }
+
+        .dark-mode {
+            --primary-color: #4da3ff;
+            --primary-hover: #0069d9;
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-color: #e0e0e0;
+            --text-secondary: #a0a0a0;
+            --sidebar-bg: #0d1117;
+            --sidebar-hover: #161b22;
+            --sidebar-text: #c9d1d9;
+            --card-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            --border-color: #333;
+            --slot-bg: #2d2d2d;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -162,14 +169,14 @@ $menu_items = [
         body {
             font-family: 'Poppins', sans-serif;
             margin: 0;
-            background-color: #f4f6f9;
+            background-color: var(--bg-color);
+            color: var(--text-color);
             min-height: 100vh;
             display: flex;
             overflow-x: hidden;
-            color: var(--text-color);
+            transition: background-color 0.3s, color 0.3s;
         }
 
-        /* Student-Style Sidebar */
         .main-menu {
             background: var(--sidebar-bg);
             border-right: 1px solid rgba(255,255,255,0.1);
@@ -179,7 +186,8 @@ $menu_items = [
             height: 100%;
             left: 0;
             width: 60px;
-            overflow: hidden;
+            overflow-y: auto;
+            overflow-x: hidden;
             transition: width .05s linear;
             z-index: 1000;
             box-shadow: 2px 0 5px rgba(0,0,0,0.1);
@@ -212,7 +220,6 @@ $menu_items = [
             text-decoration: none;
             transition: all .1s linear;
             width: 100%;
-            padding: 0; /* Reset */
         }
 
         .main-menu .nav-icon {
@@ -247,7 +254,6 @@ $menu_items = [
             width: 100%;
         }
 
-        /* Dropdown/Submenu Styling */
         .dropdown-arrow {
             position: absolute;
             right: 15px;
@@ -277,16 +283,15 @@ $menu_items = [
         }
 
         .submenu li > a {
-            padding-left: 0;
+            padding-left: 70px !important;
+            font-size: 13px;
             height: 40px;
         }
-        
-        .submenu .nav-text {
-            padding-left: 20px;
-            font-size: 13px;
-        }
 
-        /* Main Content */
+        .menu-item > a {
+            cursor: pointer;
+        }
+        
         .main-content-wrapper {
             margin-left: 60px;
             flex: 1;
@@ -295,16 +300,16 @@ $menu_items = [
             transition: margin-left .05s linear;
         }
         
-        /* Page Header */
         .page-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 25px;
-            background: white;
+            background: var(--card-bg);
             padding: 20px;
             border-radius: 12px;
             box-shadow: var(--card-shadow);
+            transition: background 0.3s;
         }
         
         .welcome-text h1 {
@@ -316,7 +321,7 @@ $menu_items = [
         
         .welcome-text p {
             margin: 5px 0 0;
-            color: #666;
+            color: var(--text-secondary);
             font-size: 14px;
         }
 
@@ -349,8 +354,8 @@ $menu_items = [
 
         .user-badge {
             font-size: 13px;
-            color: #666;
-            background: #f0f0f0;
+            color: var(--text-secondary);
+            background: var(--slot-bg);
             padding: 5px 10px;
             border-radius: 20px;
         }
@@ -374,133 +379,146 @@ $menu_items = [
             font-weight: bold;
         }
 
-        /* Stats Grid */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 40px;
+        .info-cards-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); 
+            gap: 20px; 
+            margin-bottom: 30px; 
+        }
+        
+        .info-card { 
+            background: var(--card-bg); 
+            padding: 25px; 
+            border-radius: 12px; 
+            box-shadow: var(--card-shadow); 
+            display: flex; 
+            flex-direction: column; 
+            transition: transform 0.2s, background 0.3s; 
+            border-left: 4px solid var(--primary-color); 
+        }
+        
+        .info-card:hover { 
+            transform: translateY(-3px); 
+        }
+        
+        .info-card h3 { 
+            margin: 0 0 15px 0; 
+            color: var(--primary-color); 
+            font-size: 16px; 
+            font-weight: 600; 
+            display: flex; 
+            align-items: center; 
+            gap: 10px; 
         }
 
-        .stat-card {
-            background: white;
-            padding: 25px;
-            border-radius: 12px;
-            box-shadow: var(--card-shadow);
-            display: flex;
-            flex-direction: column;
-            position: relative;
-            overflow: hidden;
-            transition: transform 0.2s;
-            border-left: 4px solid transparent;
+        .info-card p {
+            font-size: 15px;
+            color: var(--text-secondary);
+            margin: 0;
         }
 
-        .stat-card:hover {
-            transform: translateY(-5px);
+        .section-header { 
+            font-size: 18px; 
+            font-weight: 600; 
+            margin-bottom: 15px; 
+            color: var(--text-color); 
+            border-bottom: 2px solid var(--border-color); 
+            padding-bottom: 10px; 
         }
-
-        .stat-card h3 {
-            margin: 0 0 10px 0;
-            font-size: 14px;
-            color: #888;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+        
+        .empty-state { 
+            text-align: center; 
+            padding: 40px; 
+            color: var(--text-secondary); 
+            background: var(--card-bg); 
+            border-radius: 12px; 
+            box-shadow: var(--card-shadow); 
+            transition: background 0.3s;
         }
-
-        .stat-value {
-            font-size: 28px;
-            font-weight: 700;
-            color: #333;
-            margin-bottom: 5px;
+        
+        .data-table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            background: var(--card-bg); 
+            border-radius: 8px; 
+            overflow: hidden; 
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
+            transition: background 0.3s;
         }
-
-        .stat-icon {
-            position: absolute;
-            right: 20px;
-            top: 20px;
-            font-size: 40px;
-            opacity: 0.1;
+        
+        .data-table th { 
+            background: var(--slot-bg); 
+            text-align: left; 
+            padding: 12px 15px; 
+            color: var(--text-secondary); 
+            font-size: 13px; 
+            font-weight: 600; 
+            border-bottom: 2px solid var(--border-color); 
         }
-
-        /* Data Table */
-        .section-header {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 20px;
-            color: #333;
-            display: flex;
-            align-items: center;
-            gap: 10px;
+        
+        .data-table td { 
+            padding: 12px 15px; 
+            border-bottom: 1px solid var(--border-color); 
+            font-size: 14px; 
+            color: var(--text-color); 
         }
-
-        .data-table-wrapper {
-            background: white;
-            border-radius: 12px;
-            box-shadow: var(--card-shadow);
-            overflow: hidden;
+        
+        .data-table tr:last-child td { 
+            border-bottom: none; 
         }
-
-        .data-table {
-            width: 100%;
-            border-collapse: collapse;
+        
+        .type-badge { 
+            padding: 3px 8px; 
+            border-radius: 12px; 
+            font-size: 11px; 
+            font-weight: 600; 
+            text-transform: uppercase; 
         }
-
-        .data-table th {
-            background: #f8f9fa;
-            padding: 15px 20px;
-            text-align: left;
-            font-weight: 600;
-            color: #555;
-            font-size: 13px;
-            border-bottom: 1px solid #eee;
+        
+        .type-Group { 
+            background: #e3effd; 
+            color: #0056b3; 
         }
-
-        .data-table td {
-            padding: 15px 20px;
-            border-bottom: 1px solid #f0f0f0;
-            font-size: 14px;
-            color: #333;
+        
+        .type-Individual { 
+            background: #f3f3f3; 
+            color: #555; 
         }
-
-        .data-table tr:hover {
-            background: #fcfcfc;
+        
+        .theme-toggle {
+            cursor: pointer; padding: 8px; border-radius: 50%;
+            background: var(--slot-bg); border: 1px solid var(--border-color);
+            color: var(--text-color); display: flex; align-items: center;
+            justify-content: center; width: 35px; height: 35px; margin-right: 15px;
         }
+        .theme-toggle img { width: 20px; height: 20px; object-fit: contain; }
 
-        .badge {
-            padding: 5px 12px;
-            border-radius: 15px;
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-
-        .badge-Group { background: #e3effd; color: #0056b3; }
-        .badge-Individual { background: #f3f3f3; color: #555; }
-
-        .empty-state {
-            text-align: center;
-            padding: 50px;
-            color: #999;
-        }
-
-        @media (max-width: 900px) {
-            .main-content-wrapper {
-                margin-left: 0;
-                width: 100%;
+        @media (max-width: 900px) { 
+            .main-content-wrapper { 
+                margin-left: 0; 
+                width: 100%; 
+            }
+            .page-header {
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
             }
         }
     </style>
 </head>
 <body>
 
-    <!-- Sidebar -->
     <nav class="main-menu">
         <ul>
             <?php foreach ($menu_items as $key => $item): ?>
                 <?php 
                     $isActive = ($key == $current_page);
-                    $hasSubmenu = isset($item['sub_items']);
-                    $activeClass = $isActive ? 'active' : '';
+                    $hasActiveChild = false;
+                    if (isset($item['sub_items'])) {
+                        foreach ($item['sub_items'] as $sub_key => $sub) {
+                            if ($sub_key == $current_page) { $hasActiveChild = true; break; }
+                        }
+                    }
                     
                     $linkUrl = isset($item['link']) ? $item['link'] : "#";
                     if ($linkUrl !== "#" && strpos($linkUrl, '.php') !== false) {
@@ -508,15 +526,11 @@ $menu_items = [
                          $linkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
                     }
                     
-                    // Check if child active (simple logic)
-                    $childActive = false;
-                    if ($hasSubmenu) {
-                        // In a real app, check $_GET/$_SERVER against sub items
-                    }
+                    $hasSubmenu = isset($item['sub_items']);
                 ?>
-                <li class="menu-item <?php echo ($isActive || $childActive) ? 'open' : ''; ?>">
+                <li class="menu-item <?php echo $hasActiveChild ? 'open' : ''; ?>">
                     <a href="<?php echo $hasSubmenu ? 'javascript:void(0)' : $linkUrl; ?>" 
-                       class="<?php echo $activeClass; ?>"
+                       class="<?php echo $isActive ? 'active' : ''; ?>"
                        <?php if ($hasSubmenu): ?>onclick="toggleSubmenu(this)"<?php endif; ?>>
                         <i class="fa <?php echo $item['icon']; ?> nav-icon"></i>
                         <span class="nav-text"><?php echo $item['name']; ?></span>
@@ -528,14 +542,14 @@ $menu_items = [
                     <?php if ($hasSubmenu): ?>
                         <ul class="submenu">
                             <?php foreach ($item['sub_items'] as $sub_key => $sub_item): 
-                                $subLink = $sub_item['link'];
-                                if (strpos($subLink, '.php') !== false) {
-                                    $sep = (strpos($subLink, '?') !== false) ? '&' : '?';
-                                    $subLink .= $sep . "auth_user_id=" . urlencode($auth_user_id);
+                                $subLinkUrl = isset($sub_item['link']) ? $sub_item['link'] : "#";
+                                if ($subLinkUrl !== "#" && strpos($subLinkUrl, '.php') !== false) {
+                                    $separator = (strpos($subLinkUrl, '?') !== false) ? '&' : '?';
+                                    $subLinkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
                                 }
                             ?>
                                 <li>
-                                    <a href="<?php echo $subLink; ?>">
+                                    <a href="<?php echo $subLinkUrl; ?>" class="<?php echo ($sub_key == $current_page) ? 'active' : ''; ?>">
                                         <i class="fa <?php echo $sub_item['icon']; ?> nav-icon"></i>
                                         <span class="nav-text"><?php echo $sub_item['name']; ?></span>
                                     </a>
@@ -546,7 +560,7 @@ $menu_items = [
                 </li>
             <?php endforeach; ?>
         </ul>
-        
+
         <ul class="logout">
             <li>
                 <a href="login.php">
@@ -557,22 +571,24 @@ $menu_items = [
         </ul>
     </nav>
 
-    <!-- Main Content -->
     <div class="main-content-wrapper">
         <div class="page-header">
             <div class="welcome-text">
                 <h1>Dashboard</h1>
-                <p>Welcome, Coordinator <strong><?php echo htmlspecialchars($user_name); ?></strong>.</p>
+                <p>Welcome back, <?php echo htmlspecialchars($user_name); ?></p>
             </div>
             
             <div class="logo-section">
-                <img src="image/ladybug.png?v=<?php echo time(); ?>" alt="Logo" class="logo-img">
+                <img src="image/ladybug.png" alt="Logo" class="logo-img">
                 <span class="system-title">FYP Portal</span>
             </div>
 
             <div class="user-section">
+                <button class="theme-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">
+                    <img id="theme-icon" src="image/moon-solid-full.svg" alt="Toggle Theme">
+                </button>
                 <span class="user-badge">Coordinator</span>
-                <?php if(!empty($user_avatar) && $user_avatar !== 'image/user.png'): ?>
+                <?php if(!empty($user_avatar) && $user_avatar != 'image/user.png'): ?>
                     <img src="<?php echo htmlspecialchars($user_avatar); ?>" class="user-avatar" alt="Avatar">
                 <?php else: ?>
                     <div class="user-avatar-placeholder">
@@ -583,67 +599,63 @@ $menu_items = [
         </div>
 
         <?php if ($current_page == 'dashboard'): ?>
+            <div class="info-cards-grid">
+                <div class="info-card">
+                    <h3><i class="fa fa-users"></i> Total Students</h3>
+                    <p><?php echo $stats['total_students']; ?> Students</p>
+                </div>
+                
+                <div class="info-card" style="border-left-color: #d93025;">
+                    <h3 style="color: #d93025;"><i class="fa fa-clock-o"></i> Pending Requests</h3>
+                    <p><?php echo $stats['pending_req']; ?> Requests</p>
+                </div>
+                
+                <div class="info-card" style="border-left-color: #28a745;">
+                    <h3 style="color: #28a745;"><i class="fa fa-project-diagram"></i> Active Projects</h3>
+                    <p><?php echo $stats['active_projects']; ?> Projects</p>
+                </div>
+            </div>
+
+            <h3 class="section-header" style="margin-top: 20px;">Active Supervision</h3>
             
-            <div class="stats-grid">
-                <div class="stat-card" style="border-left-color: #0056b3;">
-                    <h3>My Students</h3>
-                    <div class="stat-value"><?php echo $stats['total_students']; ?></div>
-                    <i class="fa fa-users stat-icon" style="color: #0056b3;"></i>
-                </div>
-                <div class="stat-card" style="border-left-color: #ffc107;">
-                    <h3>Pending Requests</h3>
-                    <div class="stat-value"><?php echo $stats['pending_req']; ?></div>
-                    <i class="fa fa-envelope-open-text stat-icon" style="color: #ffc107;"></i>
-                </div>
-                <div class="stat-card" style="border-left-color: #28a745;">
-                    <h3>Active Projects</h3>
-                    <div class="stat-value"><?php echo $stats['active_projects']; ?></div>
-                    <i class="fa fa-project-diagram stat-icon" style="color: #28a745;"></i>
-                </div>
-            </div>
-
-            <div class="section-header">
-                <i class="fa fa-list-alt" style="color: var(--primary-color);"></i>
-                My Active Supervision
-            </div>
-
-            <div class="data-table-wrapper">
-                <?php if (count($active_projects_list) > 0): ?>
-                    <table class="data-table">
-                        <thead>
+            <?php if (count($active_projects_list) > 0): ?>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Project Title</th>
+                            <th>Type</th>
+                            <th>Academic Year</th> 
+                            <th>Students</th>
+                            <th>Size</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($active_projects_list as $proj): ?>
                             <tr>
-                                <th>Project Title</th>
-                                <th>Type</th>
-                                <th>Academic Session</th>
-                                <th>Students</th>
-                                <th>Size</th>
+                                <td><strong><?php echo htmlspecialchars($proj['fyp_projecttitle']); ?></strong></td>
+                                <td><span class="type-badge type-<?php echo $proj['fyp_projecttype']; ?>"><?php echo $proj['fyp_projecttype']; ?></span></td>
+                                
+                                <td>
+                                    <?php echo htmlspecialchars($proj['fyp_acdyear']); ?> 
+                                    <span style="font-size:12px; color:var(--text-secondary);">(<?php echo htmlspecialchars($proj['fyp_intake']); ?>)</span>
+                                </td>
+                                
+                                <td><?php echo htmlspecialchars($proj['student_names']); ?></td>
+                                <td><?php echo $proj['stud_count']; ?> Student(s)</td>
                             </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($active_projects_list as $proj): ?>
-                                <tr>
-                                    <td><strong><?php echo htmlspecialchars($proj['fyp_projecttitle']); ?></strong></td>
-                                    <td><span class="badge badge-<?php echo $proj['fyp_projecttype']; ?>"><?php echo $proj['fyp_projecttype']; ?></span></td>
-                                    <td>
-                                        <?php echo htmlspecialchars($proj['fyp_acdyear']); ?> 
-                                        <span style="color:#999; font-size:12px;">(<?php echo htmlspecialchars($proj['fyp_intake']); ?>)</span>
-                                    </td>
-                                    <td><?php echo htmlspecialchars($proj['student_names']); ?></td>
-                                    <td><?php echo $proj['stud_count']; ?> Student(s)</td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                <?php else: ?>
-                    <div class="empty-state">
-                        <i class="fa fa-folder-open" style="font-size: 48px; opacity:0.3; margin-bottom: 15px;"></i>
-                        <p>No active projects currently under your personal supervision.</p>
-                    </div>
-                <?php endif; ?>
-            </div>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php else: ?>
+                <div class="empty-state">
+                    <i class="fa fa-folder-open" style="font-size: 48px; opacity:0.3; margin-bottom: 10px;"></i>
+                    <p>No active projects currently under your personal supervision.</p>
+                </div>
+            <?php endif; ?>
         <?php else: ?>
-            <div class="empty-state" style="background: white; border-radius: 12px; box-shadow: var(--card-shadow);">
-                <p>Content for: <?php echo htmlspecialchars($current_page); ?></p>
+            <div class="empty-state">
+                <i class="fa fa-wrench" style="font-size: 48px; color: #ddd; margin-bottom: 20px;"></i>
+                <p><strong><?php echo ucfirst($current_page); ?></strong> module content appears here.</p>
             </div>
         <?php endif; ?>
 
@@ -651,8 +663,42 @@ $menu_items = [
 
     <script>
         function toggleSubmenu(element) {
-            const parent = element.parentElement;
-            parent.classList.toggle('open');
+            const menuItem = element.parentElement;
+            const isOpen = menuItem.classList.contains('open');
+            
+            document.querySelectorAll('.menu-item').forEach(item => {
+                if (item !== menuItem) {
+                    item.classList.remove('open');
+                }
+            });
+            
+            if (isOpen) {
+                menuItem.classList.remove('open');
+            } else {
+                menuItem.classList.add('open');
+            }
+        }
+
+        function toggleDarkMode() {
+            document.body.classList.toggle('dark-mode');
+            const isDark = document.body.classList.contains('dark-mode');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            
+            const iconImg = document.getElementById('theme-icon');
+            if (isDark) {
+                iconImg.src = 'image/sun-solid-full.svg'; 
+            } else {
+                iconImg.src = 'image/moon-solid-full.svg'; 
+            }
+        }
+
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'dark') {
+            document.body.classList.add('dark-mode');
+            const iconImg = document.getElementById('theme-icon');
+            if(iconImg) {
+                iconImg.src = 'image/sun-solid-full.svg'; 
+            }
         }
     </script>
 </body>

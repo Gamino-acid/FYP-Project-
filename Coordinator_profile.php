@@ -1,11 +1,6 @@
 <?php
-// ====================================================
-// Coordinator_profile.php - Student Style Design
-// ====================================================
-
 include("connect.php");
 
-// 1. Basic Verification
 $auth_user_id = $_GET['auth_user_id'] ?? null;
 $current_page = 'profile'; 
 
@@ -14,11 +9,6 @@ if (!$auth_user_id) {
     header("location: login.php"); exit; 
 }
 
-// ====================================================
-// 2. Logic (POST - AJAX Handles)
-// ====================================================
-
-// A. Update Profile Info
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_profile'])) {
     
     $contact = $_POST['contact'];
@@ -28,7 +18,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_profile'])) {
     
     $response = ['success' => false, 'message' => 'Unknown error'];
 
-    // Update Text Data
     $sql_update = "UPDATE coordinator SET 
                    fyp_contactno = ?, 
                    fyp_roomno = ?, 
@@ -46,13 +35,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_profile'])) {
         $stmt->close();
     }
 
-    // Update Image
     if (!empty($_FILES["profile_img"]["name"])) {
         $tmp_name = $_FILES["profile_img"]["tmp_name"];
         $check = getimagesize($tmp_name);
         
         if ($check !== false) {
-            if ($_FILES["profile_img"]["size"] > 5000000) { // 5MB limit
+            if ($_FILES["profile_img"]["size"] > 5000000) { 
                  $response['message'] .= ' (Image too large, skipped)';
             } else {
                 $image_content = file_get_contents($tmp_name);
@@ -76,7 +64,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_profile'])) {
     }
 }
 
-// B. Change Password
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['change_password'])) {
     $current_pwd = $_POST['current_password'];
     $new_pwd = $_POST['new_password'];
@@ -129,13 +116,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['change_password'])) {
     exit;
 }
 
-// 3. Get Data (GET)
 $coor_data = [];
 $user_name = 'Coordinator';
 $user_avatar = 'image/user.png';
 
 if (isset($conn)) {
-    // User Table
     $sql_user = "SELECT fyp_username FROM `USER` WHERE fyp_userid = ?";
     if ($stmt = $conn->prepare($sql_user)) { 
         $stmt->bind_param("i", $auth_user_id); 
@@ -145,7 +130,6 @@ if (isset($conn)) {
         $stmt->close(); 
     }
     
-    // Coordinator Table
     $sql_coor = "SELECT * FROM coordinator WHERE fyp_userid = ?";
     if ($stmt = $conn->prepare($sql_coor)) { 
         $stmt->bind_param("i", $auth_user_id); 
@@ -166,17 +150,48 @@ if (isset($conn)) {
     }
 }
 
-// 4. Menu Definitions
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Coordinator_mainpage.php?page=dashboard'],
     'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'Coordinator_profile.php'], 
-    'management' => ['name' => 'User Management', 'icon' => 'fa-users-cog', 'sub_items' => ['manage_students' => ['name' => 'Student List', 'icon' => 'fa-user-graduate', 'link' => 'Coordinator_manage_users.php?tab=student'], 'manage_supervisors' => ['name' => 'Supervisor List', 'icon' => 'fa-chalkboard-teacher', 'link' => 'Coordinator_manage_users.php?tab=supervisor'], 'manage_quota' => ['name' => 'Supervisor Quota', 'icon' => 'fa-chalkboard-teacher', 'link' => 'Coordinator_manage_quota.php']]],
-    'project_mgmt' => ['name' => 'Project Mgmt', 'icon' => 'fa-tasks', 'sub_items' => ['propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'Coordinator_purpose.php'], 'project_requests' => ['name' => 'Project Requests', 'icon' => 'fa-envelope-open-text', 'link' => 'Coordinator_projectreq.php'], 'project_list' => ['name' => 'All Projects & Groups', 'icon' => 'fa-list-alt', 'link' => 'Coordinator_manage_project.php']]],
-    'assessment' => ['name' => 'Assessment', 'icon' => 'fa-clipboard-check', 'sub_items' => ['propose_assignment' => ['name' => 'Create Assignment', 'icon' => 'fa-plus', 'link' => 'Coordinator_assignment_purpose.php'], 'grade_assignment' => ['name' => 'Grade Assignments', 'icon' => 'fa-check-square', 'link' => 'Coordinator_assignment_grade.php']]],
-    'announcements' => ['name' => 'Announcements', 'icon' => 'fa-bullhorn', 'sub_items' => ['post_announcement' => ['name' => 'Post New', 'icon' => 'fa-pen', 'link' => 'Coordinator_announcement.php'], 'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Coordinator_announcement_view.php']]],
+    
+     'management' => [
+        'name' => 'User Management',
+        'icon' => 'fa-users-cog',
+        'sub_items' => [
+            'manage_students' => ['name' => 'Student List', 'icon' => 'fa-user-graduate', 'link' => 'Coordinator_manage_users.php?tab=student'],
+            'manage_supervisors' => ['name' => 'Supervisor List', 'icon' => 'fa-chalkboard-teacher', 'link' => 'Coordinator_manage_users.php?tab=supervisor'],
+            'manage_quota' => ['name' => 'Supervisor Quota', 'icon' => 'fa-chalkboard-teacher', 'link' => 'Coordinator_manage_quota.php'],
+        ]
+    ],
+    
+    'project_mgmt' => [
+        'name' => 'Project Mgmt', 
+        'icon' => 'fa-tasks', 
+        'sub_items' => [
+            'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'Coordinator_purpose.php'],
+            'project_requests' => ['name' => 'Project Requests', 'icon' => 'fa-envelope-open-text', 'link' => 'Coordinator_projectreq.php'],
+            'project_list' => ['name' => 'All Projects & Groups', 'icon' => 'fa-list-alt', 'link' => 'Coordinator_manage_project.php'],
+        ]
+    ],
+    'assessment' => [
+        'name' => 'Assessment', 
+        'icon' => 'fa-clipboard-check', 
+        'sub_items' => [
+            'propose_assignment' => ['name' => 'Create Assignment', 'icon' => 'fa-plus', 'link' => 'Coordinator_assignment_purpose.php'],
+            'grade_assignment' => ['name' => 'Grade Assignments', 'icon' => 'fa-check-square', 'link' => 'Coordinator_assignment_grade.php'], 
+        ]
+    ],
+    'announcements' => [
+        'name' => 'Announcements', 
+        'icon' => 'fa-bullhorn', 
+        'sub_items' => [
+            'post_announcement' => ['name' => 'Post New', 'icon' => 'fa-pen', 'link' => 'Coordinator_announcement.php'], 
+            'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Coordinator_announcement_view.php'],
+        ]
+    ],
     'schedule' => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'Coordinator_meeting.php'], 
     'allocation' => ['name' => 'Moderator Allocation', 'icon' => 'fa-people-arrows', 'link' => 'Coordinator_allocation.php'],
-    'reports' => ['name' => 'System Reports', 'icon' => 'fa-chart-bar', 'link' => 'Coordinator_history.php'],
+    'data_mgmt' => ['name' => 'Data Management', 'icon' => 'fa-database', 'link' => 'Coordinator_data_io.php'],
 ];
 ?>
 
@@ -189,36 +204,52 @@ $menu_items = [
     <link rel="icon" type="image/png" href="image/ladybug.png?v=<?php echo time(); ?>">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap');
         
         :root {
             --primary-color: #0056b3;
             --primary-hover: #004494;
-            --secondary-color: #f8f9fa;
+            --bg-color: #f4f6f9;
+            --card-bg: #ffffff;
             --text-color: #333;
+            --text-secondary: #666;
             --sidebar-bg: #004085; 
             --sidebar-hover: #003366;
             --sidebar-text: #e0e0e0;
             --card-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            --border-color: #e0e0e0;
+            --slot-bg: #f8f9fa;
         }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        .dark-mode {
+            --primary-color: #4da3ff;
+            --primary-hover: #0069d9;
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-color: #e0e0e0;
+            --text-secondary: #a0a0a0;
+            --sidebar-bg: #0d1117;
+            --sidebar-hover: #161b22;
+            --sidebar-text: #c9d1d9;
+            --card-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            --border-color: #333;
+            --slot-bg: #2d2d2d;
         }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
             font-family: 'Poppins', sans-serif;
-            background-color: #f4f6f9;
+            margin: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
             min-height: 100vh;
             display: flex;
             overflow-x: hidden;
+            transition: background-color 0.3s, color 0.3s;
         }
 
-        /* Sidebar - Student Style */
         .main-menu {
             background: var(--sidebar-bg);
             border-right: 1px solid rgba(255,255,255,0.1);
@@ -228,7 +259,8 @@ $menu_items = [
             height: 100%;
             left: 0;
             width: 60px;
-            overflow: hidden;
+            overflow-y: auto;
+            overflow-x: hidden;
             transition: width .05s linear;
             z-index: 1000;
             box-shadow: 2px 0 5px rgba(0,0,0,0.1);
@@ -261,7 +293,6 @@ $menu_items = [
             text-decoration: none;
             transition: all .1s linear;
             width: 100%;
-            padding: 0;
         }
 
         .main-menu .nav-icon {
@@ -296,7 +327,6 @@ $menu_items = [
             width: 100%;
         }
 
-        /* Submenu Styling */
         .dropdown-arrow {
             position: absolute;
             right: 15px;
@@ -326,15 +356,15 @@ $menu_items = [
         }
 
         .submenu li > a {
-            padding-left: 0; 
-        }
-        
-        .submenu .nav-text {
-            padding-left: 20px;
+            padding-left: 70px !important;
             font-size: 13px;
+            height: 40px;
         }
 
-        /* Main Content */
+        .menu-item > a {
+            cursor: pointer;
+        }
+        
         .main-content-wrapper {
             margin-left: 60px;
             flex: 1;
@@ -343,16 +373,16 @@ $menu_items = [
             transition: margin-left .05s linear;
         }
         
-        /* Page Header */
         .page-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 25px;
-            background: white;
+            background: var(--card-bg);
             padding: 20px;
             border-radius: 12px;
             box-shadow: var(--card-shadow);
+            transition: background 0.3s;
         }
         
         .welcome-text h1 {
@@ -364,7 +394,7 @@ $menu_items = [
         
         .welcome-text p {
             margin: 5px 0 0;
-            color: #666;
+            color: var(--text-secondary);
             font-size: 14px;
         }
 
@@ -397,8 +427,8 @@ $menu_items = [
 
         .user-badge {
             font-size: 13px;
-            color: #666;
-            background: #f0f0f0;
+            color: var(--text-secondary);
+            background: var(--slot-bg);
             padding: 5px 10px;
             border-radius: 20px;
         }
@@ -422,14 +452,15 @@ $menu_items = [
             font-weight: bold;
         }
 
-        /* Profile Container */
         .profile-container {
             display: flex;
-            background: #fff;
+            background: var(--card-bg);
             padding: 30px;
             border-radius: 12px;
             box-shadow: var(--card-shadow);
             gap: 30px;
+            transition: background 0.3s;
+            margin-bottom: 20px;
         }
 
         .left-column {
@@ -437,7 +468,7 @@ $menu_items = [
             display: flex;
             flex-direction: column;
             align-items: center;
-            border-right: 1px solid #eee;
+            border-right: 1px solid var(--border-color);
             padding-right: 30px;
         }
 
@@ -452,7 +483,7 @@ $menu_items = [
             background-color: #e0e0e0;
             overflow: hidden;
             margin-bottom: 15px;
-            border: 4px solid #fff;
+            border: 4px solid var(--card-bg);
             box-shadow: 0 2px 8px rgba(0,0,0,0.15);
             display: flex;
             align-items: center;
@@ -468,7 +499,7 @@ $menu_items = [
         .profile-img-placeholder {
             width: 100%;
             height: 100%;
-            background: linear-gradient(135deg, #0056b3, #004494);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -479,7 +510,7 @@ $menu_items = [
         .student-id-display {
             font-size: 1.2em;
             font-weight: bold;
-            color: #333;
+            color: var(--text-color);
             margin-top: 10px;
             text-align: center;
         }
@@ -510,8 +541,16 @@ $menu_items = [
             transform: translateY(-2px);
         }
 
+        .upload-photo-btn:active {
+            transform: translateY(0);
+        }
+
+        .upload-photo-btn i {
+            font-size: 1.1em;
+        }
+
         .form-section-title {
-            color: #555;
+            color: var(--text-secondary);
             border-bottom: 2px solid var(--primary-color);
             padding-bottom: 5px;
             margin-bottom: 20px;
@@ -528,18 +567,20 @@ $menu_items = [
             display: block;
             margin-bottom: 5px;
             font-weight: 500;
-            color: #444;
+            color: var(--text-color);
             font-size: 0.9em;
         }
 
         .form-control {
             width: 100%;
             padding: 10px;
-            border: 1px solid #ccc;
+            border: 1px solid var(--border-color);
             border-radius: 6px;
             box-sizing: border-box;
             font-size: 0.95em;
             font-family: inherit;
+            background: var(--card-bg);
+            color: var(--text-color);
         }
 
         .form-control:focus {
@@ -548,10 +589,10 @@ $menu_items = [
         }
 
         input[readonly] {
-            background-color: #e9ecef;
+            background-color: var(--slot-bg);
             cursor: not-allowed;
-            color: #6c757d;
-            border-color: #ced4da;
+            color: var(--text-secondary);
+            border-color: var(--border-color);
         }
 
         textarea.form-control {
@@ -594,6 +635,11 @@ $menu_items = [
             background-color: var(--primary-hover);
         }
 
+        .save-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
         .btn-reset-pwd {
             padding: 12px 25px;
             background: linear-gradient(135deg, #ffc107, #ff9800);
@@ -614,7 +660,6 @@ $menu_items = [
             box-shadow: 0 4px 12px rgba(255,193,7,0.4);
         }
 
-        /* Modal */
         .modal-overlay {
             display: none;
             position: fixed;
@@ -636,7 +681,7 @@ $menu_items = [
         }
 
         .modal-box {
-            background: #fff;
+            background: var(--card-bg);
             width: 90%;
             max-width: 550px;
             padding: 35px;
@@ -656,19 +701,28 @@ $menu_items = [
             align-items: center;
             margin-bottom: 25px;
             padding-bottom: 15px;
-            border-bottom: 2px solid #f0f0f0;
+            border-bottom: 2px solid var(--border-color);
         }
 
         .modal-title {
             font-size: 22px;
             font-weight: 600;
-            color: #333;
+            color: var(--text-color);
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
 
         .close-modal {
             font-size: 28px;
             cursor: pointer;
-            color: #999;
+            color: var(--text-secondary);
+            transition: color 0.3s;
+            line-height: 1;
+        }
+
+        .close-modal:hover {
+            color: var(--text-color);
         }
 
         .pwd-req-list {
@@ -684,11 +738,13 @@ $menu_items = [
             display: flex;
             align-items: center;
             gap: 8px;
-            background: #f8f9fa;
+            background: var(--slot-bg);
             padding: 8px 12px;
             border-radius: 8px;
-            border: 2px solid #e9ecef;
+            border: 2px solid var(--border-color);
             font-size: 13px;
+            transition: all 0.3s;
+            color: var(--text-secondary);
         }
 
         .pwd-req-item.valid {
@@ -703,6 +759,10 @@ $menu_items = [
             border-color: #ffeeba;
         }
 
+        .pwd-req-item i {
+            font-size: 12px;
+        }
+
         .modal-footer {
             margin-top: 25px;
             display: flex;
@@ -712,12 +772,17 @@ $menu_items = [
 
         .btn-cancel {
             padding: 12px 25px;
-            background-color: #f1f1f1;
-            color: #555;
+            background-color: var(--slot-bg);
+            color: var(--text-secondary);
             border: none;
             border-radius: 8px;
             cursor: pointer;
             font-weight: 600;
+            transition: background 0.3s;
+        }
+
+        .btn-cancel:hover {
+            background-color: var(--border-color);
         }
 
         .toggle-password {
@@ -725,8 +790,21 @@ $menu_items = [
             right: 15px;
             top: 38px;
             cursor: pointer;
-            color: #999;
+            color: var(--text-secondary);
+            transition: color 0.3s;
         }
+
+        .toggle-password:hover {
+            color: var(--text-color);
+        }
+
+        .theme-toggle {
+            cursor: pointer; padding: 8px; border-radius: 50%;
+            background: var(--slot-bg); border: 1px solid var(--border-color);
+            color: var(--text-color); display: flex; align-items: center;
+            justify-content: center; width: 35px; height: 35px; margin-right: 15px;
+        }
+        .theme-toggle img { width: 20px; height: 20px; object-fit: contain; }
 
         @media (max-width: 900px) {
             .main-content-wrapper {
@@ -739,74 +817,56 @@ $menu_items = [
             .left-column {
                 width: 100%;
                 border-right: none;
-                border-bottom: 1px solid #eee;
+                border-bottom: 1px solid var(--border-color);
                 padding-bottom: 20px;
                 margin-bottom: 20px;
                 padding-right: 0;
+            }
+            .row-group {
+                flex-direction: column;
+            }
+            .page-header {
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
             }
         }
     </style>
 </head>
 <body>
-
-    <!-- Sidebar Navigation -->
     <nav class="main-menu">
         <ul>
             <?php foreach ($menu_items as $key => $item): ?>
                 <?php 
                     $isActive = ($key == $current_page);
-                    $hasSubmenu = isset($item['sub_items']);
-                    $activeClass = $isActive ? 'active' : '';
-                    
-                    $linkUrl = isset($item['link']) ? $item['link'] : "#";
-                    if ($linkUrl !== "#") {
-                         $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?';
-                         $linkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
+                    $hasActiveChild = false;
+                    if (isset($item['sub_items'])) {
+                        foreach ($item['sub_items'] as $sub_key => $sub) {
+                            if ($sub_key == $current_page) { $hasActiveChild = true; break; }
+                        }
                     }
-                    
+                    $linkUrl = isset($item['link']) ? $item['link'] : "#";
+                    if ($linkUrl !== "#") { $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?'; $linkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id); }
                     $hasSubmenu = isset($item['sub_items']);
                 ?>
                 <li class="menu-item <?php echo ($hasActiveChild || $isActive) ? 'open active' : ''; ?>">
-                    <a href="<?php echo $hasSubmenu ? 'javascript:void(0)' : $linkUrl; ?>" 
-                       class="<?php echo $isActive ? 'active' : ''; ?>"
-                       <?php if ($hasSubmenu): ?>onclick="toggleSubmenu(this)"<?php endif; ?>>
-                        <i class="fa <?php echo $item['icon']; ?> nav-icon"></i>
-                        <span class="nav-text"><?php echo $item['name']; ?></span>
-                        <?php if ($hasSubmenu): ?>
-                            <i class="fa fa-chevron-down dropdown-arrow"></i>
-                        <?php endif; ?>
+                    <a href="<?php echo $hasSubmenu ? 'javascript:void(0)' : $linkUrl; ?>" class="<?php echo $isActive ? 'active' : ''; ?>" <?php if ($hasSubmenu): ?>onclick="toggleSubmenu(this)"<?php endif; ?>>
+                        <i class="fa <?php echo $item['icon']; ?> nav-icon"></i><span class="nav-text"><?php echo $item['name']; ?></span><?php if ($hasSubmenu): ?><i class="fa fa-chevron-down dropdown-arrow"></i><?php endif; ?>
                     </a>
-                    
                     <?php if ($hasSubmenu): ?>
                         <ul class="submenu">
                             <?php foreach ($item['sub_items'] as $sub_key => $sub_item): 
                                 $subLinkUrl = isset($sub_item['link']) ? $sub_item['link'] : "#";
-                                if ($subLinkUrl !== "#") {
-                                    $separator = (strpos($subLinkUrl, '?') !== false) ? '&' : '?';
-                                    $subLinkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
-                                }
+                                if ($subLinkUrl !== "#") { $separator = (strpos($subLinkUrl, '?') !== false) ? '&' : '?'; $subLinkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id); }
                             ?>
-                                <li>
-                                    <a href="<?php echo $subLinkUrl; ?>" class="<?php echo ($sub_key == $current_page) ? 'active' : ''; ?>">
-                                        <i class="fa <?php echo $sub_item['icon']; ?> nav-icon"></i>
-                                        <span class="nav-text"><?php echo $sub_item['name']; ?></span>
-                                    </a>
-                                </li>
+                                <li><a href="<?php echo $subLinkUrl; ?>" class="<?php echo ($sub_key == $current_page) ? 'active' : ''; ?>"><i class="fa <?php echo $sub_item['icon']; ?> nav-icon"></i><span class="nav-text"><?php echo $sub_item['name']; ?></span></a></li>
                             <?php endforeach; ?>
                         </ul>
                     <?php endif; ?>
                 </li>
             <?php endforeach; ?>
         </ul>
-        
-        <ul class="logout">
-            <li>
-                <a href="login.php">
-                    <i class="fa fa-power-off nav-icon"></i>
-                    <span class="nav-text">Logout</span>
-                </a>
-            </li>  
-        </ul>
+        <ul class="logout"><li><a href="login.php"><i class="fa fa-power-off nav-icon"></i><span class="nav-text">Logout</span></a></li></ul>
     </nav>
 
     <div class="main-content-wrapper">
@@ -817,11 +877,14 @@ $menu_items = [
             </div>
             
             <div class="logo-section">
-                <img src="image/ladybug.png?v=<?php echo time(); ?>" alt="Logo" class="logo-img">
+                <img src="image/ladybug.png" alt="Logo" class="logo-img">
                 <span class="system-title">FYP Portal</span>
             </div>
 
             <div class="user-section">
+                <button class="theme-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">
+                    <img id="theme-icon" src="image/moon-solid-full.svg" alt="Toggle Theme">
+                </button>
                 <span class="user-badge">Coordinator</span>
                 <img src="<?php echo htmlspecialchars($user_avatar); ?>" class="user-avatar" id="headerAvatar" alt="User Avatar">
             </div>
@@ -844,7 +907,7 @@ $menu_items = [
                         <i class="fa fa-camera"></i> Change Photo
                     </button>
                     <div class="student-id-display"><?php echo htmlspecialchars($coor_data['fyp_staffid']); ?></div>
-                    <div style="font-size: 0.8em; color: #888; text-align: center;">(Staff ID)</div>
+                    <div style="font-size: 0.8em; color: var(--text-secondary); text-align: center;">(Staff ID)</div>
                 </div>
 
                 <div class="right-column">
@@ -892,7 +955,6 @@ $menu_items = [
         </form>
     </div>
 
-    <!-- Password Change Modal -->
     <div class="modal-overlay" id="pwdModal">
         <div class="modal-box">
             <div class="modal-header">
@@ -940,10 +1002,12 @@ $menu_items = [
 
     <script>
         function toggleSubmenu(element) {
-            element.parentElement.classList.toggle('open');
+            const menuItem = element.parentElement;
+            const isOpen = menuItem.classList.contains('open');
+            document.querySelectorAll('.menu-item').forEach(item => { if (item !== menuItem) item.classList.remove('open'); });
+            if (isOpen) menuItem.classList.remove('open'); else menuItem.classList.add('open');
         }
 
-        // Image Preview
         const profileImageInput = document.getElementById('profileImageInput');
         const profileImgBox = document.getElementById('profileImgBox');
 
@@ -969,11 +1033,9 @@ $menu_items = [
             }
         });
 
-        // Profile Form Submit
         document.getElementById('profileForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             const btn = document.getElementById('saveBtn');
-            const originalText = btn.innerHTML;
             btn.disabled = true;
             btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Saving...';
 
@@ -1006,11 +1068,10 @@ $menu_items = [
                 Swal.fire('Error', 'Network error', 'error');
             } finally {
                 btn.disabled = false;
-                btn.innerHTML = originalText;
+                btn.innerHTML = '<i class="fa fa-save"></i> Save Changes';
             }
         });
 
-        // Modal Logic
         const modal = document.getElementById('pwdModal');
         function openPwdModal() {
             modal.classList.add('show');
@@ -1024,7 +1085,6 @@ $menu_items = [
             if (e.target == modal) closeModal();
         }
 
-        // Password Validation
         function togglePwdVisibility(id, icon) {
             const input = document.getElementById(id);
             if (input.type === "password") {
@@ -1065,11 +1125,9 @@ $menu_items = [
             btn.disabled = !valid;
         }
 
-        // Password Form Submit
         document.getElementById('pwdForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             const btn = document.getElementById('pwdSubmitBtn');
-            const originalText = btn.innerHTML;
             btn.disabled = true;
             btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Updating...';
 
@@ -1083,18 +1141,41 @@ $menu_items = [
                 const data = await res.json();
                 
                 if (data.success) {
-                    closeModal();
                     Swal.fire('Success', data.message, 'success');
+                    closeModal();
                 } else {
                     Swal.fire('Error', data.message, 'error');
+                    btn.disabled = false;
+                    btn.innerHTML = 'Update Password';
                 }
             } catch (err) {
-                Swal.fire('Error', 'Network error', 'error');
-            } finally {
+                Swal.fire('Error', 'Error changing password', 'error');
                 btn.disabled = false;
-                btn.innerHTML = originalText;
+                btn.innerHTML = 'Update Password';
             }
         });
+
+        function toggleDarkMode() {
+            document.body.classList.toggle('dark-mode');
+            const isDark = document.body.classList.contains('dark-mode');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            
+            const iconImg = document.getElementById('theme-icon');
+            if (isDark) {
+                iconImg.src = 'image/sun-solid-full.svg'; 
+            } else {
+                iconImg.src = 'image/moon-solid-full.svg'; 
+            }
+        }
+
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'dark') {
+            document.body.classList.add('dark-mode');
+            const iconImg = document.getElementById('theme-icon');
+            if(iconImg) {
+                iconImg.src = 'image/sun-solid-full.svg'; 
+            }
+        }
     </script>
 </body>
 </html>
