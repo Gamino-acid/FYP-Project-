@@ -27,37 +27,26 @@ if (isset($conn)) {
     $stmt->bind_param("i", $auth_user_id); 
     $stmt->execute();
     $res = $stmt->get_result();
+    
     if ($res->num_rows > 0) {
         $row = $res->fetch_assoc();
-        
-        if (!empty($row['fyp_staffid'])) {
-            $my_staff_id = $row['fyp_staffid'];
-        } elseif (!empty($row['fyp_supervisorid'])) {
-            $my_staff_id = $row['fyp_supervisorid']; 
-        }
-        
+        $my_staff_id = !empty($row['fyp_staffid']) ? $row['fyp_staffid'] : $row['fyp_supervisorid'];
         if (!empty($row['fyp_name'])) $user_name = $row['fyp_name'];
         if (!empty($row['fyp_profileimg'])) $user_avatar = $row['fyp_profileimg'];
-    }
-    $stmt->close();
-
-    if (empty($my_staff_id)) {
+    } else {
+        $stmt->close();
         $stmt = $conn->prepare("SELECT * FROM coordinator WHERE fyp_userid = ?");
         $stmt->bind_param("i", $auth_user_id); 
         $stmt->execute();
         $res = $stmt->get_result();
         if ($res->num_rows > 0) {
             $row = $res->fetch_assoc();
-            if (!empty($row['fyp_staffid'])) {
-                $my_staff_id = $row['fyp_staffid'];
-            } elseif (!empty($row['fyp_coordinatorid'])) {
-                $my_staff_id = $row['fyp_coordinatorid'];
-            }
+            $my_staff_id = !empty($row['fyp_staffid']) ? $row['fyp_staffid'] : $row['fyp_coordinatorid'];
             if (!empty($row['fyp_name'])) $user_name = $row['fyp_name'];
             if (!empty($row['fyp_profileimg'])) $user_avatar = $row['fyp_profileimg'];
         }
-        $stmt->close();
     }
+    if(isset($stmt)) $stmt->close();
 
     if (!empty($my_staff_id)) {
         $sql_my_students = "SELECT s.fyp_studid, s.fyp_studname, s.fyp_group 
@@ -91,13 +80,8 @@ if (isset($conn)) {
 $swal_alert = null;
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    
     if (empty($my_staff_id)) {
-        $swal_alert = [
-            'title' => 'Error',
-            'text' => 'Staff ID not found. You must be a registered staff to post assignments.',
-            'icon' => 'error'
-        ];
+        $swal_alert = ['title' => 'Error', 'text' => 'Staff ID not found.', 'icon' => 'error'];
     } else {
         $a_title = $_POST['assignment_title'];
         $a_desc = $_POST['assignment_description'];
@@ -114,18 +98,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         if ($stmt = $conn->prepare($sql_insert)) {
-            $stmt->bind_param("ssssissss", 
-                $my_staff_id, 
-                $a_title, 
-                $a_desc, 
-                $a_deadline, 
-                $weightage, 
-                $a_type, 
-                $a_status, 
-                $date_now, 
-                $final_target
-            );
-            
+            $stmt->bind_param("ssssissss", $my_staff_id, $a_title, $a_desc, $a_deadline, $weightage, $a_type, $a_status, $date_now, $final_target);
             if ($stmt->execute()) {
                 $swal_alert = [
                     'title' => 'Success!',
@@ -134,19 +107,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     'redirect' => 'Coordinator_assignment_grade.php?auth_user_id=' . urlencode($auth_user_id)
                 ];
             } else {
-                $swal_alert = [
-                    'title' => 'Database Error',
-                    'text' => $stmt->error,
-                    'icon' => 'error'
-                ];
+                $swal_alert = ['title' => 'Database Error', 'text' => $stmt->error, 'icon' => 'error'];
             }
             $stmt->close();
         } else {
-            $swal_alert = [
-                'title' => 'SQL Error',
-                'text' => $conn->error,
-                'icon' => 'error'
-            ];
+            $swal_alert = ['title' => 'SQL Error', 'text' => $conn->error, 'icon' => 'error'];
         }
     }
 }
@@ -154,8 +119,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Coordinator_mainpage.php?page=dashboard'],
     'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'Coordinator_profile.php'], 
-    
-     'management' => [
+    'management' => [
         'name' => 'User Management',
         'icon' => 'fa-users-cog',
         'sub_items' => [
@@ -164,7 +128,6 @@ $menu_items = [
             'manage_quota' => ['name' => 'Supervisor Quota', 'icon' => 'fa-chalkboard-teacher', 'link' => 'Coordinator_manage_quota.php'],
         ]
     ],
-    
     'project_mgmt' => [
         'name' => 'Project Manage', 
         'icon' => 'fa-tasks', 
@@ -195,6 +158,7 @@ $menu_items = [
     'data_mgmt' => ['name' => 'Data Management', 'icon' => 'fa-database', 'link' => 'Coordinator_data_io.php'],
 ];
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -489,7 +453,7 @@ $menu_items = [
         <ul>
             <?php foreach ($menu_items as $key => $item): ?>
                 <?php 
-                    $isActive = ($key == 'assessment'); 
+                    $isActive = ($key == $current_page);
                     $hasActiveChild = false;
                     if (isset($item['sub_items'])) {
                         foreach ($item['sub_items'] as $sub_key => $sub) {
@@ -497,37 +461,40 @@ $menu_items = [
                         }
                     }
                     $linkUrl = isset($item['link']) ? $item['link'] : "#";
-                    if (strpos($linkUrl, '.php') !== false) {
+                    if ($linkUrl !== "#" && strpos($linkUrl, '.php') !== false) {
                          $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?';
                          $linkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
                     }
                     $hasSubmenu = isset($item['sub_items']);
                 ?>
-                <li class="menu-item <?php echo ($hasActiveChild || ($isActive && $hasSubmenu)) ? 'open active' : ''; ?>">
-                    <a href="<?php echo $linkUrl; ?>" class="menu-link <?php echo $isActive ? 'active' : ''; ?>" <?php if ($hasSubmenu): ?>onclick="toggleSubmenu(this)"<?php endif; ?>>
-                        <span class="menu-icon"><i class="fa <?php echo $item['icon']; ?>"></i></span>
+                <li class="menu-item <?php echo ($hasActiveChild || $isActive) ? 'open active' : ''; ?>">
+                    <a href="<?php echo $hasSubmenu ? 'javascript:void(0)' : $linkUrl; ?>" 
+                       class="<?php echo $isActive ? 'active' : ''; ?>"
+                       <?php if ($hasSubmenu): ?>onclick="toggleSubmenu(this)"<?php endif; ?>>
+                        <i class="fa <?php echo $item['icon']; ?> nav-icon"></i>
                         <span class="nav-text"><?php echo $item['name']; ?></span>
-                        <?php if ($hasSubmenu): ?><i class="fa fa-chevron-down dropdown-arrow"></i><?php endif; ?>
+                        <?php if ($hasSubmenu): ?>
+                            <i class="fa fa-chevron-down dropdown-arrow"></i>
+                        <?php endif; ?>
                     </a>
-                    <?php if (isset($item['sub_items'])): ?>
+                    
+                    <?php if ($hasSubmenu): ?>
                         <ul class="submenu">
                             <?php foreach ($item['sub_items'] as $sub_key => $sub_item): 
                                 $subLinkUrl = isset($sub_item['link']) ? $sub_item['link'] : "#";
-                                if (strpos($subLinkUrl, '.php') !== false) {
+                                if ($subLinkUrl !== "#" && strpos($subLinkUrl, '.php') !== false) {
                                     $separator = (strpos($subLinkUrl, '?') !== false) ? '&' : '?';
                                     $subLinkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
                                 }
-                                $isSubActive = ($sub_key == $current_page); 
                             ?>
-                                <li><a href="<?php echo $subLinkUrl; ?>" class="menu-link <?php echo $isSubActive ? 'active' : ''; ?>">
-                                    <span class="menu-icon"><i class="fa <?php echo $sub_item['icon']; ?>"></i></span> <span class="nav-text"><?php echo $sub_item['name']; ?></span>
-                                </a></li>
+                                <li><a href="<?php echo $subLinkUrl; ?>" class="<?php echo ($sub_key == $current_page) ? 'active' : ''; ?>"><i class="fa <?php echo $sub_item['icon']; ?> nav-icon"></i><span class="nav-text"><?php echo $sub_item['name']; ?></span></a></li>
                             <?php endforeach; ?>
                         </ul>
                     <?php endif; ?>
                 </li>
             <?php endforeach; ?>
         </ul>
+
         <ul class="logout">
             <li>
                 <a href="login.php">
@@ -633,8 +600,18 @@ $menu_items = [
         function toggleSubmenu(element) {
             const menuItem = element.parentElement;
             const isOpen = menuItem.classList.contains('open');
-            document.querySelectorAll('.menu-item').forEach(item => { if (item !== menuItem) item.classList.remove('open'); });
-            if (isOpen) menuItem.classList.remove('open'); else menuItem.classList.add('open');
+            
+            document.querySelectorAll('.menu-item').forEach(item => {
+                if (item !== menuItem) {
+                    item.classList.remove('open');
+                }
+            });
+            
+            if (isOpen) {
+                menuItem.classList.remove('open');
+            } else {
+                menuItem.classList.add('open');
+            }
         }
 
         function toggleDarkMode() {

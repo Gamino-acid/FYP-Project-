@@ -14,7 +14,6 @@ $user_name = "Coordinator";
 $user_avatar = "image/user.png"; 
 $sv_id = ""; 
 
-// --- 1. IDENTITY & STAFF ID LOGIC ---
 if (isset($conn)) {
     $sql_user = "SELECT fyp_username FROM `USER` WHERE fyp_userid = ?";
     if ($stmt = $conn->prepare($sql_user)) {
@@ -32,11 +31,7 @@ if (isset($conn)) {
         $res = $stmt->get_result();
         if ($res->num_rows > 0) {
             $row = $res->fetch_assoc();
-            if (!empty($row['fyp_staffid'])) {
-                $sv_id = $row['fyp_staffid'];
-            } elseif (!empty($row['fyp_supervisorid'])) {
-                $sv_id = $row['fyp_supervisorid'];
-            }
+            $sv_id = !empty($row['fyp_staffid']) ? $row['fyp_staffid'] : $row['fyp_supervisorid'];
             if (!empty($row['fyp_name'])) $user_name = $row['fyp_name'];
             if (!empty($row['fyp_profileimg'])) $user_avatar = $row['fyp_profileimg'];
         }
@@ -51,20 +46,15 @@ if (isset($conn)) {
             $res = $stmt->get_result();
             if ($res->num_rows > 0) {
                 $row = $res->fetch_assoc();
-                if (!empty($row['fyp_staffid'])) {
-                    $sv_id = $row['fyp_staffid'];
-                } elseif (!empty($row['fyp_coordinatorid'])) {
-                    $sv_id = $row['fyp_coordinatorid'];
-                }
+                $sv_id = !empty($row['fyp_staffid']) ? $row['fyp_staffid'] : $row['fyp_coordinatorid'];
                 if (!empty($row['fyp_name'])) $user_name = $row['fyp_name'];
-                if(!empty($row['fyp_profileimg'])) $user_avatar = $row['fyp_profileimg'];
+                if (!empty($row['fyp_profileimg'])) $user_avatar = $row['fyp_profileimg'];
             }
             $stmt->close();
         }
     }
 }
 
-// --- 2. SUBMISSION HANDLING (POST) ---
 $swal_alert = null;
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
@@ -118,7 +108,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     }
 }
 
-// --- 3. DATA FETCHING (GET) ---
 $view_assignment_id = $_GET['view_id'] ?? null;
 $assignments_list = [];
 $students_to_grade = [];
@@ -129,7 +118,6 @@ $filter_type = $_GET['filter_type'] ?? 'All';
 
 if (!empty($sv_id)) {
     if (!$view_assignment_id) {
-        // --- FETCH ASSIGNMENT LIST & STATS ---
         $sql_list = "SELECT a.*,
                             (SELECT COUNT(*) FROM fyp_registration r JOIN student s ON r.fyp_studid = s.fyp_studid 
                              WHERE r.fyp_staffid = a.fyp_staffid 
@@ -203,7 +191,6 @@ if (!empty($sv_id)) {
         }
 
     } else {
-        // --- FETCH STUDENT LIST FOR GRADING ---
         $sql_detail = "SELECT * FROM assignment WHERE fyp_assignmentid = ? AND fyp_staffid = ?";
         if ($stmt = $conn->prepare($sql_detail)) {
             $stmt->bind_param("is", $view_assignment_id, $sv_id);
@@ -254,7 +241,6 @@ if (!empty($sv_id)) {
                 if($res_s) {
                     while ($row = $res_s->fetch_assoc()) {
                         
-                        // Group Name Display
                         $row['display_group_name'] = '';
                         $g_query = "SELECT group_name FROM student_group WHERE leader_id = '{$row['fyp_studid']}' UNION SELECT sg.group_name FROM group_request gr JOIN student_group sg ON gr.group_id = sg.group_id WHERE gr.invitee_id = '{$row['fyp_studid']}' AND gr.request_status = 'Accepted' LIMIT 1";
                         $g_result = $conn->query($g_query);
@@ -262,7 +248,6 @@ if (!empty($sv_id)) {
                              $row['display_group_name'] = $g_data['group_name'];
                         }
 
-                        // Group Inheritance Logic
                         $inherited = false;
                         if ($target_type == 'Group' && (empty($row['fyp_submission_status']) || $row['fyp_submission_status'] == 'Not Turned In' || $row['fyp_submission_status'] == 'Viewed')) {
                             $leader_id = null;
@@ -286,7 +271,6 @@ if (!empty($sv_id)) {
                             }
                         }
 
-                        // Late Status Logic
                         $raw_status = $row['fyp_submission_status'];
                         if (empty($raw_status)) $raw_status = 'Not Turned In';
                         
@@ -308,7 +292,6 @@ if (!empty($sv_id)) {
     }
 }
 
-// --- 4. NAVIGATION ---
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Coordinator_mainpage.php?page=dashboard'],
     'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'Coordinator_profile.php'], 
@@ -406,40 +389,121 @@ $menu_items = [
             transition: background-color 0.3s, color 0.3s;
         }
 
-        /* SIDEBAR */
         .main-menu {
             background: var(--sidebar-bg);
             border-right: 1px solid rgba(255,255,255,0.1);
             position: fixed;
-            top: 0; bottom: 0; left: 0;
-            height: 100%; width: 60px;
-            overflow-y: auto; overflow-x: hidden;
+            top: 0;
+            bottom: 0;
+            height: 100%;
+            left: 0;
+            width: 60px;
+            overflow-y: auto;
+            overflow-x: hidden;
             transition: width .05s linear;
             z-index: 1000;
             box-shadow: 2px 0 5px rgba(0,0,0,0.1);
         }
 
-        .main-menu:hover, nav.main-menu.expanded { width: 250px; overflow: visible; }
-        .main-menu > ul { margin: 7px 0; padding: 0; list-style: none; }
-        .main-menu li { position: relative; display: block; width: 250px; }
-        .main-menu li > a {
-            position: relative; display: table; border-collapse: collapse; border-spacing: 0;
-            color: var(--sidebar-text); font-size: 14px; text-decoration: none;
-            transition: all .1s linear; width: 100%;
+        .main-menu:hover, nav.main-menu.expanded {
+            width: 250px;
+            overflow: visible;
         }
-        .main-menu .nav-icon { position: relative; display: table-cell; width: 60px; height: 46px; text-align: center; vertical-align: middle; font-size: 18px; }
-        .main-menu .nav-text { position: relative; display: table-cell; vertical-align: middle; width: 190px; padding-left: 10px; white-space: nowrap; }
-        .main-menu li:hover > a, nav.main-menu li.active > a { color: #fff; background-color: var(--sidebar-hover); border-left: 4px solid #fff; }
-        .main-menu > ul.logout { position: absolute; left: 0; bottom: 0; width: 100%; }
-        
-        .dropdown-arrow { position: absolute; right: 15px; top: 50%; transform: translateY(-50%); transition: transform 0.3s; font-size: 12px; }
-        .menu-item.open .dropdown-arrow { transform: translateY(-50%) rotate(180deg); }
-        .submenu { list-style: none; padding: 0; margin: 0; background-color: rgba(0,0,0,0.2); max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; }
-        .menu-item.open .submenu { max-height: 500px; transition: max-height 0.5s ease-in; }
-        .submenu li > a { padding-left: 70px !important; font-size: 13px; height: 40px; }
-        .menu-item > a { cursor: pointer; }
 
-        /* CONTENT */
+        .main-menu > ul {
+            margin: 7px 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .main-menu li {
+            position: relative;
+            display: block;
+            width: 250px;
+        }
+
+        .main-menu li > a {
+            position: relative;
+            display: table;
+            border-collapse: collapse;
+            border-spacing: 0;
+            color: var(--sidebar-text);
+            font-size: 14px;
+            text-decoration: none;
+            transition: all .1s linear;
+            width: 100%;
+        }
+
+        .main-menu .nav-icon {
+            position: relative;
+            display: table-cell;
+            width: 60px;
+            height: 46px; 
+            text-align: center;
+            vertical-align: middle;
+            font-size: 18px;
+        }
+
+        .main-menu .nav-text {
+            position: relative;
+            display: table-cell;
+            vertical-align: middle;
+            width: 190px;
+            padding-left: 10px;
+            white-space: nowrap;
+        }
+
+        .main-menu li:hover > a, nav.main-menu li.active > a {
+            color: #fff;
+            background-color: var(--sidebar-hover);
+            border-left: 4px solid #fff; 
+        }
+
+        .main-menu > ul.logout {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            width: 100%;
+        }
+
+        .dropdown-arrow {
+            position: absolute;
+            right: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            transition: transform 0.3s;
+            font-size: 12px;
+        }
+
+        .menu-item.open .dropdown-arrow {
+            transform: translateY(-50%) rotate(180deg);
+        }
+
+        .submenu {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            background-color: rgba(0,0,0,0.2);
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+
+        .menu-item.open .submenu {
+            max-height: 500px;
+            transition: max-height 0.5s ease-in;
+        }
+
+        .submenu li > a {
+            padding-left: 70px !important;
+            font-size: 13px;
+            height: 40px;
+        }
+
+        .menu-item > a {
+            cursor: pointer;
+        }
+
         .main-content-wrapper {
             margin-left: 60px; flex: 1; padding: 20px;
             width: calc(100% - 60px); transition: margin-left .05s linear;
@@ -470,7 +534,6 @@ $menu_items = [
             box-shadow: var(--card-shadow);
         }
         
-        /* Custom Grading Styles from Prompt */
         .filter-bar { background: var(--slot-bg); padding: 20px; border-radius: 12px; margin-bottom: 25px; border: 1px solid var(--border-color); display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end; }
         .filter-group { flex: 1; min-width: 150px; }
         .filter-group label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px; color: var(--text-secondary); }
@@ -500,7 +563,7 @@ $menu_items = [
 
         .grade-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         .grade-table th { background: var(--slot-bg); text-align: left; padding: 15px; color: var(--text-secondary); font-weight: 600; border-bottom: 2px solid var(--border-color); font-size: 13px; }
-        .grade-table td { padding: 15px; border-bottom: 1px solid var(--border-color); color: var(--text-color); vertical-align: top; font-size: 14px; }
+        .grade-table td { padding: 15px; border-bottom: 1px solid var(--border-color); color: var(--text-color); vertical-align: middle; font-size: 14px; }
         .grade-table tr:hover { background-color: var(--slot-bg); }
 
         .stud-status-badge { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; margin-top: 5px; }
@@ -512,16 +575,16 @@ $menu_items = [
         .st-NeedRevision { background: #fff3cd; color: #856404; }
         .st-Resubmitted { background: #d4edda; color: #155724; border: 2px solid #28a745; }
 
-        .form-control-sm { width: 100%; padding: 6px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 13px; background: var(--card-bg); color: var(--text-color); margin-bottom: 5px; }
+        .form-control-sm { width: 100%; padding: 6px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 13px; background: var(--card-bg); color: var(--text-color); margin-bottom: 0; }
         
-        .action-buttons { display: flex; gap: 5px; margin-top: 5px; }
+        .action-buttons { display: flex; gap: 5px; }
         .btn-return { padding: 6px 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; gap: 4px; }
         .btn-revision { padding: 6px 12px; background: #ffc107; color: #212529; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; gap: 4px; }
         .btn-return:hover { background: #218838; }
         .btn-revision:hover { background: #e0a800; }
         .btn-return:disabled, .btn-revision:disabled { opacity: 0.6; cursor: not-allowed; background: #6c757d; color: white; }
 
-        .file-link { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: var(--primary-color); text-decoration: none; padding: 4px 8px; background: var(--slot-bg); border-radius: 4px; border: 1px solid var(--border-color); transition: all 0.2s; margin-top: 5px; }
+        .file-link { cursor: pointer; display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: var(--primary-color); text-decoration: none; padding: 4px 8px; background: var(--slot-bg); border-radius: 4px; border: 1px solid var(--border-color); transition: all 0.2s; margin-top: 5px; }
         .file-link:hover { background: var(--border-color); }
         .no-file { font-size: 13px; color: var(--text-secondary); font-style: italic; margin-top: 5px; display: block; }
         .inherited-badge { font-size: 10px; color: var(--text-secondary); background: var(--slot-bg); padding: 2px 5px; border-radius: 4px; margin-left: 5px; border: 1px solid var(--border-color); }
@@ -563,7 +626,7 @@ $menu_items = [
                 ?>
                 <li class="menu-item <?php echo ($hasActiveChild || ($isActive && $hasSubmenu)) ? 'open active' : ''; ?>">
                     <a href="<?php echo $linkUrl; ?>" class="menu-link <?php echo $isActive ? 'active' : ''; ?>" <?php if ($hasSubmenu): ?>onclick="toggleSubmenu(this)"<?php endif; ?>>
-                        <span class="menu-icon"><i class="fa <?php echo $item['icon']; ?>"></i></span>
+                        <i class="fa <?php echo $item['icon']; ?> nav-icon"></i>
                         <span class="nav-text"><?php echo $item['name']; ?></span>
                         <?php if ($hasSubmenu): ?><i class="fa fa-chevron-down dropdown-arrow"></i><?php endif; ?>
                     </a>
@@ -578,7 +641,7 @@ $menu_items = [
                                 $isSubActive = ($sub_key == $current_page); 
                             ?>
                                 <li><a href="<?php echo $subLinkUrl; ?>" class="menu-link <?php echo $isSubActive ? 'active' : ''; ?>">
-                                    <span class="menu-icon"><i class="fa <?php echo $sub_item['icon']; ?>"></i></span> <span class="nav-text"><?php echo $sub_item['name']; ?></span>
+                                    <i class="fa <?php echo $sub_item['icon']; ?> nav-icon"></i> <span class="nav-text"><?php echo $sub_item['name']; ?></span>
                                 </a></li>
                             <?php endforeach; ?>
                         </ul>
@@ -734,9 +797,9 @@ $menu_items = [
                                         <?php endif; ?>
                                         
                                         <?php if(!empty($stud['fyp_submitted_file'])): ?>
-                                            <a href="<?php echo $stud['fyp_submitted_file']; ?>" target="_blank" class="file-link">
-                                                <i class="fa fa-download"></i> File
-                                            </a>
+                                            <div onclick="viewFile('<?php echo addslashes($stud['fyp_submitted_file']); ?>')" class="file-link">
+                                                <i class="fa fa-download"></i> View File
+                                            </div>
                                             <?php if (!empty($stud['is_inherited'])): ?>
                                                 <span class="inherited-badge" title="Submitted by group leader">Leader</span>
                                             <?php endif; ?>
@@ -805,6 +868,37 @@ $menu_items = [
             if(iconImg) {
                 iconImg.src = 'image/sun-solid-full.svg'; 
             }
+        }
+
+        function viewFile(url) {
+            if (!url || url.trim() === '') {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error',
+                    text: 'No file path found associated with this submission.'
+                });
+                return;
+            }
+
+            fetch(url, { method: 'HEAD' })
+                .then(response => {
+                    if (response.ok) {
+                        window.open(url, '_blank');
+                    } else {
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'File Not Found',
+                            text: 'The file could not be located on the server (404).'
+                        });
+                    }
+                })
+                .catch(() => {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Access Error',
+                        text: 'Could not verify file accessibility or file is missing.'
+                    });
+                });
         }
 
         <?php if ($swal_alert): ?>
