@@ -1,17 +1,11 @@
 <?php
-// ====================================================
-// Supervisor_announcement_view.php - History (AJAX + Redesign)
-// ====================================================
 include("connect.php");
 
-// 1. AJAX Handler (Edit / Toggle / Delete)
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['ajax_action'])) {
     header('Content-Type: application/json');
     $action = $_POST['action_type'];
     
-    // Auth Check inside AJAX
     $auth_user_id = $_POST['auth_user_id'] ?? null;
-    // ... Fetch Staff ID logic required if rigorous checking, simplified here for "Same backend function" constraint context
     
     if ($action == 'edit') {
         $anno_id = $_POST['announce_id'];
@@ -46,13 +40,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['ajax_action'])) {
     exit;
 }
 
-// 2. Standard Page Load
 $auth_user_id = $_GET['auth_user_id'] ?? null;
 $current_page = 'view_announcements'; 
 
 if (!$auth_user_id) { header("location: login.php"); exit; }
 
-// Fetch Info
 $user_name = "Supervisor"; 
 $user_avatar = "image/user.png"; 
 $my_staff_id = "";
@@ -69,7 +61,6 @@ if (isset($conn)) {
     $stmt->close();
 }
 
-// Fetch Announcements
 $announcements = [];
 if (!empty($my_staff_id)) {
     $stmt = $conn->prepare("SELECT * FROM announcement WHERE fyp_staffid = ? ORDER BY fyp_datecreated DESC");
@@ -83,7 +74,6 @@ if (!empty($my_staff_id)) {
     $stmt->close();
 }
 
-// Menu Definition
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Supervisor_mainpage.php?page=dashboard'],
     'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'supervisor_profile.php'],
@@ -91,7 +81,7 @@ $menu_items = [
         'name' => 'My Students', 
         'icon' => 'fa-users',
         'sub_items' => [
-            'project_requests' => ['name' => 'Project Requests', 'icon' => 'fa-envelope-open-text', 'link' => 'supervisor_projectreq.php'],
+            'project_requests' => ['name' => 'Project Requests', 'icon' => 'fa-envelope-open-text', 'link' => 'Supervisor_projectreq.php'],
             'student_list'     => ['name' => 'Student List', 'icon' => 'fa-list', 'link' => 'Supervisor_student_list.php'],
         ]
     ],
@@ -101,7 +91,7 @@ $menu_items = [
         'sub_items' => [
             'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'supervisor_purpose.php'],
             'my_projects'     => ['name' => 'My Projects', 'icon' => 'fa-folder-open', 'link' => 'Supervisor_manage_project.php'],
-            'propose_assignment' => ['name' => 'Propose Assignment', 'icon' => 'fa-tasks', 'link' => 'supervisor_assignment_purpose.php']
+            'propose_assignment' => ['name' => 'Propose Assignment', 'icon' => 'fa-tasks', 'link' => 'supervisor_assignment_purpose.php'],
         ]
     ],
     'grading' => [
@@ -135,10 +125,12 @@ $menu_items = [
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap');
-        :root { --primary-color: #0056b3; --primary-hover: #004494; --secondary-color: #f8f9fa; --text-color: #333; --border-color: #e0e0e0; --card-shadow: 0 4px 6px rgba(0,0,0,0.05); --bg-color: #f4f6f9; --sidebar-bg: #004085; --sidebar-hover: #003366; --sidebar-text: #e0e0e0; }
-        body { font-family: 'Poppins', sans-serif; margin: 0; background-color: var(--bg-color); min-height: 100vh; display: flex; overflow-x: hidden; }
+        :root { --primary-color: #0056b3; --primary-hover: #004494; --secondary-color: #f8f9fa; --text-color: #333; --border-color: #e0e0e0; --card-shadow: 0 4px 6px rgba(0,0,0,0.05); --bg-color: #f4f6f9; --sidebar-bg: #004085; --sidebar-hover: #003366; --sidebar-text: #e0e0e0; --card-bg: #ffffff; --text-secondary: #666; --slot-bg: #f8f9fa; }
+        
+        .dark-mode { --primary-color: #4da3ff; --primary-hover: #0069d9; --bg-color: #121212; --card-bg: #1e1e1e; --text-color: #e0e0e0; --secondary-color: #a0a0a0; --sidebar-bg: #0d1117; --sidebar-hover: #161b22; --sidebar-text: #c9d1d9; --card-shadow: 0 4px 6px rgba(0,0,0,0.3); --border-color: #333; --text-secondary: #a0a0a0; --slot-bg: #2d2d2d; }
+        
+        body { font-family: 'Poppins', sans-serif; margin: 0; background-color: var(--bg-color); min-height: 100vh; display: flex; overflow-x: hidden; color: var(--text-color); transition: background-color 0.3s, color 0.3s; }
 
-        /* Sidebar & Menu */
         .main-menu { background: var(--sidebar-bg); border-right: 1px solid rgba(255,255,255,0.1); position: fixed; top: 0; bottom: 0; height: 100%; left: 0; width: 60px; overflow-y: auto; overflow-x: hidden; transition: width .05s linear; z-index: 1000; box-shadow: 2px 0 5px rgba(0,0,0,0.1); }
         .main-menu:hover, nav.main-menu.expanded { width: 250px; }
         .main-menu > ul { margin: 7px 0; padding: 0; list-style: none; }
@@ -154,36 +146,39 @@ $menu_items = [
         .menu-item.open .submenu { max-height: 500px; transition: max-height 0.5s ease-in; }
         .submenu li > a { padding-left: 70px !important; font-size: 13px; height: 40px; }
 
-        /* Main Content */
         .main-content-wrapper { margin-left: 60px; flex: 1; padding: 20px; width: calc(100% - 60px); transition: margin-left .05s linear; }
 
-        /* Header */
-        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; background: white; padding: 20px; border-radius: 12px; box-shadow: var(--card-shadow); }
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; background: var(--card-bg); padding: 20px; border-radius: 12px; box-shadow: var(--card-shadow); transition: background 0.3s; }
         .welcome-text h1 { margin: 0; font-size: 24px; color: var(--primary-color); font-weight: 600; }
-        .welcome-text p { margin: 5px 0 0; color: #666; font-size: 14px; }
+        .welcome-text p { margin: 5px 0 0; color: var(--text-color); font-size: 14px; opacity: 0.8; }
         .logo-section { display: flex; align-items: center; gap: 12px; }
         .logo-img { height: 40px; width: auto; background: white; padding: 2px; border-radius: 6px; }
         .system-title { font-size: 20px; font-weight: 600; color: var(--primary-color); letter-spacing: 0.5px; }
 
-        /* History Cards */
-        .history-card { background: #fff; padding: 25px; border-radius: 12px; box-shadow: var(--card-shadow); }
-        .section-title { border-bottom: 2px solid #eee; padding-bottom: 15px; margin-bottom: 25px; display:flex; justify-content:space-between; }
+        .user-section { display: flex; align-items: center; gap: 10px; }
+        .user-badge { font-size: 13px; color: var(--text-secondary); background: var(--slot-bg); padding: 5px 10px; border-radius: 20px; }
+        .user-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
+        .user-avatar-placeholder { width: 40px; height: 40px; border-radius: 50%; background: #0056b3; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+
+        .history-card { background: var(--card-bg); padding: 25px; border-radius: 12px; box-shadow: var(--card-shadow); transition: background 0.3s; }
+        .section-title { border-bottom: 2px solid var(--border-color); padding-bottom: 15px; margin-bottom: 25px; display:flex; justify-content:space-between; align-items:center; }
+        .section-title h2 { margin: 0; font-size: 18px; color: var(--primary-color); display: flex; align-items: center; gap: 10px; }
         
-        .anno-card { background: #fff; border-radius: 8px; border: 1px solid #eee; padding: 20px; margin-bottom: 15px; position: relative; transition: all 0.2s; }
+        .anno-card { background: var(--card-bg); border-radius: 8px; border: 1px solid var(--border-color); padding: 20px; margin-bottom: 15px; position: relative; transition: all 0.2s; }
         .anno-card:hover { transform: translateY(-3px); box-shadow: 0 5px 15px rgba(0,0,0,0.05); }
         .anno-active { border-left: 4px solid #28a745; }
-        .anno-archived { border-left: 4px solid #6c757d; background-color: #f9f9f9; opacity: 0.8; }
+        .anno-archived { border-left: 4px solid #6c757d; opacity: 0.8; background-color: var(--slot-bg); }
         
         .anno-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
-        .anno-subject { font-size: 16px; font-weight: 600; color: #333; }
+        .anno-subject { font-size: 16px; font-weight: 600; color: var(--text-color); }
         .anno-status { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
         .st-Active { background: #d4edda; color: #155724; }
         .st-Archived { background: #e2e3e5; color: #383d41; }
         
-        .anno-meta { font-size: 12px; color: #888; margin-bottom: 12px; display: flex; gap: 15px; }
-        .anno-desc { font-size: 14px; color: #555; line-height: 1.5; white-space: pre-wrap; margin-bottom: 15px; }
+        .anno-meta { font-size: 12px; color: var(--text-secondary); margin-bottom: 12px; display: flex; gap: 15px; }
+        .anno-desc { font-size: 14px; color: var(--text-color); line-height: 1.5; white-space: pre-wrap; margin-bottom: 15px; }
         
-        .anno-actions { display: flex; gap: 8px; justify-content: flex-end; border-top: 1px solid #f0f0f0; padding-top: 12px; }
+        .anno-actions { display: flex; gap: 8px; justify-content: flex-end; border-top: 1px solid var(--border-color); padding-top: 12px; }
         .btn-action { border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500; display: flex; align-items: center; gap: 5px; transition: 0.2s; }
         .btn-edit { background: #e3effd; color: #0056b3; }
         .btn-edit:hover { background: #d0e4ff; }
@@ -194,15 +189,24 @@ $menu_items = [
         .btn-delete { background: #f8d7da; color: #721c24; }
         .btn-delete:hover { background: #f1b0b7; }
 
-        /* Modal */
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; }
-        .modal-box { background: #fff; padding: 25px; border-radius: 12px; width: 90%; max-width: 500px; animation: popIn 0.3s ease; }
-        .modal-title { font-size: 18px; font-weight: 600; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
-        .form-control { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 15px; box-sizing: border-box; }
+        .modal-overlay.show { display: flex; }
+        .modal-box { background: var(--card-bg); padding: 25px; border-radius: 12px; width: 90%; max-width: 500px; animation: popIn 0.3s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+        .modal-title { font-size: 18px; font-weight: 600; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; color: var(--text-color); }
+        .form-control { width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 15px; box-sizing: border-box; background: var(--card-bg); color: var(--text-color); }
         .modal-footer { display: flex; justify-content: flex-end; gap: 10px; }
         .btn-save { background: var(--primary-color); color: white; padding: 8px 20px; border: none; border-radius: 6px; cursor: pointer; }
-        .btn-close { background: #eee; color: #333; padding: 8px 20px; border: none; border-radius: 6px; cursor: pointer; }
+        .btn-close { background: var(--slot-bg); color: var(--text-color); padding: 8px 20px; border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; }
+        .form-group label { display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 5px; font-weight: 500; }
         
+        .theme-toggle {
+            cursor: pointer; padding: 8px; border-radius: 50%;
+            background: var(--slot-bg); border: 1px solid var(--border-color);
+            color: var(--text-color); display: flex; align-items: center;
+            justify-content: center; width: 35px; height: 35px; margin-right: 15px;
+        }
+        .theme-toggle img { width: 20px; height: 20px; object-fit: contain; }
+
         @keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
         @media (max-width: 900px) { .main-content-wrapper { margin-left: 0; width: 100%; } }
     </style>
@@ -247,12 +251,15 @@ $menu_items = [
         <div class="page-header">
             <div class="welcome-text"><h1>Announcement History</h1><p>Manage previously posted announcements.</p></div>
             <div class="logo-section"><img src="image/ladybug.png" alt="Logo" class="logo-img"><span class="system-title">FYP Portal</span></div>
-            <div style="display:flex; align-items:center; gap:10px;">
-                <span style="font-size:13px; color:#666; background:#f0f0f0; padding:5px 10px; border-radius:20px;">Supervisor</span>
+            <div class="user-section">
+                <button class="theme-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">
+                    <img id="theme-icon" src="image/moon-solid-full.svg" alt="Toggle Theme">
+                </button>
+                <span class="user-badge">Supervisor</span>
                 <?php if(!empty($user_avatar) && $user_avatar != 'image/user.png'): ?>
-                    <img src="<?php echo htmlspecialchars($user_avatar); ?>" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">
+                    <img src="<?php echo htmlspecialchars($user_avatar); ?>" class="user-avatar" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">
                 <?php else: ?>
-                    <div style="width:40px;height:40px;border-radius:50%;background:#0056b3;color:white;display:flex;align-items:center;justify-content:center;font-weight:bold;"><?php echo strtoupper(substr($user_name, 0, 1)); ?></div>
+                    <div class="user-avatar-placeholder" style="width:40px;height:40px;border-radius:50%;background:#0056b3;color:white;display:flex;align-items:center;justify-content:center;font-weight:bold;"><?php echo strtoupper(substr($user_name, 0, 1)); ?></div>
                 <?php endif; ?>
             </div>
         </div>
@@ -300,7 +307,7 @@ $menu_items = [
                     </div>
                 <?php endforeach; ?>
             <?php else: ?>
-                <div style="text-align:center; padding:40px; color:#999;">
+                <div style="text-align:center; padding:40px; color:var(--text-secondary);">
                     <i class="fa fa-bullhorn" style="font-size:48px; opacity:0.3; margin-bottom:15px;"></i>
                     <p>No announcements found.</p>
                 </div>
@@ -308,7 +315,6 @@ $menu_items = [
         </div>
     </div>
 
-    <!-- Edit Modal -->
     <div id="editModal" class="modal-overlay">
         <div class="modal-box">
             <div class="modal-title">Edit Announcement</div>
@@ -318,7 +324,7 @@ $menu_items = [
                 <input type="hidden" name="announce_id" id="edit_id">
                 
                 <div class="form-group"><label>Subject</label><input type="text" name="edit_subject" id="edit_subject" class="form-control" required></div>
-                <div class="form-group"><label>Description</label><textarea name="edit_description" id="edit_description" class="form-control" required></textarea></div>
+                <div class="form-group"><label>Description</label><textarea name="edit_description" id="edit_description" class="form-control" rows="5" required></textarea></div>
                 <div class="modal-footer">
                     <button type="button" class="btn-close" onclick="closeEditModal()">Cancel</button>
                     <button type="submit" class="btn-save">Save Changes</button>
@@ -342,7 +348,7 @@ $menu_items = [
             let btnColor = type === 'delete' ? '#dc3545' : '#0056b3';
 
             Swal.fire({
-                title: title, text: text, icon: 'warning', showCancelButton: true, confirmButtonColor: btnColor, confirmButtonText: confirmBtn
+                title: title, text: text, icon: 'warning', showCancelButton: true, confirmButtonColor: btnColor, confirmButtonText: confirmBtn, draggable: true
             }).then((result) => {
                 if (result.isConfirmed) {
                     const formData = new FormData();
@@ -359,7 +365,7 @@ $menu_items = [
                                 document.getElementById('row-' + id).remove();
                                 Swal.fire('Deleted!', 'Your file has been deleted.', 'success');
                             } else if(type === 'toggle') {
-                                location.reload(); // Reload to refresh UI logic simply
+                                location.reload(); 
                             }
                         } else {
                             Swal.fire('Error', data.message, 'error');
@@ -385,11 +391,33 @@ $menu_items = [
             .then(res => res.json())
             .then(data => {
                 if(data.status === 'success') {
-                    Swal.fire('Updated!', 'Announcement updated.', 'success').then(() => location.reload());
+                    Swal.fire({ title: 'Updated!', text: 'Announcement updated.', icon: 'success', draggable: true }).then(() => location.reload());
                 } else {
                     Swal.fire('Error', data.message, 'error');
                 }
             });
+        }
+
+        function toggleDarkMode() {
+            document.body.classList.toggle('dark-mode');
+            const isDark = document.body.classList.contains('dark-mode');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            
+            const iconImg = document.getElementById('theme-icon');
+            if (isDark) {
+                iconImg.src = 'image/sun-solid-full.svg'; 
+            } else {
+                iconImg.src = 'image/moon-solid-full.svg'; 
+            }
+        }
+
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'dark') {
+            document.body.classList.add('dark-mode');
+            const iconImg = document.getElementById('theme-icon');
+            if(iconImg) {
+                iconImg.src = 'image/sun-solid-full.svg'; 
+            }
         }
     </script>
 </body>

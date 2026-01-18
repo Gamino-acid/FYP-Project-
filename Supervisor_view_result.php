@@ -1,28 +1,21 @@
 <?php
-// ====================================================
-// Supervisor_view_result.php - 查看学生最终等级
-// ====================================================
 include("connect.php");
 
-// 1. 验证登录
 $auth_user_id = $_GET['auth_user_id'] ?? null;
-$current_page = 'view_result'; // 菜单高亮 ID
+$current_page = 'view_result'; 
 
 if (!$auth_user_id) { header("location: login.php"); exit; }
 
-// 2. 获取导师信息
 $user_name = "Supervisor"; 
 $user_avatar = "image/user.png"; 
 $sv_id = 0;
 
 if (isset($conn)) {
-    // 获取 USER 表名字
     $stmt = $conn->prepare("SELECT fyp_username FROM `USER` WHERE fyp_userid = ?");
     $stmt->bind_param("i", $auth_user_id); $stmt->execute();
     $res = $stmt->get_result(); if ($row = $res->fetch_assoc()) $user_name = $row['fyp_username'];
     $stmt->close();
 
-    // 获取 Supervisor ID
     $stmt = $conn->prepare("SELECT * FROM supervisor WHERE fyp_userid = ?");
     $stmt->bind_param("i", $auth_user_id); $stmt->execute();
     $res = $stmt->get_result();
@@ -34,11 +27,7 @@ if (isset($conn)) {
     $stmt->close();
 }
 
-// ====================================================
-// 3. 等级转换函数 (Grading Scheme)
-// ====================================================
 function getGradeFromScore($score) {
-    // 你可以根据学校的实际标准调整这里
     if ($score >= 90) return 'A+';
     if ($score >= 80) return 'A';
     if ($score >= 75) return 'A-';
@@ -52,13 +41,9 @@ function getGradeFromScore($score) {
     return 'F'; 
 }
 
-// ====================================================
-// 4. 获取学生列表并计算成绩
-// ====================================================
 $student_results = [];
 
 if ($sv_id) {
-    // 获取该导师名下所有活跃学生 (包括 Individual 和 Group Leader/Members)
     $sql_stud = "SELECT s.fyp_studid, s.fyp_studname, s.fyp_group, g.group_name
                  FROM fyp_registration r
                  JOIN student s ON r.fyp_studid = s.fyp_studid
@@ -71,20 +56,15 @@ if ($sv_id) {
     
     while ($stud = $res_stud->fetch_assoc()) {
         $stud_id = $stud['fyp_studid'];
-        $group_name = $stud['group_name']; // 如果是 Leader
+        $group_name = $stud['group_name']; 
         
-        // 如果是 Member，找 Group Name
         if (empty($group_name) && $stud['fyp_group'] == 'Group') {
              $g_res = $conn->query("SELECT sg.group_name FROM group_request gr JOIN student_group sg ON gr.group_id = sg.group_id WHERE gr.invitee_id = '$stud_id' AND gr.request_status='Accepted'");
              if ($gr = $g_res->fetch_assoc()) $group_name = $gr['group_name'];
         }
 
-        // --- 核心计算逻辑 ---
-        
-        // 1. 找出该学生需要做的所有作业 (Target: ALL, Individual, Group)
         $target_sql_filter = "";
         if ($stud['fyp_group'] == 'Group') {
-             // 查找该学生所属的组ID
              $gid_res = $conn->query("SELECT group_id FROM student_group WHERE leader_id='$stud_id' UNION SELECT group_id FROM group_request WHERE invitee_id='$stud_id' AND request_status='Accepted'");
              $gid = ($gid_row = $gid_res->fetch_assoc()) ? $gid_row['group_id'] : 'UNKNOWN';
              $target_sql_filter = "(a.fyp_target_id = 'ALL' OR a.fyp_target_id = '$gid') AND a.fyp_assignment_type = 'Group'";
@@ -107,31 +87,22 @@ if ($sv_id) {
         while ($m = $res_marks->fetch_assoc()) {
             $w = intval($m['fyp_weightage']);
             $s_mark = isset($m['fyp_marks']) ? floatval($m['fyp_marks']) : 0;
-            $m_mark = isset($m['fyp_mod_marks']) ? floatval($m['fyp_mod_marks']) : null; // Moderator Mark
+            $m_mark = isset($m['fyp_mod_marks']) ? floatval($m['fyp_mod_marks']) : null; 
             
             $total_weightage += $w;
 
-            // 计算该作业的得分
             $assignment_final_mark = 0;
             
             if ($m_mark !== null) {
-                // 如果 Moderator 打分了：(Sup + Mod) / 2
                 $raw_avg = ($s_mark + $m_mark) / 2;
             } else {
-                // Moderator 还没打分，或者没有分配 Moderator
-                // 此时你可以选择：
-                // A. 暂时只用 Supervisor 分数 (如下)
                 $raw_avg = $s_mark; 
-                // B. 或者标记为分数不全
-                // $missing_marks = true;
             }
 
-            // 加权计算: (原始分 / 100) * 权重
             $weighted_score = ($raw_avg / 100) * $w;
             $total_score += $weighted_score;
         }
 
-        // 最终数据打包
         $final_grade = "N/A";
         $status_class = "st-Pending";
         $status_text = "Pending";
@@ -154,26 +125,50 @@ if ($sv_id) {
             'type' => $stud['fyp_group'],
             'group' => $group_name,
             'total_weight' => $total_weightage,
-            'final_grade' => $final_grade, // 只显示 A+, A...
+            'final_grade' => $final_grade, 
             'status_class' => $status_class,
             'status_text' => $status_text
         ];
     }
 }
 
-// 菜单定义 (记得添加 View Result 入口)
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Supervisor_mainpage.php?page=dashboard'],
+    'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'supervisor_profile.php'],
+    'students'  => [
+        'name' => 'My Students', 
+        'icon' => 'fa-users',
+        'sub_items' => [
+            'project_requests' => ['name' => 'Project Requests', 'icon' => 'fa-envelope-open-text', 'link' => 'Supervisor_projectreq.php'],
+            'student_list'     => ['name' => 'Student List', 'icon' => 'fa-list', 'link' => 'Supervisor_student_list.php'],
+        ]
+    ],
+    'fyp_project' => [
+        'name' => 'FYP Project',
+        'icon' => 'fa-project-diagram',
+        'sub_items' => [
+            'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'supervisor_purpose.php'],
+            'my_projects'     => ['name' => 'My Projects', 'icon' => 'fa-folder-open', 'link' => 'Supervisor_manage_project.php'],
+            'propose_assignment' => ['name' => 'Propose Assignment', 'icon' => 'fa-tasks', 'link' => 'supervisor_assignment_purpose.php'],
+        ]
+    ],
     'grading' => [
         'name' => 'Assessment',
         'icon' => 'fa-marker',
         'sub_items' => [
             'grade_assignment' => ['name' => 'Grade Assignments', 'icon' => 'fa-check-square', 'link' => 'Supervisor_assignment_grade.php'],
-            'view_result' => ['name' => 'Final Results', 'icon' => 'fa-poll', 'link' => 'Supervisor_view_result.php'], // 新入口
             'grade_mod' => ['name' => 'Moderator Grading', 'icon' => 'fa-gavel', 'link' => 'Moderator_assignment_grade.php'],
         ]
     ],
-    // ... 其他菜单保持不变 ...
+    'announcement' => [
+        'name' => 'Announcement',
+        'icon' => 'fa-bullhorn',
+        'sub_items' => [
+            'post_announcement' => ['name' => 'Post Announcement', 'icon' => 'fa-pen-square', 'link' => 'supervisor_announcement.php'],
+            'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Supervisor_announcement_view.php'],
+        ]
+    ],
+    'schedule'  => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'supervisor_meeting.php'],
 ];
 ?>
 
@@ -183,45 +178,83 @@ $menu_items = [
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Student Final Results</title>
-    <link rel="icon" type="image/png" href="<?php echo $user_avatar; ?>">
+    <link rel="icon" type="image/png" href="image/ladybug.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap');
-        :root { --primary-color: #0056b3; --primary-hover: #004494; --secondary-color: #f4f4f9; --text-color: #333; --border-color: #e0e0e0; --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); --gradient-start: #eef2f7; --gradient-end: #ffffff; --sidebar-width: 260px; }
-        body { font-family: 'Poppins', sans-serif; margin: 0; background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end)); color: var(--text-color); min-height: 100vh; display: flex; flex-direction: column; }
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap');
         
-        /* Layout & Sidebar (Copied from previous) */
-        .topbar { display: flex; justify-content: space-between; align-items: center; padding: 15px 40px; background-color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); position: sticky; top: 0; z-index:100; }
-        .logo { font-size: 22px; font-weight: 600; color: var(--primary-color); display: flex; align-items: center; gap: 10px; }
-        .topbar-right { display: flex; align-items: center; gap: 20px; }
-        .user-name-display { font-weight: 600; font-size: 14px; display: block; }
-        .user-role-badge { font-size: 11px; background-color: #e3effd; color: var(--primary-color); padding: 2px 8px; border-radius: 12px; font-weight: 500; }
-        .user-avatar-circle { width: 40px; height: 40px; border-radius: 50%; overflow: hidden; border: 2px solid #e3effd; margin-left: 10px; }
-        .user-avatar-circle img { width: 100%; height: 100%; object-fit: cover; }
-        .logout-btn { color: #d93025; text-decoration: none; font-size: 14px; font-weight: 500; padding: 8px 15px; border-radius: 6px; }
-
-        .layout-container { display: flex; flex: 1; max-width: 1400px; margin: 0 auto; width: 100%; padding: 20px; box-sizing: border-box; gap: 20px; }
-        .sidebar { width: var(--sidebar-width); background: #fff; border-radius: 12px; box-shadow: var(--card-shadow); padding: 20px 0; flex-shrink: 0; min-height: calc(100vh - 120px); }
-        .menu-list { list-style: none; padding: 0; margin: 0; }
-        .menu-item { margin-bottom: 5px; }
-        .menu-link { display: flex; align-items: center; padding: 12px 25px; text-decoration: none; color: #555; font-weight: 500; font-size: 15px; transition: all 0.3s; border-left: 4px solid transparent; }
-        .menu-link:hover { background-color: var(--secondary-color); color: var(--primary-color); }
-        .menu-link.active { background-color: #e3effd; color: var(--primary-color); border-left-color: var(--primary-color); }
-        .menu-icon { width: 24px; margin-right: 10px; text-align: center; }
-        .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: block; }
-        .submenu .menu-link { padding-left: 58px; font-size: 14px; padding-top: 10px; padding-bottom: 10px; }
-        .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; }
-
-        /* Result Table Styles */
-        .card { background: #fff; padding: 25px; border-radius: 12px; box-shadow: var(--card-shadow); }
-        .result-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        .result-table th { text-align: left; padding: 12px 15px; color: #666; font-size: 13px; border-bottom: 2px solid #eee; background: #f9f9f9; }
-        .result-table td { padding: 15px; border-bottom: 1px solid #f0f0f0; color: #333; font-size: 14px; vertical-align: middle; }
-        
-        .grade-badge { 
-            display: inline-block; width: 40px; height: 40px; line-height: 40px; 
-            text-align: center; border-radius: 50%; font-weight: 700; font-size: 14px;
+        :root {
+            --primary-color: #0056b3;
+            --primary-hover: #004494;
+            --bg-color: #f4f6f9;
+            --card-bg: #ffffff;
+            --text-color: #333;
+            --text-secondary: #666;
+            --sidebar-bg: #004085; 
+            --sidebar-hover: #003366;
+            --sidebar-text: #e0e0e0;
+            --card-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            --border-color: #e0e0e0;
+            --slot-bg: #f8f9fa;
         }
+
+        .dark-mode {
+            --primary-color: #4da3ff;
+            --primary-hover: #0069d9;
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-color: #e0e0e0;
+            --text-secondary: #a0a0a0;
+            --sidebar-bg: #0d1117;
+            --sidebar-hover: #161b22;
+            --sidebar-text: #c9d1d9;
+            --card-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            --border-color: #333;
+            --slot-bg: #2d2d2d;
+        }
+
+        body { font-family: 'Poppins', sans-serif; margin: 0; background-color: var(--bg-color); min-height: 100vh; display: flex; overflow-x: hidden; transition: background-color 0.3s, color 0.3s; }
+
+        .main-menu { background: var(--sidebar-bg); border-right: 1px solid rgba(255,255,255,0.1); position: fixed; top: 0; bottom: 0; height: 100%; left: 0; width: 60px; overflow-y: auto; overflow-x: hidden; transition: width .05s linear; z-index: 1000; box-shadow: 2px 0 5px rgba(0,0,0,0.1); }
+        .main-menu:hover, nav.main-menu.expanded { width: 250px; }
+        .main-menu > ul { margin: 7px 0; padding: 0; list-style: none; }
+        .main-menu li { position: relative; display: block; width: 250px; }
+        .main-menu li > a { position: relative; display: table; border-collapse: collapse; border-spacing: 0; color: var(--sidebar-text); font-size: 14px; text-decoration: none; transition: all .1s linear; width: 100%; }
+        .main-menu .nav-icon { position: relative; display: table-cell; width: 60px; height: 46px; text-align: center; vertical-align: middle; font-size: 18px; }
+        .main-menu .nav-text { position: relative; display: table-cell; vertical-align: middle; width: 190px; padding-left: 10px; white-space: nowrap; }
+        .main-menu li:hover > a, nav.main-menu li.active > a, .menu-item.open > a { color: #fff; background-color: var(--sidebar-hover); border-left: 4px solid #fff; }
+        .main-menu > ul.logout { position: absolute; left: 0; bottom: 0; width: 100%; }
+        .dropdown-arrow { position: absolute; right: 15px; top: 50%; transform: translateY(-50%); transition: transform 0.3s; font-size: 12px; }
+        .menu-item.open .dropdown-arrow { transform: translateY(-50%) rotate(180deg); }
+        .submenu { list-style: none; padding: 0; margin: 0; background-color: rgba(0,0,0,0.2); max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; }
+        .menu-item.open .submenu { max-height: 500px; transition: max-height 0.5s ease-in; }
+        .submenu li > a { padding-left: 70px !important; font-size: 13px; height: 40px; }
+
+        .main-content-wrapper { margin-left: 60px; flex: 1; padding: 20px; width: calc(100% - 60px); transition: margin-left .05s linear; }
+
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; background: var(--card-bg); padding: 20px; border-radius: 12px; box-shadow: var(--card-shadow); transition: background 0.3s; }
+        .welcome-text h1 { margin: 0; font-size: 24px; color: var(--primary-color); font-weight: 600; }
+        .welcome-text p { margin: 5px 0 0; color: var(--text-color); font-size: 14px; opacity: 0.8; }
+        .logo-section { display: flex; align-items: center; gap: 12px; }
+        .logo-img { height: 40px; width: auto; background: white; padding: 2px; border-radius: 6px; }
+        .system-title { font-size: 20px; font-weight: 600; color: var(--primary-color); letter-spacing: 0.5px; }
+
+        .user-section { display: flex; align-items: center; gap: 10px; }
+        .user-badge { font-size: 13px; color: var(--text-secondary); background: var(--slot-bg); padding: 5px 10px; border-radius: 20px; }
+        .user-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
+        .user-avatar-placeholder { width: 40px; height: 40px; border-radius: 50%; background: #0056b3; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+
+        .result-container { background: var(--card-bg); padding: 25px; border-radius: 12px; box-shadow: var(--card-shadow); border-top: 5px solid var(--primary-color); transition: background 0.3s; }
+        .result-header { text-align: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid var(--border-color); }
+        .result-header h2 { margin: 0; color: var(--text-color); font-size: 22px; }
+
+        .result-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        .result-table th { background: var(--slot-bg); text-align: left; padding: 15px; color: var(--text-secondary); font-size: 13px; font-weight: 600; border-bottom: 2px solid var(--border-color); }
+        .result-table td { padding: 15px; border-bottom: 1px solid var(--border-color); color: var(--text-color); font-size: 14px; vertical-align: middle; }
+        .result-table tr:hover { background-color: var(--slot-bg); }
+
+        .grade-badge { display: inline-block; width: 35px; height: 35px; line-height: 35px; text-align: center; border-radius: 50%; font-weight: 700; font-size: 13px; }
         .grade-A, .grade-A-plus, .grade-A-minus { background: #d4edda; color: #155724; }
         .grade-B, .grade-B-plus, .grade-B-minus { background: #cce5ff; color: #004085; }
         .grade-C, .grade-C-plus, .grade-C-minus { background: #fff3cd; color: #856404; }
@@ -235,62 +268,77 @@ $menu_items = [
 
         .weight-bar { height: 6px; background: #eee; border-radius: 3px; width: 100px; margin-top: 5px; overflow: hidden; }
         .weight-fill { height: 100%; background: var(--primary-color); }
+        
+        .empty-box { text-align:center; padding:50px; color:var(--text-secondary); }
+
+        .theme-toggle {
+            cursor: pointer; padding: 8px; border-radius: 50%;
+            background: var(--slot-bg); border: 1px solid var(--border-color);
+            color: var(--text-color); display: flex; align-items: center;
+            justify-content: center; width: 35px; height: 35px; margin-right: 15px;
+        }
+        .theme-toggle img { width: 20px; height: 20px; object-fit: contain; }
+
+        @media (max-width: 900px) { .main-content-wrapper { margin-left: 0; width: 100%; } }
     </style>
 </head>
 <body>
-    <header class="topbar">
-        <div class="logo"><img src="image/ladybug.png" alt="Logo" style="width: 32px; margin-right: 10px;"> FYP Grading</div>
-        <div class="topbar-right">
-            <span class="user-role-badge">Supervisor</span>
-            <span style="font-weight:600; margin: 0 10px; font-size:14px;"><?php echo htmlspecialchars($user_name); ?></span>
-            <a href="login.php" class="logout-btn"><i class="fa fa-sign-out-alt"></i></a>
-        </div>
-    </header>
-
-    <div class="layout-container">
-        <aside class="sidebar">
-            <ul class="menu-list">
-                <?php foreach ($menu_items as $key => $item): ?>
-                    <?php 
-                        $isActive = ($key == $current_page);
-                        $hasActiveChild = false;
-                        if (isset($item['sub_items'])) {
-                            foreach ($item['sub_items'] as $sub_key => $sub) {
-                                if ($sub_key == $current_page) { $hasActiveChild = true; break; }
-                            }
+    <nav class="main-menu">
+        <ul>
+            <?php foreach ($menu_items as $key => $item): ?>
+                <?php 
+                    $isActive = ($key == 'grading' || ($key == 'grading' && in_array($current_page, array_keys($item['sub_items'] ?? []))));
+                    $hasActiveChild = false;
+                    if (isset($item['sub_items'])) {
+                        foreach ($item['sub_items'] as $sub_key => $sub) {
+                            if ($sub_key == $current_page) { $hasActiveChild = true; break; }
                         }
-                        $linkUrl = isset($item['link']) ? $item['link'] . "&auth_user_id=" . urlencode($auth_user_id) : "#";
-                    ?>
-                    <li class="menu-item <?php echo $hasActiveChild ? 'has-active-child' : ''; ?>">
-                        <a href="<?php echo $linkUrl; ?>" class="menu-link <?php echo $isActive ? 'active' : ''; ?>">
-                            <span class="menu-icon"><i class="fa <?php echo $item['icon']; ?>"></i></span>
-                            <?php echo $item['name']; ?>
-                        </a>
-                        <?php if (isset($item['sub_items'])): ?>
-                            <ul class="submenu">
-                                <?php foreach ($item['sub_items'] as $sub_key => $sub_item): 
-                                    $subLinkUrl = isset($sub_item['link']) ? $sub_item['link'] . "&auth_user_id=" . urlencode($auth_user_id) : "#";
-                                ?>
-                                    <li><a href="<?php echo $subLinkUrl; ?>" class="menu-link <?php echo ($sub_key == $current_page) ? 'active' : ''; ?>">
-                                        <span class="menu-icon"><i class="fa <?php echo $sub_item['icon']; ?>"></i></span> <?php echo $sub_item['name']; ?>
-                                    </a></li>
-                                <?php endforeach; ?>
-                            </ul>
-                        <?php endif; ?>
-                    </li>
-                <?php endforeach; ?>
-            </ul>
-        </aside>
+                    }
+                    $linkUrl = isset($item['link']) ? $item['link'] : "#";
+                    if ($linkUrl !== "#") { $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?'; $linkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id); }
+                    $hasSubmenu = isset($item['sub_items']);
+                ?>
+                <li class="menu-item <?php echo $hasActiveChild ? 'open' : ''; ?>">
+                    <a href="<?php echo $hasSubmenu ? 'javascript:void(0)' : $linkUrl; ?>" class="<?php echo $isActive ? 'active' : ''; ?>" <?php if ($hasSubmenu): ?>onclick="toggleSubmenu(this)"<?php endif; ?>>
+                        <i class="fa <?php echo $item['icon']; ?> nav-icon"></i><span class="nav-text"><?php echo $item['name']; ?></span><?php if ($hasSubmenu): ?><i class="fa fa-chevron-down dropdown-arrow"></i><?php endif; ?>
+                    </a>
+                    <?php if ($hasSubmenu): ?>
+                        <ul class="submenu">
+                            <?php foreach ($item['sub_items'] as $sub_key => $sub_item): 
+                                $subLinkUrl = isset($sub_item['link']) ? $sub_item['link'] : "#";
+                                if ($subLinkUrl !== "#") { $separator = (strpos($subLinkUrl, '?') !== false) ? '&' : '?'; $subLinkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id); }
+                            ?>
+                                <li><a href="<?php echo $subLinkUrl; ?>" class="<?php echo ($sub_key == $current_page) ? 'active' : ''; ?>"><i class="fa <?php echo $sub_item['icon']; ?> nav-icon"></i><span class="nav-text"><?php echo $sub_item['name']; ?></span></a></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php endif; ?>
+                </li>
+            <?php endforeach; ?>
+        </ul>
+        <ul class="logout"><li><a href="login.php"><i class="fa fa-power-off nav-icon"></i><span class="nav-text">Logout</span></a></li></ul>
+    </nav>
 
-        <main class="main-content">
-            <div class="card">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-                    <h2 style="margin:0; font-size:20px; color:var(--primary-color);">Final Results Overview</h2>
-                    <div style="font-size:13px; color:#666;">
-                        <i class="fa fa-info-circle"></i> Grades are calculated only when Total Weightage is 100%.
-                    </div>
-                </div>
+    <div class="main-content-wrapper">
+        <div class="page-header">
+            <div class="welcome-text"><h1>Final Results</h1><p>Academic Session 2025/2026</p></div>
+            <div class="logo-section"><img src="image/ladybug.png" alt="Logo" class="logo-img"><span class="system-title">FYP Portal</span></div>
+            <div class="user-section">
+                <button class="theme-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">
+                    <img id="theme-icon" src="image/moon-solid-full.svg" alt="Toggle Theme">
+                </button>
+                <span class="user-badge">Supervisor</span>
+                <?php if(!empty($user_avatar) && $user_avatar != 'image/user.png'): ?>
+                    <img src="<?php echo htmlspecialchars($user_avatar); ?>" class="user-avatar" alt="User Avatar">
+                <?php else: ?>
+                    <div class="user-avatar-placeholder"><?php echo strtoupper(substr($user_name, 0, 1)); ?></div>
+                <?php endif; ?>
+            </div>
+        </div>
 
+        <div class="result-container">
+            <div class="result-header"><h2>Final Examination Result Slip</h2></div>
+
+            <?php if (count($student_results) > 0): ?>
                 <table class="result-table">
                     <thead>
                         <tr>
@@ -302,49 +350,77 @@ $menu_items = [
                         </tr>
                     </thead>
                     <tbody>
-                        <?php if (count($student_results) > 0): ?>
-                            <?php foreach ($student_results as $res): 
-                                // 生成 CSS 类名 (例如 grade-A-plus)
-                                $gradeClass = 'grade-' . str_replace(['+', '-'], ['-plus', '-minus'], $res['final_grade']);
-                                if ($res['final_grade'] == 'N/A') $gradeClass = 'grade-NA';
-                            ?>
-                                <tr>
-                                    <td>
-                                        <div style="font-weight:600;"><?php echo htmlspecialchars($res['name']); ?></div>
-                                        <div style="font-size:12px; color:#888;"><?php echo $res['id']; ?></div>
-                                    </td>
-                                    <td>
-                                        <?php if (!empty($res['group'])): ?>
-                                            <span style="color:var(--primary-color); font-weight:500;"><i class="fa fa-users"></i> <?php echo htmlspecialchars($res['group']); ?></span>
-                                        <?php else: ?>
-                                            <span style="color:#777;">Individual</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <div style="font-size:12px; font-weight:600; color:#555;"><?php echo $res['total_weight']; ?>% Collected</div>
-                                        <div class="weight-bar">
-                                            <div class="weight-fill" style="width: <?php echo min($res['total_weight'], 100); ?>%; background: <?php echo ($res['total_weight']==100) ? '#28a745' : '#d93025'; ?>;"></div>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <span class="status-pill <?php echo $res['status_class']; ?>">
-                                            <?php echo $res['status_text']; ?>
-                                        </span>
-                                    </td>
-                                    <td style="text-align:center;">
-                                        <div class="grade-badge <?php echo $gradeClass; ?>">
-                                            <?php echo $res['final_grade']; ?>
-                                        </div>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        <?php else: ?>
-                            <tr><td colspan="5" style="text-align:center; padding:30px; color:#999;">No students found under your supervision.</td></tr>
-                        <?php endif; ?>
+                        <?php foreach ($student_results as $res): 
+                            $gradeClass = 'grade-' . str_replace(['+', '-'], ['-plus', '-minus'], $res['final_grade']);
+                            if ($res['final_grade'] == 'N/A') $gradeClass = 'grade-NA';
+                        ?>
+                            <tr>
+                                <td>
+                                    <div style="font-weight:600;"><?php echo htmlspecialchars($res['name']); ?></div>
+                                    <div style="font-size:12px; color:var(--text-secondary);"><?php echo $res['id']; ?></div>
+                                </td>
+                                <td>
+                                    <?php if (!empty($res['group'])): ?>
+                                        <span style="color:var(--primary-color); font-weight:500;"><i class="fa fa-users"></i> <?php echo htmlspecialchars($res['group']); ?></span>
+                                    <?php else: ?>
+                                        <span style="color:var(--text-secondary);">Individual</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <div style="font-size:12px; font-weight:600; color:var(--text-secondary);"><?php echo $res['total_weight']; ?>% Collected</div>
+                                    <div class="weight-bar">
+                                        <div class="weight-fill" style="width: <?php echo min($res['total_weight'], 100); ?>%; background: <?php echo ($res['total_weight']==100) ? '#28a745' : '#d93025'; ?>;"></div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="status-pill <?php echo $res['status_class']; ?>">
+                                        <?php echo $res['status_text']; ?>
+                                    </span>
+                                </td>
+                                <td style="text-align:center;">
+                                    <div class="grade-badge <?php echo $gradeClass; ?>">
+                                        <?php echo $res['final_grade']; ?>
+                                    </div>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
                     </tbody>
                 </table>
-            </div>
-        </main>
+            <?php else: ?>
+                <div class="empty-box"><i class="fa fa-search" style="font-size:48px; opacity:0.3; margin-bottom:15px;"></i><p>No students found under your supervision.</p></div>
+            <?php endif; ?>
+        </div>
     </div>
+
+    <script>
+        function toggleSubmenu(element) {
+            const menuItem = element.parentElement;
+            const isOpen = menuItem.classList.contains('open');
+            document.querySelectorAll('.menu-item').forEach(item => { if (item !== menuItem) item.classList.remove('open'); });
+            if (isOpen) menuItem.classList.remove('open'); else menuItem.classList.add('open');
+        }
+
+        function toggleDarkMode() {
+            document.body.classList.toggle('dark-mode');
+            const isDark = document.body.classList.contains('dark-mode');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            
+            const iconImg = document.getElementById('theme-icon');
+            if (isDark) {
+                iconImg.src = 'image/sun-solid-full.svg'; 
+            } else {
+                iconImg.src = 'image/moon-solid-full.svg'; 
+            }
+        }
+
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'dark') {
+            document.body.classList.add('dark-mode');
+            const iconImg = document.getElementById('theme-icon');
+            if(iconImg) {
+                iconImg.src = 'image/sun-solid-full.svg'; 
+            }
+        }
+    </script>
 </body>
 </html>
