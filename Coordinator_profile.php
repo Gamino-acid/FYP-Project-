@@ -18,6 +18,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_profile'])) {
     
     $response = ['success' => false, 'message' => 'Unknown error'];
 
+    if (preg_match('/[a-zA-Z]/', $contact)) {
+        $response['message'] = 'Contact number cannot contain letters.';
+        if(isset($_POST['ajax'])) { echo json_encode($response); exit; }
+    }
+
     $sql_update = "UPDATE coordinator SET 
                    fyp_contactno = ?, 
                    fyp_roomno = ?, 
@@ -165,7 +170,7 @@ $menu_items = [
     ],
     
     'project_mgmt' => [
-        'name' => 'Project Mgmt', 
+        'name' => 'Project Manage', 
         'icon' => 'fa-tasks', 
         'sub_items' => [
             'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'Coordinator_purpose.php'],
@@ -929,7 +934,11 @@ $menu_items = [
 
                     <div class="form-group">
                         <label>Contact Number:</label>
-                        <input type="text" name="contact" class="form-control" value="<?php echo htmlspecialchars($coor_data['fyp_contactno']); ?>" required>
+                        <input type="text" name="contact" class="form-control" 
+                               value="<?php echo htmlspecialchars($coor_data['fyp_contactno']); ?>" 
+                               pattern="^[0-9+\-\s()]*$" 
+                               title="Contact number can only contain numbers, spaces, and symbols like + - ( )"
+                               required>
                     </div>
                     
                     <div class="form-group">

@@ -397,7 +397,7 @@ $menu_items = [
     ],
     
     'project_mgmt' => [
-        'name' => 'Project Mgmt', 
+        'name' => 'Project Manage', 
         'icon' => 'fa-tasks', 
         'sub_items' => [
             'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'Coordinator_purpose.php'],
@@ -446,7 +446,7 @@ $menu_items = [
             --card-bg: #ffffff;
             --text-color: #333;
             --text-secondary: #666;
-            --sidebar-bg: #004085;
+            --sidebar-bg: #004085; 
             --sidebar-hover: #003366;
             --sidebar-text: #e0e0e0;
             --card-shadow: 0 4px 6px rgba(0,0,0,0.05);
@@ -684,13 +684,214 @@ $menu_items = [
             font-weight: bold;
         }
 
-        .card { background: var(--card-bg); padding: 25px; border-radius: 12px; box-shadow: var(--card-shadow); margin-bottom: 25px; }
+        .bulk-bar {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            display: flex;
+            align-items: flex-end;
+            gap: 20px;
+            box-shadow: var(--card-shadow);
+            border-left: 5px solid #ffc107;
+            margin-bottom: 20px;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            box-sizing: border-box;
+            background: var(--slot-bg);
+            color: var(--text-color);
+        }
+
+        .btn-bulk {
+            background: #ffc107;
+            color: #333;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .btn-bulk:hover {
+            background: #e0a800;
+            transform: translateY(-1px);
+        }
+
+        .content-card {
+            background: var(--card-bg);
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: var(--card-shadow);
+        }
+
+        .q-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .q-table th {
+            background: var(--slot-bg);
+            color: var(--text-secondary);
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .q-table td {
+            padding: 15px;
+            border-bottom: 1px solid var(--border-color);
+            vertical-align: middle;
+            color: var(--text-color);
+            font-size: 14px;
+        }
+
+        .q-table tr:hover {
+            background-color: var(--slot-bg);
+        }
+
+        .role-badge {
+            font-size: 11px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-weight: 600;
+            display: inline-block;
+        }
+
+        .role-Supervisor { background: #e3effd; color: #0056b3; }
+        .role-Coordinator { background: #e8f5e9; color: #2e7d32; }
+
+        .btn-manage {
+            background: var(--card-bg);
+            border: 1px solid var(--primary-color);
+            color: var(--primary-color);
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-manage:hover {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .pagination {
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 5px;
+        }
+
+        .page-link {
+            padding: 8px 14px;
+            border: 1px solid var(--border-color);
+            background: var(--card-bg);
+            color: var(--text-color);
+            text-decoration: none;
+            border-radius: 6px;
+            transition: 0.2s;
+            font-size: 14px;
+        }
+
+        .page-link:hover {
+            background: var(--slot-bg);
+        }
+
+        .page-link.active {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-overlay.show {
+            display: flex;
+        }
+
+        .modal-box {
+            background: var(--card-bg);
+            width: 90%;
+            max-width: 800px;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+            border-top: 6px solid var(--primary-color);
+            text-align: center;
+            position: relative;
+        }
+
+        .close-modal {
+            position: absolute;
+            right: 25px;
+            top: 20px;
+            font-size: 28px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: color 0.2s;
+        }
+        
+        .close-modal:hover {
+            color: var(--text-color);
+        }
+
+        .btn-save {
+            background: var(--primary-color);
+            color: white;
+            padding: 14px 25px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            width: 100%;
+            font-size: 16px;
+            font-weight: 600;
+            margin-top: 20px;
+            transition: background 0.2s;
+        }
+
+        .btn-save:hover {
+            background: var(--primary-hover);
+        }
         
         .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
         .tab-btn { text-decoration: none; padding: 10px 20px; border-radius: 20px; font-weight: 500; font-size: 14px; transition: all 0.3s; border: 2px solid transparent; display: inline-flex; align-items: center; gap: 8px; }
         .tab-btn.active { background: var(--primary-color); color: white; border-color: var(--primary-color); }
         .tab-btn.inactive { background: var(--slot-bg); color: var(--text-secondary); border-color: var(--border-color); }
         .tab-btn.inactive:hover { border-color: var(--primary-color); color: var(--primary-color); }
+
+        .bulk-upload-card {
+            border: 2px dashed var(--border-color);
+            background: var(--slot-bg);
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
 
         .action-bar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; margin-bottom: 20px; }
         .search-form { display: flex; flex: 1; min-width: 300px; gap: 10px; }
@@ -703,18 +904,6 @@ $menu_items = [
 
         .sort-select { padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; outline: none; font-family: inherit; cursor: pointer; background: var(--slot-bg); color: var(--text-color); }
 
-        table { width: 100%; border-collapse: collapse; }
-        th { background: var(--slot-bg); color: var(--text-secondary); font-weight: 600; padding: 12px; text-align: left; border-bottom: 2px solid var(--border-color); font-size: 13px; text-transform: uppercase; }
-        td { padding: 12px; border-bottom: 1px solid var(--border-color); font-size: 14px; color: var(--text-color); vertical-align: middle; }
-        tr:last-child td { border-bottom: none; }
-        
-        .badge { padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
-        .badge-yellow { background: #fff3cd; color: #856404; }
-        
-        .status-badge { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
-        .status-Active { background: #d4edda; color: #155724; }
-        .status-Archived { background: #e2e3e5; color: #383d41; }
-        
         .btn-action { padding: 6px 12px; border-radius: 4px; border: none; cursor: pointer; font-size: 12px; font-weight: 500; transition: 0.2s; display: inline-flex; align-items: center; gap: 5px; }
         .btn-blue { background: var(--primary-color); color: white; }
         .btn-red { background: #dc3545; color: white; }
@@ -726,30 +915,18 @@ $menu_items = [
         .alert-box { padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; font-size: 14px; }
         .alert-pending { background: #fff3cd; border-left: 4px solid #ffc107; color: #856404; }
         .alert-reset { background: #e3f2fd; border-left: 4px solid #2196f3; color: #0d47a1; }
-        
-        .bulk-upload-card {
-            border: 2px dashed var(--border-color);
-            background: var(--slot-bg);
-            padding: 20px;
-            border-radius: 12px;
-            margin-bottom: 25px;
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-        
-        .modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; }
-        .modal.show { display: flex; }
-        .modal-content { background: var(--card-bg); padding: 30px; border-radius: 12px; width: 500px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); position: relative; animation: popIn 0.3s ease; }
-        .close-modal { position: absolute; right: 20px; top: 15px; font-size: 24px; cursor: pointer; color: var(--text-secondary); }
-        .input-group { margin-bottom: 15px; }
-        .input-group label { display: block; margin-bottom: 5px; font-size: 13px; color: var(--text-secondary); font-weight: 500; }
-        .btn-block { width: 100%; justify-content: center; padding: 12px; font-size: 15px; margin-top: 10px; }
 
-        .pagination { margin-top: 20px; display: flex; justify-content: center; gap: 5px; }
-        .page-link { padding: 8px 14px; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-color); text-decoration: none; border-radius: 6px; transition: 0.2s; font-size: 14px; }
-        .page-link:hover { background: var(--slot-bg); }
-        .page-link.active { background: var(--primary-color); color: white; border-color: var(--primary-color); }
+        .section-header { 
+            display: flex; justify-content: space-between; align-items: center; 
+            border-bottom: 1px solid var(--border-color); padding-bottom: 15px; margin-bottom: 20px; 
+        }
+
+        .status-badge { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+        .status-Active { background: #d4edda; color: #155724; }
+        .status-Archived { background: #e2e3e5; color: #383d41; }
+        
+        .input-row { display: flex; gap: 20px; margin-bottom: 20px; }
+        .input-group { margin-bottom: 20px; width: 100%; text-align: left; }
         
         .theme-toggle {
             cursor: pointer; padding: 8px; border-radius: 50%;
@@ -759,8 +936,25 @@ $menu_items = [
         }
         .theme-toggle img { width: 20px; height: 20px; object-fit: contain; }
 
-        @keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-        @media (max-width: 900px) { .main-content-wrapper { margin-left: 0; width: 100%; } .bulk-upload-card { flex-direction: column; text-align: center; } }
+        @media (max-width: 900px) {
+            .main-content-wrapper {
+                margin-left: 0;
+                width: 100%;
+            }
+            .bulk-bar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .page-header {
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
+            }
+            .input-row {
+                flex-direction: column;
+                gap: 0;
+            }
+        }
     </style>
 </head>
 <body>
@@ -769,7 +963,7 @@ $menu_items = [
         <ul>
             <?php foreach ($menu_items as $key => $item): ?>
                 <?php 
-                    $isActive = ($key == 'management'); 
+                    $isActive = ($key == 'management');
                     $hasActiveChild = false;
                     if (isset($item['sub_items'])) {
                         foreach ($item['sub_items'] as $sub_key => $sub) {
@@ -777,16 +971,23 @@ $menu_items = [
                         }
                     }
                     $linkUrl = isset($item['link']) ? $item['link'] : "#";
-                    if ($linkUrl !== "#") {
+                    if ($linkUrl !== "#" && strpos($linkUrl, '.php') !== false) {
                          $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?';
                          $linkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
                     }
                     $hasSubmenu = isset($item['sub_items']);
                 ?>
                 <li class="menu-item <?php echo $hasActiveChild ? 'open' : ''; ?>">
-                    <a href="<?php echo $hasSubmenu ? 'javascript:void(0)' : $linkUrl; ?>" class="<?php echo $isActive ? 'active' : ''; ?>" <?php if ($hasSubmenu): ?>onclick="toggleSubmenu(this)"<?php endif; ?>>
-                        <i class="fa <?php echo $item['icon']; ?> nav-icon"></i><span class="nav-text"><?php echo $item['name']; ?></span><?php if ($hasSubmenu): ?><i class="fa fa-chevron-down dropdown-arrow"></i><?php endif; ?>
+                    <a href="<?php echo $hasSubmenu ? 'javascript:void(0)' : $linkUrl; ?>" 
+                       class="<?php echo $isActive ? 'active' : ''; ?>"
+                       <?php if ($hasSubmenu): ?>onclick="toggleSubmenu(this)"<?php endif; ?>>
+                        <i class="fa <?php echo $item['icon']; ?> nav-icon"></i>
+                        <span class="nav-text"><?php echo $item['name']; ?></span>
+                        <?php if ($hasSubmenu): ?>
+                            <i class="fa fa-chevron-down dropdown-arrow"></i>
+                        <?php endif; ?>
                     </a>
+                    
                     <?php if ($hasSubmenu): ?>
                         <ul class="submenu">
                             <?php foreach ($item['sub_items'] as $sub_key => $sub_item): 
@@ -803,7 +1004,15 @@ $menu_items = [
                 </li>
             <?php endforeach; ?>
         </ul>
-        <ul class="logout"><li><a href="login.php"><i class="fa fa-power-off nav-icon"></i><span class="nav-text">Logout</span></a></li></ul>
+
+        <ul class="logout">
+            <li>
+                <a href="login.php">
+                    <i class="fa fa-power-off nav-icon"></i>
+                    <span class="nav-text">Logout</span>
+                </a>
+            </li>  
+        </ul>
     </nav>
 
     <div class="main-content-wrapper">
@@ -814,7 +1023,7 @@ $menu_items = [
             </div>
             
             <div class="logo-section">
-                <img src="image/ladybug.png" alt="Logo" class="logo-img">
+                <img src="image/ladybug.png?v=<?php echo time(); ?>" alt="Logo" class="logo-img">
                 <span class="system-title">FYP Portal</span>
             </div>
 
@@ -823,19 +1032,25 @@ $menu_items = [
                     <img id="theme-icon" src="image/moon-solid-full.svg" alt="Toggle Theme">
                 </button>
                 <span class="user-badge">Coordinator</span>
-                <img src="<?php echo htmlspecialchars($user_avatar); ?>" class="user-avatar" id="headerAvatar" alt="User Avatar">
+                <?php if(!empty($user_avatar) && $user_avatar !== 'image/user.png'): ?>
+                    <img src="<?php echo htmlspecialchars($user_avatar); ?>" class="user-avatar" alt="Avatar">
+                <?php else: ?>
+                    <div class="user-avatar-placeholder">
+                        <?php echo strtoupper(substr($user_name, 0, 1)); ?>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
 
         <?php if (!empty($pending_resets)): ?>
         <div class="alert-box alert-reset">
-            <i class="fas fa-key fa-lg"></i>
+            <i class="fa fa-key fa-lg"></i>
             <div style="flex:1;">
                 <strong>Password Reset Requests</strong><br>
                 Students have requested password resets. Please review below.
             </div>
         </div>
-        <div class="card">
+        <div class="content-card">
             <table>
                 <thead><tr><th>Student ID</th><th>Email</th><th>Requested</th><th>Action</th></tr></thead>
                 <tbody>
@@ -847,8 +1062,8 @@ $menu_items = [
                         <td>
                             <form method="POST" style="display:inline;">
                                 <input type="hidden" name="request_id" value="<?php echo $req['request_id']; ?>">
-                                <button type="submit" name="approve_reset" class="btn-action btn-green"><i class="fas fa-check"></i> Approve</button>
-                                <button type="submit" name="reject_reset" class="btn-action btn-red"><i class="fas fa-times"></i> Reject</button>
+                                <button type="submit" name="approve_reset" class="btn-action btn-green"><i class="fa fa-check"></i> Approve</button>
+                                <button type="submit" name="reject_reset" class="btn-action btn-red"><i class="fa fa-times"></i> Reject</button>
                             </form>
                         </td>
                     </tr>
@@ -860,17 +1075,17 @@ $menu_items = [
 
         <?php if ($tab == 'student' && !empty($pending_registrations)): ?>
         <div class="alert-box alert-pending">
-            <i class="fas fa-user-clock fa-lg"></i>
+            <i class="fa fa-user-clock fa-lg"></i>
             <div style="flex:1;">
                 <strong>Pending Registrations</strong><br>
                 New students are waiting for approval to access the system.
             </div>
         </div>
-        <div class="card" style="border: 1px solid #ffeeba;">
+        <div class="content-card" style="border: 1px solid #ffeeba;">
             <form method="POST">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                     <h3 style="color:#856404; margin:0;">New Accounts</h3>
-                    <button type="submit" name="bulk_approve" class="btn-action btn-green"><i class="fas fa-check-double"></i> Approve Selected</button>
+                    <button type="submit" name="bulk_approve" class="btn-action btn-green"><i class="fa fa-check-double"></i> Approve Selected</button>
                 </div>
                 <table>
                     <thead>
@@ -897,15 +1112,15 @@ $menu_items = [
 
         <div class="tabs">
             <a href="?auth_user_id=<?php echo $auth_user_id; ?>&tab=student" class="tab-btn <?php echo $tab=='student'?'active':'inactive';?>">
-                <i class="fas fa-user-graduate"></i> Students
+                <i class="fa fa-user-graduate"></i> Students
             </a>
             <a href="?auth_user_id=<?php echo $auth_user_id; ?>&tab=supervisor" class="tab-btn <?php echo $tab=='supervisor'?'active':'inactive';?>">
-                <i class="fas fa-chalkboard-teacher"></i> Supervisors
+                <i class="fa fa-chalkboard-teacher"></i> Supervisors
             </a>
         </div>
 
         <div class="bulk-upload-card">
-            <i class="fas fa-file-csv" style="font-size: 32px; color: var(--primary-color);"></i>
+            <i class="fa fa-file-csv" style="font-size: 32px; color: var(--primary-color);"></i>
             <div style="flex:1;">
                 <strong style="color:var(--text-color);">Bulk Import <?php echo ucfirst($tab); ?>s</strong>
                 <p style="margin:2px 0 0; font-size:13px; color:var(--text-secondary);">Upload a CSV file to add multiple users at once.</p>
@@ -923,14 +1138,14 @@ $menu_items = [
                 <input type="hidden" name="sort" value="<?php echo $sort_order; ?>">
                 
                 <div class="search-wrapper">
-                    <i class="fas fa-search"></i>
+                    <i class="fa fa-search"></i>
                     <input type="text" name="search" class="search-input" placeholder="Search by name, ID or email..." value="<?php echo htmlspecialchars($search_query); ?>">
                 </div>
                 
-                <button type="submit" class="search-btn"><i class="fas fa-arrow-right"></i> Search</button>
+                <button type="submit" class="search-btn"><i class="fa fa-arrow-right"></i> Search</button>
                 
                 <?php if (!empty($search_query) || $sort_order != 'newest'): ?>
-                    <a href="?auth_user_id=<?php echo $auth_user_id; ?>&tab=<?php echo $tab; ?>" class="clear-btn"><i class="fas fa-times"></i> Clear</a>
+                    <a href="?auth_user_id=<?php echo $auth_user_id; ?>&tab=<?php echo $tab; ?>" class="clear-btn"><i class="fa fa-times"></i> Clear</a>
                 <?php endif; ?>
             </form>
 
@@ -943,25 +1158,25 @@ $menu_items = [
                 
                 <?php if($tab == 'student'): ?>
                     <a href="?auth_user_id=<?php echo $auth_user_id; ?>&tab=student&action=download_template" class="btn-action btn-blue" style="background:#6c757d;">
-                        <i class="fas fa-download"></i> CSV Template
+                        <i class="fa fa-download"></i> CSV Template
                     </a>
                 <?php endif; ?>
 
                 <button onclick="openModal()" class="btn-action btn-blue" style="padding: 12px 20px; font-size: 14px;">
-                    <i class="fas fa-plus"></i> Add New
+                    <i class="fa fa-plus"></i> Add New
                 </button>
             </div>
         </div>
 
-        <div class="card" style="padding: 0; overflow: hidden;">
+        <div class="content-card" style="padding: 0; overflow: hidden;">
             <form method="POST" id="deleteForm">
                 <?php if($tab == 'student'): ?>
                     <div style="padding: 15px; background: rgba(220, 53, 69, 0.1); border-bottom: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 10px;">
-                        <button type="button" onclick="confirmArchive()" class="btn-action btn-archive"><i class="fas fa-archive"></i> Archive Selected</button>
+                        <button type="button" onclick="confirmArchive()" class="btn-action btn-archive"><i class="fa fa-archive"></i> Archive Selected</button>
                     </div>
                 <?php endif; ?>
                 
-                <table id="dataTable">
+                <table id="dataTable" class="q-table">
                     <thead>
                         <tr>
                             <?php if($tab == 'student'): ?><th style="width: 40px; text-align: center;"><input type="checkbox" onclick="toggleAll(this, 'del-chk')"></th><?php endif; ?>
@@ -998,7 +1213,7 @@ $menu_items = [
                             ?>
                                 <td>
                                     <?php if($isMod): ?>
-                                        <span class="badge" style="background:#6f42c1; color:white;"><i class="fas fa-gavel"></i> Moderator</span>
+                                        <span class="badge" style="background:#6f42c1; color:white;"><i class="fa fa-gavel"></i> Moderator</span>
                                     <?php else: ?>
                                         <span class="badge" style="background:#e9ecef; color:#666;">Supervisor</span>
                                     <?php endif; ?>
@@ -1020,7 +1235,7 @@ $menu_items = [
                                 <button type="button" onclick="toggleStatus(<?php echo $row['fyp_userid']; ?>, '<?php echo $status; ?>')" 
                                         class="btn-icon <?php echo ($status == 'Active') ? 'btn-archive' : 'btn-activate'; ?>"
                                         title="<?php echo ($status == 'Active') ? 'Archive User' : 'Activate User'; ?>">
-                                    <i class="fas <?php echo ($status == 'Active') ? 'fa-archive' : 'fa-undo'; ?>"></i>
+                                    <i class="fa <?php echo ($status == 'Active') ? 'fa-archive' : 'fa-undo'; ?>"></i>
                                 </button>
                                 
                                 <?php if($tab == 'supervisor'): 
@@ -1030,7 +1245,7 @@ $menu_items = [
                                             class="btn-icon" 
                                             style="background: <?php echo $isMod ? '#6c757d' : '#6f42c1'; ?>; color: white; margin-left: 5px;"
                                             title="<?php echo $isMod ? 'Remove Moderator Role' : 'Assign as Moderator'; ?>">
-                                        <i class="fas <?php echo $isMod ? 'fa-user-minus' : 'fa-user-plus'; ?>"></i>
+                                        <i class="fa <?php echo $isMod ? 'fa-user-minus' : 'fa-user-plus'; ?>"></i>
                                     </button>
                                 <?php endif; ?>
                             </td>
@@ -1066,10 +1281,10 @@ $menu_items = [
 
     </div>
 
-    <div id="addModal" class="modal">
-        <div class="modal-content">
+    <div id="addModal" class="modal-overlay">
+        <div class="modal-box">
             <span class="close-modal" onclick="document.getElementById('addModal').classList.remove('show')">&times;</span>
-            <h2>Add New <?php echo ucfirst($tab); ?></h2>
+            <h2 class="modal-title">Add New <?php echo ucfirst($tab); ?></h2>
             <form method="POST">
                 <?php if($tab == 'student'): ?>
                     <div class="input-row">
@@ -1091,23 +1306,32 @@ $menu_items = [
                         <input type="email" name="email" class="form-control" required>
                     </div>
                     
-                    <div style="background: var(--slot-bg); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-                        <label style="font-size: 12px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase;">Optional Details</label>
-                        <div class="input-row" style="margin-top: 10px;">
-                            <input type="text" name="contact" class="form-control" placeholder="Phone">
-                            <select name="academic_id" class="form-control">
-                                <option value="">Intake</option>
-                                <?php foreach($academic_options as $a) echo "<option value='{$a['fyp_academicid']}'>{$a['fyp_intake']}</option>"; ?>
+                    <div style="background: var(--slot-bg); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                        <label style="font-size: 13px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase; margin-bottom: 10px;">Optional Details</label>
+                        <div class="input-row">
+                            <div class="input-group">
+                                <label>Contact Number</label>
+                                <input type="text" name="contact" class="form-control" placeholder="Phone">
+                            </div>
+                            <div class="input-group">
+                                <label>Intake</label>
+                                <select name="academic_id" class="form-control">
+                                    <option value="">Select Intake</option>
+                                    <?php foreach($academic_options as $a) echo "<option value='{$a['fyp_academicid']}'>{$a['fyp_intake']}</option>"; ?>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="input-group">
+                            <label>Programme</label>
+                            <select name="prog_id" class="form-control">
+                                <option value="">Select Programme</option>
+                                <?php foreach($programme_options as $p) echo "<option value='{$p['fyp_progid']}'>{$p['fyp_progname']}</option>"; ?>
                             </select>
                         </div>
-                        <select name="prog_id" class="form-control">
-                            <option value="">Programme</option>
-                            <?php foreach($programme_options as $p) echo "<option value='{$p['fyp_progid']}'>{$p['fyp_progname']}</option>"; ?>
-                        </select>
                     </div>
 
-                    <button name="add_single_student" class="btn-action btn-blue btn-block">
-                        <i class="fas fa-save"></i> Save Student
+                    <button name="add_single_student" class="btn-save">
+                        <i class="fa fa-save"></i> Save Student
                     </button>
                 <?php else: ?>
                     <div class="input-group"><label>Full Name</label><input type="text" name="full_name" class="form-control" required></div>
@@ -1119,10 +1343,10 @@ $menu_items = [
 
                     <div class="input-group" style="display:flex; align-items:center; gap:10px; background:var(--slot-bg); padding:10px; border-radius:8px;">
                         <input type="checkbox" name="is_moderator" id="chk_mod" value="1" style="width:auto; transform:scale(1.2);">
-                        <label for="chk_mod" style="margin:0; cursor:pointer;">Assign as <strong>Moderator</strong></label>
+                        <label for="chk_mod" style="margin:0; cursor:pointer; color:var(--text-color);">Assign as <strong>Moderator</strong></label>
                     </div>
 
-                    <button name="add_supervisor" class="btn-action btn-blue btn-block">Save Supervisor</button>
+                    <button name="add_supervisor" class="btn-save">Save Supervisor</button>
                 <?php endif; ?>
             </form>
         </div>
@@ -1171,7 +1395,6 @@ $menu_items = [
             const modal = document.getElementById("addModal");
             modal.classList.add("show");
             
-            // Close when clicking outside
             modal.addEventListener('click', function(event) {
                 if (event.target === modal) {
                     modal.classList.remove("show");
@@ -1203,6 +1426,17 @@ $menu_items = [
                 title: 'Archive Selected Users?', text: "Users will be disabled but data kept.", icon: 'warning', showCancelButton: true, confirmButtonColor: '#ffc107', confirmButtonText: 'Yes, Archive'
             }).then((result) => {
                 if (result.isConfirmed) document.getElementById('deleteForm').submit();
+            });
+        }
+        
+        function deleteSingle(userId) {
+            Swal.fire({
+                title: 'Delete User?', text: "This action cannot be undone.", icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33', confirmButtonText: 'Yes, Delete'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    document.getElementById('single_delete_id').value = userId;
+                    document.getElementById('singleDeleteForm').submit();
+                }
             });
         }
         

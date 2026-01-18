@@ -92,7 +92,7 @@ $menu_items = [
     ],
     
     'project_mgmt' => [
-        'name' => 'Project Mgmt', 
+        'name' => 'Project Manage', 
         'icon' => 'fa-tasks', 
         'sub_items' => [
             'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'Coordinator_purpose.php'],
@@ -519,16 +519,14 @@ $menu_items = [
                             if ($sub_key == $current_page) { $hasActiveChild = true; break; }
                         }
                     }
-                    
                     $linkUrl = isset($item['link']) ? $item['link'] : "#";
                     if ($linkUrl !== "#" && strpos($linkUrl, '.php') !== false) {
                          $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?';
                          $linkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
                     }
-                    
                     $hasSubmenu = isset($item['sub_items']);
                 ?>
-                <li class="menu-item <?php echo $hasActiveChild ? 'open' : ''; ?>">
+                <li class="menu-item <?php echo ($hasActiveChild || $isActive) ? 'open active' : ''; ?>">
                     <a href="<?php echo $hasSubmenu ? 'javascript:void(0)' : $linkUrl; ?>" 
                        class="<?php echo $isActive ? 'active' : ''; ?>"
                        <?php if ($hasSubmenu): ?>onclick="toggleSubmenu(this)"<?php endif; ?>>
@@ -548,12 +546,7 @@ $menu_items = [
                                     $subLinkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
                                 }
                             ?>
-                                <li>
-                                    <a href="<?php echo $subLinkUrl; ?>" class="<?php echo ($sub_key == $current_page) ? 'active' : ''; ?>">
-                                        <i class="fa <?php echo $sub_item['icon']; ?> nav-icon"></i>
-                                        <span class="nav-text"><?php echo $sub_item['name']; ?></span>
-                                    </a>
-                                </li>
+                                <li><a href="<?php echo $subLinkUrl; ?>" class="<?php echo ($sub_key == $current_page) ? 'active' : ''; ?>"><i class="fa <?php echo $sub_item['icon']; ?> nav-icon"></i><span class="nav-text"><?php echo $sub_item['name']; ?></span></a></li>
                             <?php endforeach; ?>
                         </ul>
                     <?php endif; ?>
@@ -588,7 +581,7 @@ $menu_items = [
                     <img id="theme-icon" src="image/moon-solid-full.svg" alt="Toggle Theme">
                 </button>
                 <span class="user-badge">Coordinator</span>
-                <?php if(!empty($user_avatar) && $user_avatar != 'image/user.png'): ?>
+                <?php if(!empty($user_avatar) && $user_avatar !== 'image/user.png'): ?>
                     <img src="<?php echo htmlspecialchars($user_avatar); ?>" class="user-avatar" alt="Avatar">
                 <?php else: ?>
                     <div class="user-avatar-placeholder">
@@ -606,7 +599,7 @@ $menu_items = [
                 </div>
                 
                 <div class="info-card" style="border-left-color: #d93025;">
-                    <h3 style="color: #d93025;"><i class="fa fa-clock-o"></i> Pending Requests</h3>
+                    <h3 style="color: #d93025;"><i class="fa fa-clock"></i> Pending Requests</h3>
                     <p><?php echo $stats['pending_req']; ?> Requests</p>
                 </div>
                 

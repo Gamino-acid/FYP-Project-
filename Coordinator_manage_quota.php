@@ -112,6 +112,7 @@ $sql = "SELECT u.staffid, u.name, u.role, u.email, q.fyp_numofstudent
 $res = $conn->query($sql);
 if ($res) { while($row = $res->fetch_assoc()) { $staff_list[] = $row; } }
 
+// Updated Menu Items
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Coordinator_mainpage.php?page=dashboard'],
     'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'Coordinator_profile.php'], 
@@ -127,7 +128,7 @@ $menu_items = [
     ],
     
     'project_mgmt' => [
-        'name' => 'Project Mgmt', 
+        'name' => 'Project Manage', // Changed from Project Mgmt
         'icon' => 'fa-tasks', 
         'sub_items' => [
             'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'Coordinator_purpose.php'],

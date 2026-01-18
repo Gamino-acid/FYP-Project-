@@ -1,19 +1,12 @@
 <?php
-// ====================================================
-// Coordinator_projectreq.php - Request Management (AJAX + UI Redesign)
-// ====================================================
 include("connect.php");
 
-// 1. AJAX Handler
 if (isset($_POST['ajax_action'])) {
     header('Content-Type: application/json');
     $req_id = $_POST['req_id'];
     $action = $_POST['action'];
     $auth_user_id = $_POST['auth_user_id'];
     
-    // Auth Check inside AJAX for safety
-    // ... (Simplified for brevity, assume valid session context from caller)
-
     if ($action == 'Reject') {
         $conn->query("UPDATE project_request SET fyp_requeststatus = 'Reject' WHERE fyp_requestid = $req_id");
         echo json_encode(['status' => 'success', 'message' => 'Request Rejected.', 'new_status' => 'Reject']);
@@ -23,10 +16,8 @@ if (isset($_POST['ajax_action'])) {
         if ($req_row = $req_res->fetch_assoc()) {
             $sid = $req_row['fyp_studid']; $pid = $req_row['fyp_projectid']; $svid = $req_row['fyp_staffid'];
             
-            // Check Group Logic (Simplified)
             $students_to_register = [$sid];
-            // ... (Group logic same as Supervisor) ...
-
+            
             foreach ($students_to_register as $student_id) {
                 $conn->query("INSERT INTO fyp_registration (fyp_studid, fyp_projectid, fyp_staffid, fyp_datecreated, fyp_archive_status) VALUES ('$student_id', '$pid', '$svid', NOW(), 'Active')");
             }
@@ -40,13 +31,14 @@ if (isset($_POST['ajax_action'])) {
     exit;
 }
 
-// 2. Page Load
 $auth_user_id = $_GET['auth_user_id'] ?? null;
 $current_page = 'project_requests'; 
 
-if (!$auth_user_id) { header("location: login.php"); exit; }
+if (!$auth_user_id) { 
+    echo "<script>window.location.href='login.php';</script>";
+    exit; 
+}
 
-// Fetch Info
 $user_name = "Coordinator"; 
 $user_avatar = "image/user.png"; 
 $sv_id = ""; 
@@ -63,7 +55,6 @@ if ($stmt = $conn->prepare("SELECT * FROM coordinator WHERE fyp_userid = ?")) {
 
 $requests = [];
 if ($sv_id) {
-    // Only fetch requests for projects managed by this Coordinator
     $sql = "SELECT r.*, s.fyp_studname, s.fyp_studid, p.fyp_projecttitle 
             FROM project_request r 
             JOIN student s ON r.fyp_studid = s.fyp_studid 
@@ -74,43 +65,48 @@ if ($sv_id) {
     if($res) while($row=$res->fetch_assoc()) $requests[] = $row;
 }
 
-// Menu Definition
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Coordinator_mainpage.php?page=dashboard'],
     'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'Coordinator_profile.php'], 
-    'management' => [
-        'name' => 'User Management', 'icon' => 'fa-users-cog',
+    
+     'management' => [
+        'name' => 'User Management',
+        'icon' => 'fa-users-cog',
         'sub_items' => [
             'manage_students' => ['name' => 'Student List', 'icon' => 'fa-user-graduate', 'link' => 'Coordinator_manage_users.php?tab=student'],
             'manage_supervisors' => ['name' => 'Supervisor List', 'icon' => 'fa-chalkboard-teacher', 'link' => 'Coordinator_manage_users.php?tab=supervisor'],
             'manage_quota' => ['name' => 'Supervisor Quota', 'icon' => 'fa-chalkboard-teacher', 'link' => 'Coordinator_manage_quota.php'],
         ]
     ],
+    
     'project_mgmt' => [
-        'name' => 'Project Mgmt', 'icon' => 'fa-tasks', 
+        'name' => 'Project Manage', 
+        'icon' => 'fa-tasks', 
         'sub_items' => [
             'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'Coordinator_purpose.php'],
             'project_requests' => ['name' => 'Project Requests', 'icon' => 'fa-envelope-open-text', 'link' => 'Coordinator_projectreq.php'],
-            'project_list' => ['name' => 'All Projects', 'icon' => 'fa-list-alt', 'link' => 'Coordinator_manage_project.php'],
-            'allocation' => ['name' => 'Allocation', 'icon' => 'fa-bullseye', 'link' => 'Coordinator_allocation.php']
+            'project_list' => ['name' => 'All Projects & Groups', 'icon' => 'fa-list-alt', 'link' => 'Coordinator_manage_project.php'],
         ]
     ],
     'assessment' => [
-        'name' => 'Assessment', 'icon' => 'fa-clipboard-check', 
+        'name' => 'Assessment', 
+        'icon' => 'fa-clipboard-check', 
         'sub_items' => [
             'propose_assignment' => ['name' => 'Create Assignment', 'icon' => 'fa-plus', 'link' => 'Coordinator_assignment_purpose.php'],
             'grade_assignment' => ['name' => 'Grade Assignments', 'icon' => 'fa-check-square', 'link' => 'Coordinator_assignment_grade.php'], 
         ]
     ],
     'announcements' => [
-        'name' => 'Announcements', 'icon' => 'fa-bullhorn', 
+        'name' => 'Announcements', 
+        'icon' => 'fa-bullhorn', 
         'sub_items' => [
             'post_announcement' => ['name' => 'Post New', 'icon' => 'fa-pen', 'link' => 'Coordinator_announcement.php'], 
             'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Coordinator_announcement_view.php'],
         ]
     ],
     'schedule' => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'Coordinator_meeting.php'], 
-    'data_io' => ['name' => 'Data Mgmt', 'icon' => 'fa-database', 'link' => 'Coordinator_data_io.php'],
+    'allocation' => ['name' => 'Moderator Allocation', 'icon' => 'fa-people-arrows', 'link' => 'Coordinator_allocation.php'],
+    'data_mgmt' => ['name' => 'Data Management', 'icon' => 'fa-database', 'link' => 'Coordinator_data_io.php'],
 ];
 ?>
 <!DOCTYPE html>
@@ -119,132 +115,477 @@ $menu_items = [
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Requests - Coordinator</title>
-    <link rel="icon" type="image/png" href="image/ladybug.png">
+    <link rel="icon" type="image/png" href="image/ladybug.png?v=<?php echo time(); ?>">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap');
-        :root { --primary-color: #0056b3; --primary-hover: #004494; --secondary-color: #f4f4f9; --text-color: #333; --border-color: #e0e0e0; --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); --sidebar-width: 260px; }
-        body { font-family: 'Poppins', sans-serif; margin: 0; background: linear-gradient(135deg, #eef2f7, #ffffff); color: var(--text-color); min-height: 100vh; display: flex; flex-direction: column; }
-        .topbar { display: flex; justify-content: space-between; align-items: center; padding: 15px 40px; background-color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); z-index: 100; position: sticky; top: 0; }
-        .logo { font-size: 22px; font-weight: 600; color: var(--primary-color); display: flex; align-items: center; gap: 10px; }
-        .topbar-right { display: flex; align-items: center; gap: 20px; }
-        .user-name-display { font-weight: 600; font-size: 14px; display: block; }
-        .user-role-badge { font-size: 11px; background-color: #e3effd; color: var(--primary-color); padding: 2px 8px; border-radius: 12px; font-weight: 500; }
-        .user-avatar-circle { width: 40px; height: 40px; border-radius: 50%; overflow: hidden; border: 2px solid #e3effd; margin-left: 10px; }
-        .user-avatar-circle img { width: 100%; height: 100%; object-fit: cover; }
-        .logout-btn { color: #d93025; text-decoration: none; font-size: 14px; font-weight: 500; padding: 8px 15px; border-radius: 6px; transition: background 0.2s; }
-        .logout-btn:hover { background-color: #fff0f0; }
-        .layout-container { display: flex; flex: 1; max-width: 1400px; margin: 0 auto; width: 100%; padding: 20px; box-sizing: border-box; gap: 20px; }
-        .sidebar { width: var(--sidebar-width); background: #fff; border-radius: 12px; box-shadow: var(--card-shadow); padding: 20px 0; flex-shrink: 0; min-height: calc(100vh - 120px); }
-        .menu-list { list-style: none; padding: 0; margin: 0; }
-        .menu-item { margin-bottom: 5px; }
-        .menu-link { display: flex; align-items: center; padding: 12px 25px; text-decoration: none; color: #555; font-weight: 500; font-size: 15px; transition: all 0.3s; border-left: 4px solid transparent; }
-        .menu-link:hover { background-color: var(--secondary-color); color: var(--primary-color); }
-        .menu-link.active { background-color: #e3effd; color: var(--primary-color); border-left-color: var(--primary-color); }
-        .menu-icon { width: 24px; margin-right: 10px; text-align: center; }
-        .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: none; }
-        .menu-item.has-active-child .submenu, .menu-item:hover .submenu { display: block; }
-        .submenu .menu-link { padding-left: 58px; font-size: 14px; padding-top: 10px; padding-bottom: 10px; }
-        .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; }
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap');
         
-        .req-card { background: #fff; padding: 20px; border-radius: 10px; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.02); border-left: 4px solid #0056b3; display: flex; justify-content: space-between; align-items: center; transition: all 0.2s; }
-        .req-card:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.05); }
+        :root {
+            --primary-color: #0056b3;
+            --primary-hover: #004494;
+            --bg-color: #f4f6f9;
+            --card-bg: #ffffff;
+            --text-color: #333;
+            --text-secondary: #666;
+            --sidebar-bg: #004085; 
+            --sidebar-hover: #003366;
+            --sidebar-text: #e0e0e0;
+            --card-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            --border-color: #e0e0e0;
+            --slot-bg: #f8f9fa;
+        }
+
+        .dark-mode {
+            --primary-color: #4da3ff;
+            --primary-hover: #0069d9;
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-color: #e0e0e0;
+            --text-secondary: #a0a0a0;
+            --sidebar-bg: #0d1117;
+            --sidebar-hover: #161b22;
+            --sidebar-text: #c9d1d9;
+            --card-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            --border-color: #333;
+            --slot-bg: #2d2d2d;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            margin: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            min-height: 100vh;
+            display: flex;
+            overflow-x: hidden;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .main-menu {
+            background: var(--sidebar-bg);
+            border-right: 1px solid rgba(255,255,255,0.1);
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            height: 100%;
+            left: 0;
+            width: 60px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            transition: width .05s linear;
+            z-index: 1000;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+        }
+
+        .main-menu:hover, nav.main-menu.expanded {
+            width: 250px;
+            overflow: visible;
+        }
+
+        .main-menu > ul {
+            margin: 7px 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .main-menu li {
+            position: relative;
+            display: block;
+            width: 250px;
+        }
+
+        .main-menu li > a {
+            position: relative;
+            display: table;
+            border-collapse: collapse;
+            border-spacing: 0;
+            color: var(--sidebar-text);
+            font-size: 14px;
+            text-decoration: none;
+            transition: all .1s linear;
+            width: 100%;
+        }
+
+        .main-menu .nav-icon {
+            position: relative;
+            display: table-cell;
+            width: 60px;
+            height: 46px; 
+            text-align: center;
+            vertical-align: middle;
+            font-size: 18px;
+        }
+
+        .main-menu .nav-text {
+            position: relative;
+            display: table-cell;
+            vertical-align: middle;
+            width: 190px;
+            padding-left: 10px;
+            white-space: nowrap;
+        }
+
+        .main-menu li:hover > a, nav.main-menu li.active > a {
+            color: #fff;
+            background-color: var(--sidebar-hover);
+            border-left: 4px solid #fff; 
+        }
+
+        .main-menu > ul.logout {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            width: 100%;
+        }
+
+        .dropdown-arrow {
+            position: absolute;
+            right: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            transition: transform 0.3s;
+            font-size: 12px;
+        }
+
+        .menu-item.open .dropdown-arrow {
+            transform: translateY(-50%) rotate(180deg);
+        }
+
+        .submenu {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            background-color: rgba(0,0,0,0.2);
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+
+        .menu-item.open .submenu {
+            max-height: 500px;
+            transition: max-height 0.5s ease-in;
+        }
+
+        .submenu li > a {
+            padding-left: 70px !important;
+            font-size: 13px;
+            height: 40px;
+        }
+
+        .menu-item > a {
+            cursor: pointer;
+        }
+        
+        .main-content-wrapper {
+            margin-left: 60px;
+            flex: 1;
+            padding: 20px;
+            width: calc(100% - 60px);
+            transition: margin-left .05s linear;
+        }
+        
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: var(--card-shadow);
+            transition: background 0.3s;
+        }
+        
+        .welcome-text h1 {
+            margin: 0;
+            font-size: 24px;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        
+        .welcome-text p {
+            margin: 5px 0 0;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .logo-img {
+            height: 40px;
+            width: auto;
+            background: white;
+            padding: 2px;
+            border-radius: 6px;
+        }
+        
+        .system-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--primary-color);
+            letter-spacing: 0.5px;
+        }
+
+        .user-section {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .user-badge {
+            font-size: 13px;
+            color: var(--text-secondary);
+            background: var(--slot-bg);
+            padding: 5px 10px;
+            border-radius: 20px;
+        }
+
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            object-fit: cover;
+        }
+
+        .user-avatar-placeholder {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #0056b3;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+
+        .card-container {
+            background: var(--card-bg);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: var(--card-shadow);
+        }
+
+        .req-card {
+            background: var(--slot-bg);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            border: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.2s;
+            border-left: 5px solid #0056b3;
+        }
+
+        .req-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+        }
+
         .req-card[data-status="Approve"] { border-left-color: #28a745; }
         .req-card[data-status="Reject"] { border-left-color: #dc3545; }
         .req-card[data-status="Pending"] { border-left-color: #ffc107; }
-        
-        .status-badge { padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+
+        .status-badge {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+            display: inline-block;
+        }
+
         .st-Pending { background: #fff3cd; color: #856404; }
         .st-Approve { background: #d4edda; color: #155724; }
         .st-Reject { background: #f8d7da; color: #721c24; }
-        
-        .btn-act { padding: 6px 15px; border-radius: 4px; color: white; border: none; font-size: 13px; margin-left: 5px; cursor: pointer; transition: 0.2s; }
+
+        .btn-act {
+            padding: 8px 18px;
+            border-radius: 6px;
+            color: white;
+            border: none;
+            font-size: 13px;
+            margin-left: 8px;
+            cursor: pointer;
+            transition: 0.2s;
+            font-weight: 500;
+        }
+
         .btn-act.loading { opacity: 0.7; pointer-events: none; }
         .btn-app { background: #28a745; } .btn-app:hover { background: #218838; }
         .btn-rej { background: #dc3545; } .btn-rej:hover { background: #c82333; }
-        
-        @media (max-width: 900px) { .layout-container { flex-direction: column; } .sidebar { width: 100%; min-height: auto; } }
+
+        .theme-toggle {
+            cursor: pointer; padding: 8px; border-radius: 50%;
+            background: var(--slot-bg); border: 1px solid var(--border-color);
+            color: var(--text-color); display: flex; align-items: center;
+            justify-content: center; width: 35px; height: 35px; margin-right: 15px;
+        }
+        .theme-toggle img { width: 20px; height: 20px; object-fit: contain; }
+
+        @media (max-width: 900px) {
+            .main-content-wrapper {
+                margin-left: 0;
+                width: 100%;
+            }
+            .page-header {
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
+            }
+            .req-card {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }
+            .req-card > div:last-child {
+                width: 100%;
+                display: flex;
+                justify-content: flex-end;
+            }
+        }
     </style>
 </head>
 <body>
-    <header class="topbar">
-        <div class="logo"><img src="image/ladybug.png" alt="Logo" style="width: 32px; margin-right: 10px;"> FYP System</div>
-        <div class="topbar-right">
-            <div class="user-profile-summary">
-                <span class="user-name-display"><?php echo htmlspecialchars($user_name); ?></span>
-                <span class="user-role-badge">Coordinator</span>
-            </div>
-            <div class="user-avatar-circle"><img src="<?php echo $user_avatar; ?>" alt="User"></div>
-            <a href="login.php" class="logout-btn"><i class="fa fa-sign-out-alt"></i> Logout</a>
-        </div>
-    </header>
-    
-    <div class="layout-container">
-        <aside class="sidebar">
-            <ul class="menu-list">
-                <?php foreach ($menu_items as $key => $item): 
+    <nav class="main-menu">
+        <ul>
+            <?php foreach ($menu_items as $key => $item): ?>
+                <?php 
                     $isActive = ($key == 'project_mgmt'); 
-                    $linkUrl = (isset($item['link']) && $item['link'] !== "#") ? $item['link'] . (strpos($item['link'], '?') !== false ? '&' : '?') . "auth_user_id=" . urlencode($auth_user_id) : "#";
+                    $hasActiveChild = false;
+                    if (isset($item['sub_items'])) {
+                        foreach ($item['sub_items'] as $sub_key => $sub) {
+                            if ($sub_key == $current_page) { $hasActiveChild = true; break; }
+                        }
+                    }
+                    $linkUrl = isset($item['link']) ? $item['link'] : "#";
+                    if ($linkUrl !== "#" && strpos($linkUrl, '.php') !== false) {
+                        $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?';
+                        $linkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
+                    }
+                    $hasSubmenu = isset($item['sub_items']);
                 ?>
-                <li class="menu-item <?php echo $isActive ? 'has-active-child' : ''; ?>">
-                    <a href="<?php echo $linkUrl; ?>" class="menu-link <?php echo $isActive ? 'active' : ''; ?>">
-                        <span class="menu-icon"><i class="fa <?php echo $item['icon']; ?>"></i></span> <?php echo $item['name']; ?>
+                <li class="menu-item <?php echo ($hasActiveChild || ($isActive && $hasSubmenu)) ? 'open active' : ''; ?>">
+                    <a href="<?php echo $hasSubmenu ? 'javascript:void(0)' : $linkUrl; ?>" class="<?php echo $isActive ? 'active' : ''; ?>" <?php if ($hasSubmenu): ?>onclick="toggleSubmenu(this)"<?php endif; ?>>
+                        <i class="fa <?php echo $item['icon']; ?> nav-icon"></i><span class="nav-text"><?php echo $item['name']; ?></span><?php if ($hasSubmenu): ?><i class="fa fa-chevron-down dropdown-arrow"></i><?php endif; ?>
                     </a>
-                    <?php if (isset($item['sub_items'])): ?>
+                    <?php if ($hasSubmenu): ?>
                         <ul class="submenu">
-                        <?php foreach ($item['sub_items'] as $sub_key => $sub_item): 
-                             $subLinkUrl = (isset($sub_item['link']) && $sub_item['link'] !== "#") ? $sub_item['link'] . (strpos($sub_item['link'], '?') !== false ? '&' : '?') . "auth_user_id=" . urlencode($auth_user_id) : "#";
-                             $isSubActive = ($sub_key == $current_page);
-                        ?>
-                            <li><a href="<?php echo $subLinkUrl; ?>" class="menu-link <?php echo $isSubActive ? 'active' : ''; ?>">
-                                <span class="menu-icon"><i class="fa <?php echo $sub_item['icon']; ?>"></i></span> <?php echo $sub_item['name']; ?>
-                            </a></li>
-                        <?php endforeach; ?>
+                            <?php foreach ($item['sub_items'] as $sub_key => $sub_item): 
+                                $subLinkUrl = isset($sub_item['link']) ? $sub_item['link'] : "#";
+                                if ($subLinkUrl !== "#") {
+                                    $separator = (strpos($subLinkUrl, '?') !== false) ? '&' : '?';
+                                    $subLinkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
+                                }
+                            ?>
+                                <li><a href="<?php echo $subLinkUrl; ?>" class="<?php echo ($sub_key == $current_page) ? 'active' : ''; ?>"><i class="fa <?php echo $sub_item['icon']; ?> nav-icon"></i><span class="nav-text"><?php echo $sub_item['name']; ?></span></a></li>
+                            <?php endforeach; ?>
                         </ul>
                     <?php endif; ?>
                 </li>
-                <?php endforeach; ?>
-            </ul>
-        </aside>
-        
-        <main class="main-content">
-            <div class="card" style="background: #fff; padding: 25px; border-radius: 12px; box-shadow: var(--card-shadow);">
-                <div style="border-bottom: 1px solid #eee; margin-bottom: 20px; padding-bottom: 10px;">
-                    <h2 style="margin:0; font-size:20px; color:#333;"><i class="fa fa-envelope-open-text"></i> Requests Management</h2>
-                </div>
-                
-                <?php if (count($requests) > 0): foreach ($requests as $req): 
-                    $status = $req['fyp_requeststatus'];
-                    if (empty($status)) $status = 'Pending';
-                ?>
-                    <div class="req-card" id="card-<?php echo $req['fyp_requestid']; ?>" data-status="<?php echo $status; ?>">
-                        <div>
-                            <span id="badge-<?php echo $req['fyp_requestid']; ?>" class="status-badge st-<?php echo $status; ?>"><?php echo $status; ?></span>
-                            <h3 style="margin: 5px 0; font-size: 16px;"><?php echo htmlspecialchars($req['fyp_studname']); ?></h3>
-                            <p style="margin: 0; color: #666; font-size: 13px;">Project: <strong><?php echo htmlspecialchars($req['fyp_projecttitle']); ?></strong></p>
-                            <small style="color: #999; font-size: 11px;"><i class="fa fa-calendar-alt"></i> Applied: <?php echo date('d M Y', strtotime($req['fyp_datecreated'])); ?></small>
-                        </div>
-                        <div id="actions-<?php echo $req['fyp_requestid']; ?>">
-                            <?php if ($status == 'Pending'): ?>
-                                <button onclick="handleDecision('Approve', <?php echo $req['fyp_requestid']; ?>)" class="btn-act btn-app"><i class="fa fa-check"></i> Accept</button>
-                                <button onclick="handleDecision('Reject', <?php echo $req['fyp_requestid']; ?>)" class="btn-act btn-rej"><i class="fa fa-times"></i> Reject</button>
-                            <?php else: ?>
-                                <span style="font-size:12px; color:#999; font-style:italic;">Decision Recorded</span>
-                            <?php endif; ?>
-                        </div>
+            <?php endforeach; ?>
+        </ul>
+        <ul class="logout"><li><a href="login.php"><i class="fa fa-power-off nav-icon"></i><span class="nav-text">Logout</span></a></li></ul>
+    </nav>
+
+    <div class="main-content-wrapper">
+        <div class="page-header">
+            <div class="welcome-text">
+                <h1>Request Management</h1>
+                <p>Manage project application requests from students.</p>
+            </div>
+            
+            <div class="logo-section">
+                <img src="image/ladybug.png" alt="Logo" class="logo-img">
+                <span class="system-title">FYP Portal</span>
+            </div>
+
+            <div class="user-section">
+                <button class="theme-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">
+                    <img id="theme-icon" src="image/moon-solid-full.svg" alt="Toggle Theme">
+                </button>
+                <span class="user-badge">Coordinator</span>
+                <?php if(!empty($user_avatar) && $user_avatar !== 'image/user.png'): ?>
+                    <img src="<?php echo htmlspecialchars($user_avatar); ?>" class="user-avatar" alt="Avatar">
+                <?php else: ?>
+                    <div class="user-avatar-placeholder">
+                        <?php echo strtoupper(substr($user_name, 0, 1)); ?>
                     </div>
-                <?php endforeach; else: ?>
-                    <div style="text-align:center; padding:50px; color:#999;">No requests found.</div>
                 <?php endif; ?>
             </div>
-        </main>
+        </div>
+
+        <div class="card-container">
+            <?php if (count($requests) > 0): foreach ($requests as $req): 
+                $status = $req['fyp_requeststatus'];
+                if (empty($status)) $status = 'Pending';
+            ?>
+                <div class="req-card" id="card-<?php echo $req['fyp_requestid']; ?>" data-status="<?php echo $status; ?>">
+                    <div>
+                        <span id="badge-<?php echo $req['fyp_requestid']; ?>" class="status-badge st-<?php echo $status; ?>"><?php echo $status; ?></span>
+                        <h3 style="margin: 5px 0; font-size: 16px; color: var(--text-color);"><?php echo htmlspecialchars($req['fyp_studname']); ?></h3>
+                        <p style="margin: 5px 0; color: var(--text-secondary); font-size: 14px;">Project: <strong style="color: var(--primary-color);"><?php echo htmlspecialchars($req['fyp_projecttitle']); ?></strong></p>
+                        <small style="color: var(--text-secondary); font-size: 12px;"><i class="fa fa-calendar-alt"></i> Applied: <?php echo date('d M Y', strtotime($req['fyp_datecreated'])); ?></small>
+                    </div>
+                    <div id="actions-<?php echo $req['fyp_requestid']; ?>">
+                        <?php if ($status == 'Pending'): ?>
+                            <button onclick="handleDecision('Approve', <?php echo $req['fyp_requestid']; ?>)" class="btn-act btn-app"><i class="fa fa-check"></i> Accept</button>
+                            <button onclick="handleDecision('Reject', <?php echo $req['fyp_requestid']; ?>)" class="btn-act btn-rej"><i class="fa fa-times"></i> Reject</button>
+                        <?php else: ?>
+                            <span style="font-size:12px; color:var(--text-secondary); font-style:italic;">Decision Recorded</span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            <?php endforeach; else: ?>
+                <div style="text-align:center; padding:50px; color:var(--text-secondary);">No project requests found.</div>
+            <?php endif; ?>
+        </div>
     </div>
 
     <script>
+        function toggleSubmenu(element) {
+            const menuItem = element.parentElement;
+            const isOpen = menuItem.classList.contains('open');
+            document.querySelectorAll('.menu-item').forEach(item => { if (item !== menuItem) item.classList.remove('open'); });
+            if (isOpen) menuItem.classList.remove('open'); else menuItem.classList.add('open');
+        }
+
+        function toggleDarkMode() {
+            document.body.classList.toggle('dark-mode');
+            const isDark = document.body.classList.contains('dark-mode');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            
+            const iconImg = document.getElementById('theme-icon');
+            if (isDark) {
+                iconImg.src = 'image/sun-solid-full.svg'; 
+            } else {
+                iconImg.src = 'image/moon-solid-full.svg'; 
+            }
+        }
+
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'dark') {
+            document.body.classList.add('dark-mode');
+            const iconImg = document.getElementById('theme-icon');
+            if(iconImg) {
+                iconImg.src = 'image/sun-solid-full.svg'; 
+            }
+        }
+
         function handleDecision(action, reqId) {
             Swal.fire({
                 title: action === 'Approve' ? 'Accept Request?' : 'Reject Request?',
+                text: action === 'Approve' ? 'This student will be assigned to the project.' : 'This request will be declined.',
                 icon: 'question',
                 showCancelButton: true,
                 confirmButtonColor: action === 'Approve' ? '#28a745' : '#dc3545',
@@ -271,17 +612,21 @@ $menu_items = [
                             badge.className = 'status-badge st-' + data.new_status;
                             badge.innerText = data.new_status;
                             card.setAttribute('data-status', data.new_status);
-                            actions.innerHTML = '<span style="font-size:12px; color:#999; font-style:italic;">Decision Recorded</span>';
+                            actions.innerHTML = '<span style="font-size:12px; color:var(--text-secondary); font-style:italic;">Decision Recorded</span>';
                             
                             Swal.fire('Success!', data.message, 'success');
                         } else {
                             Swal.fire('Error', data.message, 'error');
                             btns.forEach(b => b.classList.remove('loading'));
                         }
+                    })
+                    .catch(err => {
+                        Swal.fire('Error', 'Network error occurred.', 'error');
+                        btns.forEach(b => b.classList.remove('loading'));
                     });
                 }
             });
         }
     </script>
-</body>
+</body> 
 </html>
