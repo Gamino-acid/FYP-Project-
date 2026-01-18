@@ -1,0 +1,1210 @@
+<?php
+// ====================================================
+// supervisor_profile.php - Student Style Design
+// ====================================================
+
+include("connect.php");
+
+// 1. 基础验证
+$auth_user_id = $_GET['auth_user_id'] ?? null;
+$current_page = 'profile'; 
+
+if (!$auth_user_id) { header("location: login.php"); exit; }
+
+// 2. 逻辑处理 (POST)
+// A. 更新基本资料 (Ajax with JSON response)
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_profile'])) {
+    
+    $contact = $_POST['contact'];
+    $room = $_POST['room_no'];
+    $spec = $_POST['specialization'];
+    $area = $_POST['area_interest'];
+
+    $sql_update = "UPDATE supervisor SET 
+                   fyp_contactno = ?, 
+                   fyp_roomno = ?, 
+                   fyp_specialization = ?, 
+                   fyp_areaofinterest = ? 
+                   WHERE fyp_userid = ?";
+                   
+    if ($stmt = $conn->prepare($sql_update)) {
+        $stmt->bind_param("ssssi", $contact, $room, $spec, $area, $auth_user_id);
+        if ($stmt->execute()) {
+            $response = ['success' => true, 'message' => 'Profile details updated successfully!'];
+        } else {
+            $response = ['success' => false, 'message' => 'Error updating profile.'];
+        }
+        $stmt->close();
+    }
+
+    // 更新头像
+    if (!empty($_FILES["profile_img"]["name"]) && $_FILES["profile_img"]["error"] === 0) {
+        $tmp_name = $_FILES["profile_img"]["tmp_name"];
+        if (getimagesize($tmp_name) !== false) {
+            $image_content = file_get_contents($tmp_name);
+            $file_ext = pathinfo($_FILES["profile_img"]["name"], PATHINFO_EXTENSION);
+            $base64_image = 'data:image/' . $file_ext . ';base64,' . base64_encode($image_content);
+            
+            $sql_img = "UPDATE supervisor SET fyp_profileimg = ? WHERE fyp_userid = ?";
+            if ($stmt_img = $conn->prepare($sql_img)) {
+                $stmt_img->bind_param("si", $base64_image, $auth_user_id);
+                $stmt_img->execute();
+                $stmt_img->close();
+                $response['image'] = $base64_image;
+            }
+        }
+    }
+    
+    echo json_encode($response);
+    exit;
+}
+
+// B. 修改密码
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['change_password'])) {
+    $current_pwd = $_POST['current_password'];
+    $new_pwd = $_POST['new_password'];
+    $confirm_pwd = $_POST['confirm_password'];
+
+    if ($new_pwd !== $confirm_pwd) {
+        echo json_encode(['success' => false, 'message' => 'New password and confirmation do not match.']);
+        exit;
+    }
+
+    if (strlen($new_pwd) < 8 || strlen($new_pwd) > 16) {
+        echo json_encode(['success' => false, 'message' => 'Password must be between 8 and 16 characters.']);
+        exit;
+    }
+
+    if (!preg_match('/^(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,16}$/', $new_pwd)) {
+        echo json_encode(['success' => false, 'message' => 'Password requirement not met.']);
+        exit;
+    }
+
+    $sql_check = "SELECT fyp_passwordhash FROM `USER` WHERE fyp_userid = ?";
+    if ($stmt = $conn->prepare($sql_check)) {
+        $stmt->bind_param("i", $auth_user_id);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        if ($row = $res->fetch_assoc()) {
+            $db_pwd = $row['fyp_passwordhash']; 
+            $is_correct = ($current_pwd === $db_pwd) || password_verify($current_pwd, $db_pwd);
+
+            if ($is_correct) {
+                $sql_upd_pwd = "UPDATE `USER` SET fyp_passwordhash = ? WHERE fyp_userid = ?";
+                if ($stmt_up = $conn->prepare($sql_upd_pwd)) {
+                    $stmt_up->bind_param("si", $new_pwd, $auth_user_id);
+                    $stmt_up->execute();
+                    echo json_encode(['success' => true, 'message' => 'Password updated successfully!']);
+                    exit;
+                }
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Current password is incorrect.']);
+                exit;
+            }
+        }
+        $stmt->close();
+    }
+}
+
+// 3. 获取导师数据
+$sv_data = [];
+$user_name = 'Supervisor';
+$user_avatar = 'image/user.png';
+
+if (isset($conn)) {
+    $sql_user = "SELECT fyp_username FROM `USER` WHERE fyp_userid = ?";
+    if ($stmt = $conn->prepare($sql_user)) { 
+        $stmt->bind_param("i", $auth_user_id); 
+        $stmt->execute(); 
+        $res=$stmt->get_result(); 
+        if($row=$res->fetch_assoc()) $user_name=$row['fyp_username']; 
+        $stmt->close(); 
+    }
+    
+    $sql_sv = "SELECT * FROM supervisor WHERE fyp_userid = ?";
+    if ($stmt = $conn->prepare($sql_sv)) { 
+        $stmt->bind_param("i", $auth_user_id); 
+        $stmt->execute(); 
+        $res=$stmt->get_result(); 
+        if($res->num_rows > 0) { 
+            $sv_data = $res->fetch_assoc(); 
+            if(!empty($sv_data['fyp_name'])) $user_name=$sv_data['fyp_name'];
+            if(!empty($sv_data['fyp_profileimg'])) $user_avatar=$sv_data['fyp_profileimg'];
+        } else {
+             $sv_data = ['fyp_supervisorid'=>'', 'fyp_name'=>$user_name, 'fyp_staffid'=>'', 'fyp_roomno'=>'', 'fyp_email'=>'', 'fyp_contactno'=>'', 'fyp_specialization'=>'', 'fyp_areaofinterest'=>''];
+        }
+        $stmt->close(); 
+    }
+}
+
+// 4. 菜单定义
+$menu_items = [
+    'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Supervisor_mainpage.php?page=dashboard'],
+    'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'supervisor_profile.php'],
+    'students'  => [
+        'name' => 'My Students', 
+        'icon' => 'fa-users',
+        'sub_items' => [
+            'project_requests' => ['name' => 'Project Requests', 'icon' => 'fa-envelope-open-text', 'link' => 'supervisor_projectreq.php'],
+            'student_list'     => ['name' => 'Student List', 'icon' => 'fa-list', 'link' => 'Supervisor_student_list.php'],
+        ]
+    ],
+    'fyp_project' => [
+        'name' => 'FYP Project',
+        'icon' => 'fa-project-diagram',
+        'sub_items' => [
+            'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'supervisor_purpose.php'],
+            'my_projects'     => ['name' => 'My Projects', 'icon' => 'fa-folder-open', 'link' => 'Supervisor_manage_project.php'],
+            'propose_assignment' => ['name' => 'Propose Assignment', 'icon' => 'fa-tasks', 'link' => 'supervisor_assignment_purpose.php'],
+        ]
+    ],
+    'grading' => [
+        'name' => 'Assessment',
+        'icon' => 'fa-marker',
+        'sub_items' => [
+            'grade_assignment' => ['name' => 'Grade Assignments', 'icon' => 'fa-check-square', 'link' => 'Supervisor_assignment_grade.php'],
+            'grade_mod' => ['name' => 'Moderator Grading', 'icon' => 'fa-gavel', 'link' => 'Moderator_assignment_grade.php'],
+        ]
+    ],
+    'announcement' => [
+        'name' => 'Announcement',
+        'icon' => 'fa-bullhorn',
+        'sub_items' => [
+            'post_announcement' => ['name' => 'Post Announcement', 'icon' => 'fa-pen-square', 'link' => 'supervisor_announcement.php'],
+            'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Supervisor_announcement_view.php'],
+        ]
+    ],
+    'schedule'  => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'supervisor_meeting.php'],
+];
+?>
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Profile - Supervisor</title>
+    <link rel="icon" type="image/png" href="image/ladybug.png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap');
+        
+        :root {
+            --primary-color: #0056b3;
+            --primary-hover: #004494;
+            --secondary-color: #f8f9fa;
+            --text-color: #333;
+            --sidebar-bg: #004085; 
+            --sidebar-hover: #003366;
+            --sidebar-text: #e0e0e0;
+            --card-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: #f4f6f9;
+            min-height: 100vh;
+            display: flex;
+            overflow-x: hidden;
+        }
+
+        /* Sidebar with Dropdown */
+        .main-menu {
+            background: var(--sidebar-bg);
+            border-right: 1px solid rgba(255,255,255,0.1);
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            height: 100%;
+            left: 0;
+            width: 60px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            transition: width .05s linear;
+            z-index: 1000;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+        }
+
+        .main-menu:hover, nav.main-menu.expanded {
+            width: 250px;
+        }
+
+        .main-menu > ul {
+            margin: 7px 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .main-menu li {
+            position: relative;
+            display: block;
+            width: 250px;
+        }
+
+        .main-menu li > a {
+            position: relative;
+            display: table;
+            border-collapse: collapse;
+            border-spacing: 0;
+            color: var(--sidebar-text);
+            font-size: 14px;
+            text-decoration: none;
+            transition: all .1s linear;
+            width: 100%;
+        }
+
+        .main-menu .nav-icon {
+            position: relative;
+            display: table-cell;
+            width: 60px;
+            height: 46px; 
+            text-align: center;
+            vertical-align: middle;
+            font-size: 18px;
+        }
+
+        .main-menu .nav-text {
+            position: relative;
+            display: table-cell;
+            vertical-align: middle;
+            width: 190px;
+            padding-left: 10px;
+            white-space: nowrap;
+        }
+
+        .main-menu li:hover > a, nav.main-menu li.active > a {
+            color: #fff;
+            background-color: var(--sidebar-hover);
+            border-left: 4px solid #fff; 
+        }
+
+        .main-menu > ul.logout {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            width: 100%;
+        }
+
+        .dropdown-arrow {
+            position: absolute;
+            right: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            transition: transform 0.3s;
+            font-size: 12px;
+        }
+
+        .menu-item.open .dropdown-arrow {
+            transform: translateY(-50%) rotate(180deg);
+        }
+
+        .submenu {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            background-color: rgba(0,0,0,0.2);
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+
+        .menu-item.open .submenu {
+            max-height: 500px;
+            transition: max-height 0.5s ease-in;
+        }
+
+        .submenu li > a {
+            padding-left: 70px !important;
+            font-size: 13px;
+            height: 40px;
+        }
+
+        .submenu .nav-icon {
+            width: 50px;
+            font-size: 14px;
+        }
+
+        .menu-item > a {
+            cursor: pointer;
+        }
+
+        /* Main Content */
+        .main-content-wrapper {
+            margin-left: 60px;
+            flex: 1;
+            padding: 20px;
+            width: calc(100% - 60px);
+            transition: margin-left .05s linear;
+        }
+
+        /* Page Header */
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: var(--card-shadow);
+        }
+        
+        .welcome-text h1 {
+            margin: 0;
+            font-size: 24px;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        
+        .welcome-text p {
+            margin: 5px 0 0;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .logo-img {
+            height: 40px;
+            width: auto;
+            background: white;
+            padding: 2px;
+            border-radius: 6px;
+        }
+        
+        .system-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--primary-color);
+            letter-spacing: 0.5px;
+        }
+
+        .user-section {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .user-badge {
+            font-size: 13px;
+            color: #666;
+            background: #f0f0f0;
+            padding: 5px 10px;
+            border-radius: 20px;
+        }
+
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            object-fit: cover;
+        }
+
+        .user-avatar-placeholder {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #0056b3;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+
+        /* Profile Container */
+        .profile-container {
+            display: flex;
+            background: #fff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: var(--card-shadow);
+            gap: 30px;
+        }
+
+        .left-column {
+            width: 250px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            border-right: 1px solid #eee;
+            padding-right: 30px;
+        }
+
+        .right-column {
+            flex: 1;
+        }
+
+        .profile-img-box {
+            width: 160px;
+            height: 160px;
+            border-radius: 50%;
+            background-color: #e0e0e0;
+            overflow: hidden;
+            margin-bottom: 15px;
+            border: 4px solid #fff;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .profile-img-box img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .profile-img-placeholder {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 50px;
+        }
+
+        .student-id-display {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #333;
+            margin-top: 10px;
+            text-align: center;
+        }
+
+        .upload-photo-btn {
+            width: 100%;
+            padding: 10px 20px;
+            background: linear-gradient(135deg, var(--primary-color), #0073e6);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: 500;
+            font-family: inherit;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(0, 86, 179, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+
+        .upload-photo-btn:hover {
+            background: linear-gradient(135deg, var(--primary-hover), #005bb5);
+            box-shadow: 0 4px 12px rgba(0, 86, 179, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .upload-photo-btn:active {
+            transform: translateY(0);
+        }
+
+        .upload-photo-btn i {
+            font-size: 1.1em;
+        }
+
+        .form-section-title {
+            color: #555;
+            border-bottom: 2px solid var(--primary-color);
+            padding-bottom: 5px;
+            margin-bottom: 20px;
+            font-size: 1.1em;
+            font-weight: 600;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+            position: relative;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #444;
+            font-size: 0.9em;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            box-sizing: border-box;
+            font-size: 0.95em;
+            font-family: inherit;
+        }
+
+        .form-control:focus {
+            border-color: var(--primary-color);
+            outline: none;
+        }
+
+        input[readonly] {
+            background-color: #e9ecef;
+            cursor: not-allowed;
+            color: #6c757d;
+            border-color: #ced4da;
+        }
+
+        textarea.form-control {
+            resize: vertical;
+            min-height: 60px;
+        }
+
+        .row-group {
+            display: flex;
+            gap: 20px;
+        }
+
+        .col-group {
+            flex: 1;
+        }
+
+        .toggle-password {
+            position: absolute;
+            right: 15px;
+            top: 38px;
+            cursor: pointer;
+            color: #999;
+            transition: color 0.3s;
+        }
+
+        .toggle-password:hover {
+            color: #333;
+        }
+
+        /* Buttons */
+        .action-buttons {
+            margin-top: 25px;
+            display: flex;
+            gap: 15px;
+        }
+
+        .save-btn {
+            padding: 12px 25px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background 0.3s;
+            font-family: inherit;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .save-btn:hover {
+            background-color: var(--primary-hover);
+        }
+
+        .save-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-reset-pwd {
+            padding: 12px 25px;
+            background: linear-gradient(135deg, #ffc107, #ff9800);
+            color: #333;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s;
+        }
+
+        .btn-reset-pwd:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(255,193,7,0.4);
+        }
+
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.6);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .modal-overlay.show {
+            display: flex;
+            opacity: 1;
+        }
+
+        .modal-box {
+            background: #fff;
+            width: 90%;
+            max-width: 550px;
+            padding: 35px;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            transform: scale(0.9);
+            transition: transform 0.3s ease;
+        }
+
+        .modal-overlay.show .modal-box {
+            transform: scale(1);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .modal-title {
+            font-size: 22px;
+            font-weight: 600;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .close-modal {
+            font-size: 28px;
+            cursor: pointer;
+            color: #999;
+            transition: color 0.3s;
+            line-height: 1;
+        }
+
+        .close-modal:hover {
+            color: #333;
+        }
+
+        .pwd-req-list {
+            list-style: none;
+            padding: 0;
+            margin: 15px 0 25px 0;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 10px;
+        }
+
+        .pwd-req-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #f8f9fa;
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 2px solid #e9ecef;
+            font-size: 13px;
+            transition: all 0.3s;
+        }
+
+        .pwd-req-item.valid {
+            background: #d4edda;
+            color: #155724;
+            border-color: #c3e6cb;
+        }
+
+        .pwd-req-item.invalid {
+            background: #fff3cd;
+            color: #856404;
+            border-color: #ffeeba;
+        }
+
+        .pwd-req-item i {
+            font-size: 12px;
+        }
+
+        .modal-footer {
+            margin-top: 25px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .btn-cancel {
+            padding: 12px 25px;
+            background-color: #f1f1f1;
+            color: #555;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+
+        .btn-cancel:hover {
+            background-color: #e0e0e0;
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            display: none;
+            align-items: center;
+            gap: 10px;
+            z-index: 3000;
+            animation: slideIn 0.3s ease;
+        }
+
+        .toast.show {
+            display: flex;
+        }
+
+        .toast.success {
+            border-left: 4px solid #28a745;
+        }
+
+        .toast.error {
+            border-left: 4px solid #dc3545;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        @media (max-width: 900px) {
+            .main-content-wrapper {
+                margin-left: 0;
+                width: 100%;
+            }
+            
+            .profile-container {
+                flex-direction: column;
+            }
+
+            .left-column {
+                width: 100%;
+                border-right: none;
+                border-bottom: 1px solid #eee;
+                padding-bottom: 20px;
+                margin-bottom: 20px;
+                padding-right: 0;
+            }
+
+            .row-group {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Sidebar Navigation -->
+    <nav class="main-menu">
+        <ul>
+            <?php foreach ($menu_items as $key => $item): ?>
+                <?php 
+                    $isActive = ($key == $current_page);
+                    $hasActiveChild = false;
+                    if (isset($item['sub_items'])) {
+                        foreach ($item['sub_items'] as $sub_key => $sub) {
+                            if ($sub_key == $current_page) { $hasActiveChild = true; break; }
+                        }
+                    }
+                    
+                    $linkUrl = isset($item['link']) ? $item['link'] : "#";
+                    if ($linkUrl !== "#") {
+                         $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?';
+                         $linkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
+                    }
+                    
+                    $hasSubmenu = isset($item['sub_items']);
+                ?>
+                <li class="menu-item <?php echo ($hasActiveChild || $isActive) ? 'open active' : ''; ?>">
+                    <a href="<?php echo $hasSubmenu ? 'javascript:void(0)' : $linkUrl; ?>" 
+                       class="<?php echo $isActive ? 'active' : ''; ?>"
+                       <?php if ($hasSubmenu): ?>onclick="toggleSubmenu(this)"<?php endif; ?>>
+                        <i class="fa <?php echo $item['icon']; ?> nav-icon"></i>
+                        <span class="nav-text"><?php echo $item['name']; ?></span>
+                        <?php if ($hasSubmenu): ?>
+                            <i class="fa fa-chevron-down dropdown-arrow"></i>
+                        <?php endif; ?>
+                    </a>
+                    
+                    <?php if ($hasSubmenu): ?>
+                        <ul class="submenu">
+                            <?php foreach ($item['sub_items'] as $sub_key => $sub_item): 
+                                $subLinkUrl = isset($sub_item['link']) ? $sub_item['link'] : "#";
+                                if ($subLinkUrl !== "#") {
+                                    $separator = (strpos($subLinkUrl, '?') !== false) ? '&' : '?';
+                                    $subLinkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
+                                }
+                            ?>
+                                <li>
+                                    <a href="<?php echo $subLinkUrl; ?>" class="<?php echo ($sub_key == $current_page) ? 'active' : ''; ?>">
+                                        <i class="fa <?php echo $sub_item['icon']; ?> nav-icon"></i>
+                                        <span class="nav-text"><?php echo $sub_item['name']; ?></span>
+                                    </a>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php endif; ?>
+                </li>
+            <?php endforeach; ?>
+        </ul>
+        
+        <ul class="logout">
+            <li>
+                <a href="login.php">
+                    <i class="fa fa-power-off nav-icon"></i>
+                    <span class="nav-text">Logout</span>
+                </a>
+            </li>  
+        </ul>
+    </nav>
+
+    <div class="main-content-wrapper">
+        <div class="page-header">
+            <div class="welcome-text">
+                <h1>My Profile</h1>
+                <p>Welcome back, <?php echo htmlspecialchars($user_name); ?></p>
+            </div>
+            
+            <div class="logo-section">
+                <img src="image/ladybug.png" alt="Logo" class="logo-img">
+                <span class="system-title">FYP Portal</span>
+            </div>
+
+            <div class="user-section">
+                <span class="user-badge">Supervisor</span>
+                <img src="<?php echo htmlspecialchars($user_avatar); ?>" class="user-avatar" id="headerAvatar" alt="User Avatar">
+            </div>
+        </div>
+
+        <form id="profileForm" enctype="multipart/form-data">
+            <div class="profile-container">
+                <div class="left-column">
+                    <div class="profile-img-box" id="profileImgBox">
+                        <?php if (!empty($user_avatar) && $user_avatar != 'image/user.png'): ?>
+                            <img id="profilePreview" src="<?php echo htmlspecialchars($user_avatar); ?>" alt="Profile">
+                        <?php else: ?>
+                            <div class="profile-img-placeholder" id="profilePlaceholder">
+                                <i class="fa fa-user"></i>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                    <input type="file" name="profile_img" id="profileImageInput" accept="image/jpeg,image/jpg,image/png,image/gif" style="display: none;">
+                    <button type="button" class="upload-photo-btn" onclick="document.getElementById('profileImageInput').click()">
+                        <i class="fa fa-camera"></i> Change Photo
+                    </button>
+                    <div class="student-id-display"><?php echo htmlspecialchars($sv_data['fyp_staffid']); ?></div>
+                    <div style="font-size: 0.8em; color: #888; text-align: center;">(Staff ID)</div>
+                </div>
+
+                <div class="right-column">
+                    <h3 class="form-section-title">Personal Information</h3>
+                    <div class="form-group">
+                        <label>Full Name:</label>
+                        <input type="text" class="form-control" value="<?php echo htmlspecialchars($sv_data['fyp_name']); ?>" readonly>
+                    </div>
+                    <div class="row-group">
+                        <div class="col-group form-group">
+                            <label>Email Address:</label>
+                            <input type="email" class="form-control" value="<?php echo htmlspecialchars($sv_data['fyp_email']); ?>" readonly>
+                        </div>
+                        <div class="col-group form-group">
+                            <label>Staff ID:</label>
+                            <input type="text" class="form-control" value="<?php echo htmlspecialchars($sv_data['fyp_staffid']); ?>" readonly>
+                        </div>
+                    </div>
+
+                    <h3 class="form-section-title" style="margin-top: 20px;">Contact & Academic Info</h3>
+                    <div class="row-group">
+                        <div class="col-group form-group">
+                            <label>Contact Number:</label>
+                            <input type="text" name="contact" class="form-control" value="<?php echo htmlspecialchars($sv_data['fyp_contactno']); ?>" required>
+                        </div>
+                        <div class="col-group form-group">
+                            <label>Office Room No:</label>
+                            <input type="text" name="room_no" class="form-control" value="<?php echo htmlspecialchars($sv_data['fyp_roomno']); ?>" required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Specialization:</label>
+                        <input type="text" name="specialization" class="form-control" value="<?php echo htmlspecialchars($sv_data['fyp_specialization']); ?>" placeholder="e.g. AI, Cyber Security">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Area of Interest:</label>
+                        <textarea name="area_interest" class="form-control" placeholder="Describe your research interests..."><?php echo htmlspecialchars($sv_data['fyp_areaofinterest']); ?></textarea>
+                    </div>
+
+                    <div class="action-buttons">
+                        <button type="submit" id="saveBtn" class="save-btn">
+                            <i class="fa fa-save"></i> Save Changes
+                        </button>
+                        <button type="button" onclick="openModal()" class="btn-reset-pwd">
+                            <i class="fa fa-key"></i> Change Password
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- Password Change Modal -->
+    <div class="modal-overlay" id="pwdModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <div class="modal-title"><i class="fa fa-lock"></i> Change Password</div>
+                <span class="close-modal" onclick="closeModal()">&times;</span>
+            </div>
+            
+            <form id="pwdForm">
+                <input type="hidden" name="change_password" value="1">
+                
+                <div class="form-group">
+                    <label>Current Password</label>
+                    <input type="password" name="current_password" class="form-control" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>New Password</label>
+                    <input type="password" name="new_password" id="newPwd" class="form-control" required oninput="validatePwd()">
+                    <i class="fa fa-eye toggle-password" onclick="togglePwdVisibility('newPwd', this)"></i>
+                </div>
+                
+                <div class="form-group">
+                    <label>Confirm New Password</label>
+                    <input type="password" name="confirm_password" id="confirmPwd" class="form-control" required oninput="validatePwd()">
+                </div>
+
+                <ul class="pwd-req-list">
+                    <li class="pwd-req-item" id="req-len"><i class="fa fa-circle"></i> 8-16 Chars</li>
+                    <li class="pwd-req-item" id="req-num"><i class="fa fa-circle"></i> 1 Number</li>
+                    <li class="pwd-req-item" id="req-up"><i class="fa fa-circle"></i> 1 Uppercase</li>
+                    <li class="pwd-req-item" id="req-spec"><i class="fa fa-circle"></i> 1 Symbol</li>
+                    <li class="pwd-req-item" id="req-match"><i class="fa fa-circle"></i> Passwords Match</li>
+                </ul>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn-cancel" onclick="closeModal()">Cancel</button>
+                    <button type="submit" class="save-btn" id="pwdSubmitBtn" disabled>Update Password</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="toast" class="toast">
+        <i class="fa fa-check-circle" style="font-size: 20px; color: #28a745;"></i>
+        <span id="toastMessage"></span>
+    </div>
+
+    <script>
+        function toggleSubmenu(element) {
+            element.parentElement.classList.toggle('open');
+        }
+
+        // Image Preview
+        const profileImageInput = document.getElementById('profileImageInput');
+        const profileImgBox = document.getElementById('profileImgBox');
+
+        profileImageInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
+                if (!validTypes.includes(file.type)) {
+                    showToast('Invalid file format', 'error');
+                    this.value = '';
+                    return;
+                }
+                if (file.size > 5 * 1024 * 1024) {
+                    showToast('Image too large (Max 5MB)', 'error');
+                    this.value = '';
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    profileImgBox.innerHTML = `<img id="profilePreview" src="${e.target.result}" alt="Profile">`;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // Profile Form Submit
+        document.getElementById('profileForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const btn = document.getElementById('saveBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Saving...';
+
+            const formData = new FormData(this);
+            formData.append('update_profile', '1');
+
+            try {
+                const res = await fetch('supervisor_profile.php?auth_user_id=<?php echo $auth_user_id; ?>', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    if(data.image) {
+                        document.getElementById('headerAvatar').src = data.image;
+                    }
+                } else {
+                    showToast(data.message, 'error');
+                }
+            } catch (err) {
+                showToast('Error updating profile', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa fa-save"></i> Save Changes';
+            }
+        });
+
+        // Modal Logic
+        const modal = document.getElementById('pwdModal');
+        function openModal() {
+            modal.classList.add('show');
+            document.getElementById('pwdForm').reset();
+            validatePwd();
+        }
+        function closeModal() {
+            modal.classList.remove('show');
+        }
+        window.onclick = function(e) {
+            if (e.target == modal) closeModal();
+        }
+
+        // Password Validation
+        function togglePwdVisibility(id, icon) {
+            const input = document.getElementById(id);
+            if (input.type === "password") {
+                input.type = "text";
+                icon.classList.replace("fa-eye", "fa-eye-slash");
+            } else {
+                input.type = "password";
+                icon.classList.replace("fa-eye-slash", "fa-eye");
+            }
+        }
+
+        function validatePwd() {
+            const pwd = document.getElementById('newPwd').value;
+            const confirm = document.getElementById('confirmPwd').value;
+            const btn = document.getElementById('pwdSubmitBtn');
+            let valid = true;
+
+            const updateReq = (id, isValid) => {
+                const el = document.getElementById(id);
+                if (isValid) {
+                    el.classList.add('valid');
+                    el.classList.remove('invalid');
+                    el.querySelector('i').className = 'fa fa-check';
+                } else {
+                    el.classList.add('invalid');
+                    el.classList.remove('valid');
+                    el.querySelector('i').className = 'fa fa-circle';
+                    valid = false;
+                }
+            };
+
+            updateReq('req-len', pwd.length >= 8 && pwd.length <= 16);
+            updateReq('req-num', /\d/.test(pwd));
+            updateReq('req-up', /[A-Z]/.test(pwd));
+            updateReq('req-spec', /[\W_]/.test(pwd));
+            updateReq('req-match', pwd === confirm && pwd !== '');
+
+            btn.disabled = !valid;
+        }
+
+        // Password Form Submit
+        document.getElementById('pwdForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const btn = document.getElementById('pwdSubmitBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Updating...';
+
+            const formData = new FormData(this);
+
+            try {
+                const res = await fetch('supervisor_profile.php?auth_user_id=<?php echo $auth_user_id; ?>', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    closeModal();
+                } else {
+                    showToast(data.message, 'error');
+                    btn.disabled = false;
+                    btn.innerHTML = 'Update Password';
+                }
+            } catch (err) {
+                showToast('Error changing password', 'error');
+                btn.disabled = false;
+                btn.innerHTML = 'Update Password';
+            }
+        });
+
+        function showToast(message, type) {
+            const toast = document.getElementById('toast');
+            const msg = document.getElementById('toastMessage');
+            const icon = toast.querySelector('i');
+            
+            msg.textContent = message;
+            toast.className = 'toast show ' + type;
+            
+            if (type === 'success') {
+                icon.className = 'fa fa-check-circle';
+                icon.style.color = '#28a745';
+            } else {
+                icon.className = 'fa fa-exclamation-circle';
+                icon.style.color = '#dc3545';
+            }
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>

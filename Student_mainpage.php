@@ -1,0 +1,826 @@
+<?php
+include("connect.php");
+
+$auth_user_id = $_GET['auth_user_id'] ?? null;
+$current_page = $_GET['page'] ?? 'dashboard';
+
+if ($current_page == 'book_session') $current_page = 'appointments';
+if (!$auth_user_id) { header("location: login.php"); exit; }
+
+if ($current_page == 'appointments' && $_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['book_appointment'])) {
+    $post_schedule_id = $_POST['schedule_id'];
+    $post_supervisor_id = $_POST['supervisor_id'];
+    $post_pairing_id = $_POST['pairing_id'];
+    $post_stud_id = $_POST['student_id_str'];
+    $status = "Pending";
+    $current_date = date('Y-m-d H:i:s');
+    
+    $sql_book = "INSERT INTO appointment (fyp_studid, fyp_pairingid, fyp_scheduleid, fyp_supervisorid, fyp_status, fyp_datecreated) VALUES (?, ?, ?, ?, ?, ?)";
+    if ($stmt = $conn->prepare($sql_book)) {
+        $stmt->bind_param("siisss", $post_stud_id, $post_pairing_id, $post_schedule_id, $post_supervisor_id, $status, $current_date);
+        if ($stmt->execute()) echo "<script>alert('Appointment booked successfully!'); window.location.href='?page=appointments&auth_user_id=" . urlencode($auth_user_id) . "';</script>";
+        $stmt->close();
+    }
+}
+
+$stud_data = [];
+$user_name = 'Student';
+$must_change_password = false;
+
+if (isset($conn)) {
+    $sql_user = "SELECT fyp_username, fyp_passwordhash, fyp_userid FROM `USER` WHERE fyp_userid = ?";
+    if ($stmt = $conn->prepare($sql_user)) { 
+        $stmt->bind_param("i", $auth_user_id); $stmt->execute(); 
+        $res = $stmt->get_result(); 
+        if($row=$res->fetch_assoc()) {
+            $user_name=$row['fyp_username'];
+            
+            // Check if password is same as username/ID (default)
+            // Assuming fyp_username is used as ID or similar for default
+            if ($row['fyp_passwordhash'] === $row['fyp_username'] || $row['fyp_passwordhash'] === '123456') {
+                $must_change_password = true;
+            }
+        }
+        $stmt->close(); 
+    }
+    $sql_stud = "SELECT * FROM STUDENT WHERE fyp_userid = ?";
+    if ($stmt = $conn->prepare($sql_stud)) { 
+        $stmt->bind_param("i", $auth_user_id); $stmt->execute(); 
+        $res=$stmt->get_result(); 
+        if($res->num_rows > 0) { 
+            $stud_data = $res->fetch_assoc(); 
+            if(!empty($stud_data['fyp_studname'])) $user_name=$stud_data['fyp_studname']; 
+        } else { 
+            $stud_data=['fyp_studid'=>'', 'fyp_studname'=>$user_name, 'fyp_studfullid'=>'', 'fyp_projectid'=>null, 'fyp_profileimg'=>'']; 
+        } 
+        $stmt->close(); 
+    }
+}
+
+$dashboard_data = [
+    'project_status' => 'Not Registered', 
+    'next_deadline' => 'TBA', 
+    'supervisor_name' => 'Please apply for a project'
+];
+
+$my_sv_staffid = null;    
+$my_sv_name = "";         
+$my_project_title = "";   
+
+if (!empty($stud_data['fyp_studid'])) {
+    $my_id = $stud_data['fyp_studid'];
+
+    $sql_reg = "SELECT r.*, p.fyp_projecttitle, p.fyp_staffid,
+                        COALESCE(s.fyp_name, c.fyp_name) as sv_name
+                FROM fyp_registration r 
+                JOIN project p ON r.fyp_projectid = p.fyp_projectid
+                LEFT JOIN supervisor s ON p.fyp_staffid = s.fyp_staffid
+                LEFT JOIN coordinator c ON p.fyp_staffid = c.fyp_staffid
+                WHERE r.fyp_studid = ? LIMIT 1";
+    
+    $is_registered = false;
+    if ($stmt = $conn->prepare($sql_reg)) {
+        $stmt->bind_param("s", $my_id);
+        $stmt->execute();
+        $res_reg = $stmt->get_result();
+        if ($row_reg = $res_reg->fetch_assoc()) {
+            $is_registered = true;
+            $dashboard_data['project_status'] = 'Active (Registered)';
+            $dashboard_data['supervisor_name'] = $row_reg['sv_name']; 
+            $dashboard_data['next_deadline'] = 'Check Schedule'; 
+            
+            $my_sv_staffid = $row_reg['fyp_staffid']; 
+            $my_project_title = trim($row_reg['fyp_projecttitle']);
+        }
+        $stmt->close();
+    }
+
+    if (!$is_registered) {
+        $applicant_id = $my_id;
+        $sql_mem = "SELECT g.leader_id FROM group_request gr 
+                    JOIN student_group g ON gr.group_id = g.group_id 
+                    WHERE gr.invitee_id = ? AND gr.request_status = 'Accepted'";
+        if ($stmt_m = $conn->prepare($sql_mem)) {
+            $stmt_m->bind_param("s", $my_id);
+            $stmt_m->execute();
+            $res_m = $stmt_m->get_result();
+            if ($row_m = $res_m->fetch_assoc()) {
+                $applicant_id = $row_m['leader_id'];
+            }
+            $stmt_m->close();
+        }
+
+        $sql_req = "SELECT pr.fyp_requeststatus, p.fyp_projecttitle, p.fyp_staffid,
+                            COALESCE(s.fyp_name, c.fyp_name) as sv_name
+                    FROM project_request pr 
+                    LEFT JOIN project p ON pr.fyp_projectid = p.fyp_projectid
+                    LEFT JOIN supervisor s ON p.fyp_staffid = s.fyp_staffid
+                    LEFT JOIN coordinator c ON p.fyp_staffid = c.fyp_staffid
+                    WHERE pr.fyp_studid = ? 
+                    ORDER BY pr.fyp_datecreated DESC LIMIT 1";
+        
+        if ($stmt_r = $conn->prepare($sql_req)) {
+            $stmt_r->bind_param("s", $applicant_id);
+            $stmt_r->execute();
+            $res_r = $stmt_r->get_result();
+            if ($row_r = $res_r->fetch_assoc()) {
+                $status = $row_r['fyp_requeststatus'];
+                $current_sv_name = $row_r['sv_name'];
+                
+                if ($status == 'Pending') {
+                    $dashboard_data['project_status'] = 'Pending Approval';
+                    $dashboard_data['supervisor_name'] = $current_sv_name . " (Pending)";
+                    
+                    $my_sv_staffid = $row_r['fyp_staffid'];
+                    $my_sv_name = $current_sv_name;
+                    $my_project_title = trim($row_r['fyp_projecttitle']);
+
+                } elseif ($status == 'Reject') {
+                    $dashboard_data['project_status'] = 'Application Rejected';
+                    $dashboard_data['supervisor_name'] = 'Please apply again';
+                    $my_sv_staffid = null;
+                    $my_project_title = "";
+                }
+            }
+            $stmt_r->close();
+        }
+    }
+}
+
+$announcements = [];
+$display_announcements = []; 
+$total_pages = 0;
+$current_ann_page = 1;
+
+if ($current_page == 'dashboard') {
+    
+    $sql_ann = "SELECT a.*, 
+                        s.fyp_name as sv_name, s.fyp_profileimg as sv_img,
+                        c.fyp_name as co_name, c.fyp_profileimg as co_img
+                FROM announcement a 
+                LEFT JOIN supervisor s ON a.fyp_staffid = s.fyp_staffid 
+                LEFT JOIN coordinator c ON a.fyp_staffid = c.fyp_staffid 
+                ORDER BY a.fyp_datecreated DESC";
+
+    $res = $conn->query($sql_ann);
+    if ($res) {
+        while ($row = $res->fetch_assoc()) {
+            
+            $display_name = "Unknown";
+            $profile_img = "";
+
+            if (!empty($row['co_name'])) {
+                $display_name = $row['co_name'];
+                $profile_img = $row['co_img'];
+            } 
+            elseif (!empty($row['sv_name'])) {
+                $display_name = $row['sv_name'];
+                $profile_img = $row['sv_img'];
+            } 
+            else {
+                $display_name = $row['fyp_staffid']; 
+            }
+
+            $row['final_display_name'] = $display_name;
+            $row['fyp_profileimg'] = $profile_img;
+            
+            $should_show = false;
+            $receiver = trim($row['fyp_receiver']); 
+            $sender_staff_id = trim($row['fyp_staffid']); 
+
+            if (strcasecmp($receiver, 'All Students') == 0) {
+                $should_show = true;
+            } 
+            elseif (strcasecmp($receiver, 'My Supervisees') == 0) {
+                if (!empty($my_sv_staffid) && strcasecmp($sender_staff_id, $my_sv_staffid) == 0) {
+                    $should_show = true;
+                }
+            } 
+            elseif (strpos($receiver, 'Project: ') === 0) {
+                $target_project = trim(substr($receiver, 9)); 
+                if (!empty($my_project_title) && strcasecmp($target_project, $my_project_title) == 0) {
+                    $should_show = true;
+                }
+            }
+
+            if ($should_show) {
+                $announcements[] = $row;
+            }
+        }
+    }
+    
+    $total_announcements = count($announcements);
+    $items_per_page = 5; 
+    $total_pages = ceil($total_announcements / $items_per_page);
+    
+    $current_ann_page = isset($_GET['ann_page']) ? (int)$_GET['ann_page'] : 1;
+    if ($current_ann_page < 1) $current_ann_page = 1;
+    if ($current_ann_page > $total_pages && $total_pages > 0) $current_ann_page = $total_pages;
+
+    $offset = ($current_ann_page - 1) * $items_per_page;
+    $display_announcements = array_slice($announcements, $offset, $items_per_page);
+}
+
+$supervisor_data = null; 
+$available_schedules = []; 
+$my_appointments = []; 
+$pairing_data = null;
+
+if ($current_page == 'appointments' && !empty($stud_data['fyp_projectid'])) {
+    $proj_id = $stud_data['fyp_projectid'];
+    
+    $sql_proj = "SELECT fyp_staffid FROM project WHERE fyp_projectid = '$proj_id' LIMIT 1";
+    $res_proj = $conn->query($sql_proj);
+    
+    if ($res_proj->num_rows > 0) {
+        $proj_row = $res_proj->fetch_assoc();
+        $target_staff_id = $proj_row['fyp_staffid']; 
+        
+        $res_sv = $conn->query("SELECT *, 'Supervisor' as role FROM supervisor WHERE fyp_staffid = '$target_staff_id' LIMIT 1");
+        if ($res_sv->num_rows > 0) {
+            $supervisor_data = $res_sv->fetch_assoc();
+        } else {
+            $res_co = $conn->query("SELECT *, 'Coordinator' as role FROM coordinator WHERE fyp_staffid = '$target_staff_id' LIMIT 1");
+            if ($res_co->num_rows > 0) {
+                $supervisor_data = $res_co->fetch_assoc();
+            }
+        }
+        
+        $sql_pair = "SELECT * FROM pairing WHERE fyp_projectid = '$proj_id' LIMIT 1";
+        $res_pair = $conn->query($sql_pair);
+        if ($res_pair->num_rows > 0) {
+            $pairing_data = $res_pair->fetch_assoc();
+        }
+
+        if (!empty($target_staff_id)) {
+            $sql_sch = "SELECT s.* FROM schedule s 
+                        WHERE s.fyp_supervisorid = '$target_staff_id' 
+                        AND s.fyp_date >= CURDATE() 
+                        AND s.fyp_scheduleid NOT IN (SELECT fyp_scheduleid FROM appointment WHERE fyp_status IN ('Pending', 'Approved')) 
+                        ORDER BY s.fyp_date ASC";
+            $res_sch = $conn->query($sql_sch);
+            while ($row = $res_sch->fetch_assoc()) {
+                $available_schedules[] = $row;
+            }
+        }
+    }
+    
+    $my_sid = $stud_data['fyp_studid'];
+    $res_app = $conn->query("SELECT a.*, s.fyp_date, s.fyp_fromtime, s.fyp_totime, s.fyp_day 
+                             FROM appointment a 
+                             JOIN schedule s ON a.fyp_scheduleid = s.fyp_scheduleid 
+                             WHERE a.fyp_studid = '$my_sid' 
+                             ORDER BY s.fyp_date DESC");
+    while ($row = $res_app->fetch_assoc()) {
+        $my_appointments[] = $row;
+    }
+}
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Dashboard</title>
+    <link rel="icon" type="image/png" href="image/ladybug.png?v=<?php echo time(); ?>">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap');
+        
+        :root {
+            --primary-color: #0056b3;
+            --primary-hover: #004494;
+            --bg-color: #f4f6f9;
+            --card-bg: #ffffff;
+            --text-color: #333;
+            --text-secondary: #666;
+            --sidebar-bg: #004085;
+            --sidebar-hover: #003366;
+            --sidebar-text: #e0e0e0;
+            --card-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            --header-bg: #ffffff;
+            --border-color: #e0e0e0;
+            --slot-bg: #f8f9fa;
+        }
+
+        .dark-mode {
+            --primary-color: #4da3ff;
+            --primary-hover: #0069d9;
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-color: #e0e0e0;
+            --text-secondary: #a0a0a0;
+            --sidebar-bg: #0d1117;
+            --sidebar-hover: #161b22;
+            --sidebar-text: #c9d1d9;
+            --card-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            --header-bg: #1e1e1e;
+            --border-color: #333;
+            --slot-bg: #2d2d2d;
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            margin: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            min-height: 100vh;
+            display: flex;
+            overflow-x: hidden;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .main-menu {
+            background: var(--sidebar-bg);
+            border-right: 1px solid rgba(255,255,255,0.1);
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            height: 100%;
+            left: 0;
+            width: 60px;
+            overflow: hidden;
+            transition: width .05s linear;
+            z-index: 1000;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+        }
+
+        .main-menu:hover, nav.main-menu.expanded {
+            width: 250px;
+            overflow: visible;
+        }
+
+        .main-menu > ul {
+            margin: 7px 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .main-menu li {
+            position: relative;
+            display: block;
+            width: 250px;
+        }
+
+        .main-menu li > a {
+            position: relative;
+            display: table;
+            border-collapse: collapse;
+            border-spacing: 0;
+            color: var(--sidebar-text);
+            font-size: 14px;
+            text-decoration: none;
+            transition: all .1s linear;
+            width: 100%;
+        }
+
+        .main-menu .nav-icon {
+            position: relative;
+            display: table-cell;
+            width: 60px;
+            height: 46px; 
+            text-align: center;
+            vertical-align: middle;
+            font-size: 18px;
+        }
+
+        .main-menu .nav-text {
+            position: relative;
+            display: table-cell;
+            vertical-align: middle;
+            width: 190px;
+            padding-left: 10px;
+            white-space: nowrap;
+        }
+
+        .main-menu li:hover > a, nav.main-menu li.active > a {
+            color: #fff;
+            background-color: var(--sidebar-hover);
+            border-left: 4px solid #fff; 
+        }
+
+        .main-menu > ul.logout {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            width: 100%;
+        }
+        
+        .main-content-wrapper {
+            margin-left: 60px;
+            flex: 1;
+            padding: 20px;
+            width: calc(100% - 60px);
+            transition: margin-left .05s linear;
+        }
+        
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            background: var(--header-bg);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: var(--card-shadow);
+            transition: background 0.3s;
+        }
+        
+        .welcome-text h1 {
+            margin: 0;
+            font-size: 24px;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        
+        .welcome-text p {
+            margin: 5px 0 0;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .info-cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .info-card { background: var(--card-bg); padding: 25px; border-radius: 12px; box-shadow: var(--card-shadow); display: flex; flex-direction: column; transition: transform 0.2s, background 0.3s; border-left: 4px solid var(--primary-color); }
+        .info-card:hover { transform: translateY(-3px); }
+        .info-card h3 { margin: 0 0 15px 0; color: var(--primary-color); font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+        .info-card p { color: var(--text-secondary); }
+        
+        .slots-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; }
+        .slot-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; text-align: center; transition: all 0.3s; cursor: pointer; }
+        .slot-card:hover { border-color: var(--primary-color); transform: translateY(-3px); box-shadow: 0 5px 15px rgba(0,0,0,0.08); }
+        .slot-card .time-slot { background: var(--slot-bg); color: var(--text-color); }
+        .btn-book { margin-top: 10px; width: 100%; padding: 8px; background: var(--primary-color); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
+
+        .ann-card { background: var(--card-bg); border-radius: 8px; padding: 20px; margin-bottom: 15px; box-shadow: var(--card-shadow); border-left: 5px solid #6264A7; transition: background 0.3s; }
+        .ann-header { display: flex; justify-content: space-between; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color); }
+        .ann-avatar { width: 40px; height: 40px; background-color: #6264A7; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; overflow: hidden; margin-right: 10px; }
+        .ann-sender-info { display: flex; align-items: center; }
+        
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1100; justify-content: center; align-items: center; }
+        .modal-overlay.show { display: flex; }
+        .modal-box { background: var(--card-bg); padding: 30px; border-radius: 12px; width: 90%; max-width: 400px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+        .btn-confirm { background: var(--primary-color); color: white; padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; }
+        .btn-cancel { background: #eee; color: #333; padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; margin-left: 10px; }
+        
+        .empty-state { text-align: center; padding: 40px; color: #999; background: var(--card-bg); border-radius: 12px; box-shadow: var(--card-shadow); transition: background 0.3s; }
+
+        .pagination-container { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; }
+        .page-btn { padding: 8px 15px; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 6px; text-decoration: none; color: var(--text-color); transition: 0.2s; }
+        .page-btn:hover:not(.disabled) { background: var(--primary-color); color: white; border-color: var(--primary-color); }
+        .page-btn.disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .logo-img {
+            height: 40px;
+            width: auto;
+            background: white;
+            padding: 2px;
+            border-radius: 6px;
+        }
+        .system-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--primary-color);
+            letter-spacing: 0.5px;
+        }
+        
+        .supervisor-profile-card {
+            background: var(--card-bg) !important;
+            color: var(--text-color);
+        }
+        
+        .theme-toggle {
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 50%;
+            background: var(--slot-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 35px;
+            height: 35px;
+            margin-right: 15px;
+        }
+
+        .theme-toggle img {
+            width: 20px;
+            height: 20px;
+            object-fit: contain;
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="main-menu">
+        <ul>
+            <li>
+                <a href="?page=dashboard&auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-home nav-icon"></i>
+                    <span class="nav-text">Dashboard</span>
+                </a>
+            </li>
+            <li>
+                <a href="std_profile.php?auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-user nav-icon"></i>
+                    <span class="nav-text">My Profile</span>
+                </a>
+            </li>
+            <li>
+                <a href="std_projectreg.php?auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-users nav-icon"></i>
+                    <span class="nav-text">Project Registration</span>
+                </a>
+            </li>
+            <li>
+                <a href="std_request_status.php?auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-tasks nav-icon"></i>
+                    <span class="nav-text">Request Status</span>
+                </a>
+            </li>
+            <li>
+                <a href="student_assignment.php?auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-file-text nav-icon"></i>
+                    <span class="nav-text">Assignments</span>
+                </a>
+            </li>
+            <li>
+                <a href="?page=doc_submission&auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-cloud-upload nav-icon"></i>
+                    <span class="nav-text">Document Upload</span>
+                </a>
+            </li>
+            <li>
+                <a href="student_appointment_meeting.php?auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-calendar nav-icon"></i>
+                    <span class="nav-text">Book Appointment</span>
+                </a>
+            </li>
+           <li>
+                <a href="Student_view_presentation.php?auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-desktop nav-icon"></i>
+                    <span class="nav-text">Presentation</span>
+                </a>
+            </li>
+            <li>
+                <a href="Student_view_result.php?auth_user_id=<?php echo $auth_user_id; ?>">
+                    <i class="fa fa-star nav-icon"></i>
+                    <span class="nav-text">View Results</span>
+                </a>
+            </li>
+            </ul>
+
+        <ul class="logout">
+            <li>
+                <a href="login.php">
+                    <i class="fa fa-power-off nav-icon"></i>
+                    <span class="nav-text">Logout</span>
+                </a>
+            </li>  
+        </ul>
+    </nav>
+
+    <div class="main-content-wrapper">
+        
+        <div class="page-header">
+            <div class="welcome-text">
+                <h1>
+                    <?php 
+                        if ($current_page == 'dashboard') echo "Dashboard";
+                        elseif ($current_page == 'appointments') echo "Appointments";
+                        elseif ($current_page == 'presentation') echo "Presentation";
+                        else echo ucfirst(str_replace('_', ' ', $current_page));
+                    ?>
+                </h1>
+                <p>Welcome back, <?php echo htmlspecialchars($user_name); ?></p>
+            </div>
+            
+            <div class="logo-section">
+                <img src="image/ladybug.png?v=<?php echo time(); ?>" alt="Logo" class="logo-img">
+                <span class="system-title">FYP Portal</span>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:10px;">
+                <button class="theme-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">
+                    <img id="theme-icon" src="image/moon-solid-full.svg" alt="Toggle Theme">
+                </button>
+                <span style="font-size:13px; color:var(--text-secondary); background:var(--slot-bg); padding:5px 10px; border-radius:20px;">Student</span>
+                <?php if(!empty($stud_data['fyp_profileimg'])): ?>
+                    <img src="<?php echo htmlspecialchars($stud_data['fyp_profileimg']); ?>" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">
+                <?php else: ?>
+                    <div style="width:40px;height:40px;border-radius:50%;background:#0056b3;color:white;display:flex;align-items:center;justify-content:center;font-weight:bold;">
+                        <?php echo strtoupper(substr($user_name, 0, 1)); ?>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <?php if ($current_page == 'dashboard'): ?>
+            <div class="info-cards-grid">
+                <div class="info-card">
+                    <h3><i class="fa fa-tasks"></i> Project Status</h3>
+                    <p style="font-size:15px;"><?php echo htmlspecialchars($dashboard_data['project_status']); ?></p>
+                </div>
+                <div class="info-card" style="border-left-color: #d93025;">
+                    <h3 style="color: #d93025;"><i class="fa fa-clock-o"></i> Next Deadline</h3>
+                    <p style="font-size:15px;"><?php echo htmlspecialchars($dashboard_data['next_deadline']); ?></p>
+                </div>
+                <div class="info-card" style="border-left-color: #28a745;">
+                    <h3 style="color: #28a745;"><i class="fa fa-user"></i> Supervisor</h3>
+                    <p style="font-size:15px;"><?php echo htmlspecialchars($dashboard_data['supervisor_name']); ?></p>
+                </div>
+            </div>
+
+            <h3 style="margin-bottom: 20px; color:var(--text-color);">Latest Announcements</h3>
+            
+            <?php if (count($display_announcements) > 0): ?>
+                <?php foreach ($display_announcements as $ann): ?>
+                    <div class="ann-card">
+                        <div class="ann-header">
+                            <div class="ann-sender-info">
+                                <div class="ann-avatar">
+                                    <?php 
+                                    if (!empty($ann['fyp_profileimg'])) {
+                                        echo "<img src='" . $ann['fyp_profileimg'] . "' alt='SV' style='width:100%;height:100%;object-fit:cover;'>";
+                                    } else {
+                                        echo strtoupper(substr($ann['final_display_name'] ?? 'S', 0, 1)); 
+                                    }
+                                    ?>
+                                </div>
+                                <div>
+                                    <div style="font-weight:600; color:var(--text-color);"><?php echo htmlspecialchars($ann['final_display_name']); ?> </div>
+                                    <div style="font-size: 11px; color: var(--text-secondary);">To: <?php echo htmlspecialchars($ann['fyp_receiver']); ?></div>
+                                </div>
+                            </div>
+                            <div style="font-size: 12px; color: var(--text-secondary);"><i class="fa fa-clock-o"></i> <?php $date = date_create($ann['fyp_datecreated']); echo date_format($date, "M d, Y h:i A"); ?></div>
+                        </div>
+                        <div style="font-size: 18px; font-weight: 600; color: var(--text-color); margin-bottom: 8px;"><?php echo htmlspecialchars($ann['fyp_subject']); ?></div>
+                        <div style="color: var(--text-secondary); line-height: 1.6; font-size: 14px;"><?php echo nl2br(htmlspecialchars($ann['fyp_description'])); ?></div>
+                    </div>
+                <?php endforeach; ?>
+                
+                <?php if ($total_pages > 1): ?>
+                    <div class="pagination-container">
+                        <?php if ($current_ann_page > 1): ?>
+                            <a href="?page=dashboard&auth_user_id=<?php echo $auth_user_id; ?>&ann_page=<?php echo $current_ann_page - 1; ?>" class="page-btn">
+                                <i class="fa fa-chevron-left"></i> Previous
+                            </a>
+                        <?php else: ?>
+                            <span class="page-btn disabled"><i class="fa fa-chevron-left"></i> Previous</span>
+                        <?php endif; ?>
+
+                        <span style="font-size: 13px; color: var(--text-secondary);">Page <?php echo $current_ann_page; ?> of <?php echo $total_pages; ?></span>
+
+                        <?php if ($current_ann_page < $total_pages): ?>
+                            <a href="?page=dashboard&auth_user_id=<?php echo $auth_user_id; ?>&ann_page=<?php echo $current_ann_page + 1; ?>" class="page-btn">
+                                Next <i class="fa fa-chevron-right"></i>
+                            </a>
+                        <?php else: ?>
+                            <span class="page-btn disabled">Next <i class="fa fa-chevron-right"></i></span>
+                        <?php endif; ?>
+                    </div>
+                <?php endif; ?>
+
+            <?php else: ?>
+                <div class="empty-state">
+                    <i class="fa fa-bullhorn" style="font-size: 48px; margin-bottom: 20px; opacity: 0.3;"></i>
+                    <p>No announcements available.</p>
+                </div>
+            <?php endif; ?>
+
+        <?php elseif ($current_page == 'appointments'): ?>
+            
+            <?php if (empty($stud_data['fyp_projectid'])): ?>
+                <div class="empty-state">
+                    <i class="fa fa-exclamation-circle" style="font-size: 48px; color: #f0ad4e; margin-bottom: 20px;"></i>
+                    <p>You have not registered for a project yet.</p>
+                    <a href="std_projectreg.php?auth_user_id=<?php echo urlencode($auth_user_id); ?>" style="display:inline-block; margin-top:15px; color: var(--primary-color); font-weight:600;">Go to Registration</a>
+                </div>
+            <?php elseif (empty($supervisor_data)): ?>
+                <div class="empty-state">
+                    <i class="fa fa-user-times" style="font-size: 48px; color: #d9534f; margin-bottom: 20px;"></i>
+                    <p>Your project has not been assigned a supervisor yet.</p>
+                </div>
+            <?php else: ?>
+                <div class="supervisor-profile-card" style="padding:25px; border-radius:12px; box-shadow:0 4px 6px rgba(0,0,0,0.05); display:flex; align-items:center; gap:20px; margin-bottom:30px; border-left:5px solid #28a745;">
+                    <div style="width:80px; height:80px; border-radius:50%; background:#e9ecef; display:flex; align-items:center; justify-content:center; font-size:32px; color:#6c757d;">
+                        <?php echo !empty($supervisor_data['fyp_profileimg']) ? "<img src='{$supervisor_data['fyp_profileimg']}' style='width:100%;height:100%;border-radius:50%;object-fit:cover;'>" : strtoupper(substr($supervisor_data['fyp_name'] ?? 'U', 0, 1)); ?>
+                    </div>
+                    <div>
+                        <h2 style="margin:0 0 5px 0; font-size:20px; color:var(--text-color);"><?php echo htmlspecialchars($supervisor_data['fyp_name']); ?></h2>
+                        <p style="margin:3px 0; color:var(--text-secondary); font-size:14px;"><i class="fa fa-envelope" style="width:20px;"></i> <?php echo htmlspecialchars($supervisor_data['fyp_email']); ?></p>
+                        <p style="margin:3px 0; color:var(--text-secondary); font-size:14px;"><i class="fa fa-phone" style="width:20px;"></i> <?php echo htmlspecialchars($supervisor_data['fyp_contactno']); ?></p>
+                    </div>
+                </div>
+
+                <h3 style="margin-bottom:15px; color:var(--text-color);">Available Slots</h3>
+                <?php if (count($available_schedules) > 0): ?>
+                    <div class="slots-grid">
+                        <?php foreach ($available_schedules as $sch): ?>
+                            <div class="slot-card" onclick="openBookModal('<?php echo $sch['fyp_scheduleid']; ?>', '<?php echo $sch['fyp_day'] . ', ' . $sch['fyp_date'] . ' (' . $sch['fyp_fromtime'] . ')'; ?>', '<?php echo $supervisor_data['fyp_supervisorid']; ?>', '<?php echo $pairing_data['fyp_pairingid']; ?>', '<?php echo $stud_data['fyp_studid']; ?>')">
+                                <div style="font-weight:600; color:var(--primary-color); margin-bottom:5px;"><?php echo htmlspecialchars($sch['fyp_day']); ?></div>
+                                <div style="font-size:13px; color:var(--text-secondary); margin-bottom:10px;"><?php echo htmlspecialchars($sch['fyp_date']); ?></div>
+                                <div class="time-slot" style="font-size:15px; font-weight:500; padding:5px; border-radius:4px;">
+                                    <?php echo date('h:i A', strtotime($sch['fyp_fromtime'])) . ' - ' . date('h:i A', strtotime($sch['fyp_totime'])); ?>
+                                </div>
+                                <button class="btn-book">Book Slot</button>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php else: ?>
+                    <p style="color:var(--text-secondary);">No available slots found for this supervisor at the moment.</p>
+                <?php endif; ?>
+            <?php endif; ?>
+
+        <?php else: ?>
+            <div class="empty-state">
+                <i class="fa fa-wrench" style="font-size: 48px; color: #ddd; margin-bottom: 20px;"></i>
+                <p><strong><?php echo ucfirst($current_page); ?></strong> module is currently under development.</p>
+            </div>
+        <?php endif; ?>
+
+    </div>
+    </div>
+
+    <div id="confirmationModal" class="modal-overlay">
+        <div class="modal-box">
+            <div style="font-size:40px; color:var(--primary-color); margin-bottom:15px;"><i class="fa fa-question-circle"></i></div>
+            <div style="font-size:20px; font-weight:600; margin-bottom:10px; color:var(--text-color);">Confirm Action</div>
+            <p style="color:var(--text-secondary); margin-bottom:30px; font-size:15px; line-height:1.6;" id="modalText"></p>
+            <form method="POST" style="display:flex; gap:15px; justify-content:center;">
+                <input type="hidden" name="schedule_id" id="modalScheduleId">
+                <input type="hidden" name="supervisor_id" id="modalSupervisorId">
+                <input type="hidden" name="pairing_id" id="modalPairingId">
+                <input type="hidden" name="student_id_str" id="modalStudentIdStr">
+                <button type="submit" name="book_appointment" class="btn-confirm">Yes, Confirm</button>
+                <button type="button" class="btn-cancel" onclick="closeModal()">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const confirmModal = document.getElementById('confirmationModal');
+        const modalText = document.getElementById('modalText');
+        function openBookModal(scheduleId, dateStr, supervisorId, pairingId, studentIdStr) {
+            modalText.innerHTML = "Confirm booking for:<br><strong>" + dateStr + "</strong>?";
+            document.getElementById('modalScheduleId').value = scheduleId;
+            document.getElementById('modalSupervisorId').value = supervisorId;
+            document.getElementById('modalPairingId').value = pairingId;
+            document.getElementById('modalStudentIdStr').value = studentIdStr;
+            confirmModal.classList.add('show');
+        }
+        function closeModal() {
+            confirmModal.classList.remove('show');
+        }
+        window.onclick = function(e) {
+            if (e.target.classList.contains('modal-overlay')) {
+                e.target.classList.remove('show');
+            }
+        }
+
+        function toggleDarkMode() {
+            document.body.classList.toggle('dark-mode');
+            const isDark = document.body.classList.contains('dark-mode');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            
+            const iconImg = document.getElementById('theme-icon');
+            if (isDark) {
+                iconImg.src = 'image/sun-solid-full.svg'; 
+            } else {
+                iconImg.src = 'image/moon-solid-full.svg'; 
+            }
+        }
+
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'dark') {
+            document.body.classList.add('dark-mode');
+            const iconImg = document.getElementById('theme-icon');
+            if(iconImg) {
+                iconImg.src = 'image/sun-solid-full.svg'; 
+            }
+        }
+
+        <?php if ($must_change_password && $current_page == 'dashboard'): ?>
+            Swal.fire({
+                title: 'Password Change Required',
+                text: 'For security reasons, you must change your default password before proceeding.',
+                icon: 'warning',
+                confirmButtonText: 'Go to Profile',
+                confirmButtonColor: '#0056b3',
+                allowOutsideClick: false,
+                allowEscapeKey: false
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    window.location.href = 'std_profile.php?auth_user_id=<?php echo $auth_user_id; ?>';
+                }
+            });
+        <?php endif; ?>
+    </script>
+</body>
+</html>
