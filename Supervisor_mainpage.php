@@ -1,18 +1,11 @@
 <?php
-// ====================================================
-// Supervisor_mainpage.php - Dropdown Sidebar Version
-// ====================================================
-
 include("connect.php");
 
-// 1. 基础验证
 $auth_user_id = $_GET['auth_user_id'] ?? null;
 $current_page = $_GET['page'] ?? 'dashboard';
 
-// 安全检查
 if (!$auth_user_id) { header("location: login.php"); exit; }
 
-// 2. 数据查询 (获取导师资料)
 $sv_data = [];
 $user_name = "Supervisor"; 
 $user_avatar = "image/user.png"; 
@@ -43,7 +36,6 @@ if (isset($conn)) {
     }
 }
 
-// 3. DASHBOARD 统计逻辑
 $stats = [
     'total_students' => 0,
     'pending_req' => 0,
@@ -71,12 +63,12 @@ if (!empty($my_staff_id)) {
     }
 
     $act_sql = "SELECT r.fyp_projectid, 
-                       p.fyp_projecttitle, 
-                       p.fyp_projecttype, 
-                       ay.fyp_acdyear, 
-                       ay.fyp_intake,
-                       GROUP_CONCAT(s.fyp_studname SEPARATOR ', ') as student_names,
-                       COUNT(r.fyp_studid) as stud_count
+                        p.fyp_projecttitle, 
+                        p.fyp_projecttype, 
+                        ay.fyp_acdyear, 
+                        ay.fyp_intake,
+                        GROUP_CONCAT(s.fyp_studname SEPARATOR ', ') as student_names,
+                        COUNT(r.fyp_studid) as stud_count
                 FROM fyp_registration r
                 JOIN project p ON r.fyp_projectid = p.fyp_projectid
                 JOIN student s ON r.fyp_studid = s.fyp_studid
@@ -95,7 +87,6 @@ if (!empty($my_staff_id)) {
     }
 }
 
-// 4. 定义菜单
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Supervisor_mainpage.php?page=dashboard'],
     'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'supervisor_profile.php'],
@@ -149,24 +140,46 @@ $menu_items = [
         :root {
             --primary-color: #0056b3;
             --primary-hover: #004494;
-            --secondary-color: #f8f9fa;
+            --bg-color: #f4f6f9;
+            --card-bg: #ffffff;
             --text-color: #333;
-            --sidebar-bg: #004085; 
+            --text-secondary: #666;
+            --sidebar-bg: #004085;
             --sidebar-hover: #003366;
             --sidebar-text: #e0e0e0;
             --card-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            --header-bg: #ffffff;
+            --border-color: #e0e0e0;
+            --slot-bg: #f8f9fa;
+        }
+
+        .dark-mode {
+            --primary-color: #4da3ff;
+            --primary-hover: #0069d9;
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-color: #e0e0e0;
+            --text-secondary: #a0a0a0;
+            --sidebar-bg: #0d1117;
+            --sidebar-hover: #161b22;
+            --sidebar-text: #c9d1d9;
+            --card-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            --header-bg: #1e1e1e;
+            --border-color: #333;
+            --slot-bg: #2d2d2d;
         }
 
         body {
             font-family: 'Poppins', sans-serif;
             margin: 0;
-            background-color: #f4f6f9;
+            background-color: var(--bg-color);
+            color: var(--text-color);
             min-height: 100vh;
             display: flex;
             overflow-x: hidden;
+            transition: background-color 0.3s, color 0.3s;
         }
 
-        /* Sidebar with Dropdown */
         .main-menu {
             background: var(--sidebar-bg);
             border-right: 1px solid rgba(255,255,255,0.1);
@@ -243,7 +256,6 @@ $menu_items = [
             width: 100%;
         }
 
-        /* Dropdown Arrow */
         .dropdown-arrow {
             position: absolute;
             right: 15px;
@@ -257,7 +269,6 @@ $menu_items = [
             transform: translateY(-50%) rotate(180deg);
         }
 
-        /* Submenu Dropdown Styles */
         .submenu {
             list-style: none;
             padding: 0;
@@ -288,7 +299,6 @@ $menu_items = [
             cursor: pointer;
         }
         
-        /* Main Content Wrapper */
         .main-content-wrapper {
             margin-left: 60px;
             flex: 1;
@@ -297,16 +307,16 @@ $menu_items = [
             transition: margin-left .05s linear;
         }
         
-        /* Page Header */
         .page-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 25px;
-            background: white;
+            background: var(--header-bg);
             padding: 20px;
             border-radius: 12px;
             box-shadow: var(--card-shadow);
+            transition: background 0.3s;
         }
         
         .welcome-text h1 {
@@ -318,11 +328,10 @@ $menu_items = [
         
         .welcome-text p {
             margin: 5px 0 0;
-            color: #666;
+            color: var(--text-secondary);
             font-size: 14px;
         }
 
-        /* Logo Section */
         .logo-section {
             display: flex;
             align-items: center;
@@ -344,7 +353,21 @@ $menu_items = [
             letter-spacing: 0.5px;
         }
 
-        /* Info Cards Grid */
+        .user-section {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .user-badge {
+            font-size: 13px; color: var(--text-secondary); background: var(--slot-bg);
+            padding: 5px 10px; border-radius: 20px;
+        }
+        .user-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
+        .user-avatar-placeholder {
+            width: 40px; height: 40px; border-radius: 50%; background: #0056b3;
+            color: white; display: flex; align-items: center; justify-content: center; font-weight: bold;
+        }
+
         .info-cards-grid { 
             display: grid; 
             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); 
@@ -353,13 +376,13 @@ $menu_items = [
         }
         
         .info-card { 
-            background: #fff; 
+            background: var(--card-bg); 
             padding: 25px; 
             border-radius: 12px; 
             box-shadow: var(--card-shadow); 
             display: flex; 
             flex-direction: column; 
-            transition: transform 0.2s; 
+            transition: transform 0.2s, background 0.3s; 
             border-left: 4px solid var(--primary-color); 
         }
         
@@ -379,55 +402,54 @@ $menu_items = [
 
         .info-card p {
             font-size: 15px;
-            color: #555;
+            color: var(--text-secondary);
             margin: 0;
         }
 
-        /* Section Header */
         .section-header { 
             font-size: 18px; 
             font-weight: 600; 
             margin-bottom: 15px; 
-            color: #333; 
-            border-bottom: 2px solid #eee; 
+            color: var(--text-color); 
+            border-bottom: 2px solid var(--border-color); 
             padding-bottom: 10px; 
         }
         
-        /* Empty State */
         .empty-state { 
             text-align: center; 
             padding: 40px; 
-            color: #999; 
-            background: white; 
+            color: var(--text-secondary); 
+            background: var(--card-bg); 
             border-radius: 12px; 
             box-shadow: var(--card-shadow); 
+            transition: background 0.3s;
         }
         
-        /* Table Styles */
         .data-table { 
             width: 100%; 
             border-collapse: collapse; 
-            background: #fff; 
+            background: var(--card-bg); 
             border-radius: 8px; 
             overflow: hidden; 
             box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
+            transition: background 0.3s;
         }
         
         .data-table th { 
-            background: #f8f9fa; 
+            background: var(--slot-bg); 
             text-align: left; 
             padding: 12px 15px; 
-            color: #555; 
+            color: var(--text-secondary); 
             font-size: 13px; 
             font-weight: 600; 
-            border-bottom: 2px solid #eee; 
+            border-bottom: 2px solid var(--border-color); 
         }
         
         .data-table td { 
             padding: 12px 15px; 
-            border-bottom: 1px solid #f0f0f0; 
+            border-bottom: 1px solid var(--border-color); 
             font-size: 14px; 
-            color: #333; 
+            color: var(--text-color); 
         }
         
         .data-table tr:last-child td { 
@@ -452,6 +474,14 @@ $menu_items = [
             color: #555; 
         }
 
+        .theme-toggle {
+            cursor: pointer; padding: 8px; border-radius: 50%;
+            background: var(--slot-bg); border: 1px solid var(--border-color);
+            color: var(--text-color); display: flex; align-items: center;
+            justify-content: center; width: 35px; height: 35px; margin-right: 15px;
+        }
+        .theme-toggle img { width: 20px; height: 20px; object-fit: contain; }
+
         @media (max-width: 900px) { 
             .main-content-wrapper { 
                 margin-left: 0; 
@@ -462,7 +492,6 @@ $menu_items = [
 </head>
 <body>
 
-    <!-- Sidebar Navigation with Dropdown -->
     <nav class="main-menu">
         <ul>
             <?php foreach ($menu_items as $key => $item): ?>
@@ -526,10 +555,8 @@ $menu_items = [
         </ul>
     </nav>
 
-    <!-- Main Content Area -->
     <div class="main-content-wrapper">
         
-        <!-- Page Header -->
         <div class="page-header">
             <div class="welcome-text">
                 <h1>Dashboard</h1>
@@ -541,19 +568,21 @@ $menu_items = [
                 <span class="system-title">FYP Portal</span>
             </div>
 
-            <div style="display:flex; align-items:center; gap:10px;">
-                <span style="font-size:13px; color:#666; background:#f0f0f0; padding:5px 10px; border-radius:20px;">Lecturer</span>
+            <div class="user-section">
+                <button class="theme-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">
+                    <img id="theme-icon" src="image/moon-solid-full.svg" alt="Toggle Theme">
+                </button>
+                <span class="user-badge">Supervisor</span>
                 <?php if(!empty($user_avatar) && $user_avatar != 'image/user.png'): ?>
-                    <img src="<?php echo htmlspecialchars($user_avatar); ?>" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">
+                    <img src="<?php echo htmlspecialchars($user_avatar); ?>" class="user-avatar" alt="Avatar">
                 <?php else: ?>
-                    <div style="width:40px;height:40px;border-radius:50%;background:#0056b3;color:white;display:flex;align-items:center;justify-content:center;font-weight:bold;">
+                    <div class="user-avatar-placeholder">
                         <?php echo strtoupper(substr($user_name, 0, 1)); ?>
                     </div>
                 <?php endif; ?>
             </div>
         </div>
 
-        <!-- Dashboard Content -->
         <?php if ($current_page == 'dashboard'): ?>
             <div class="info-cards-grid">
                 <div class="info-card">
@@ -593,7 +622,7 @@ $menu_items = [
                                 
                                 <td>
                                     <?php echo htmlspecialchars($proj['fyp_acdyear']); ?> 
-                                    <span style="font-size:12px; color:#888;">(<?php echo htmlspecialchars($proj['fyp_intake']); ?>)</span>
+                                    <span style="font-size:12px; color:var(--text-secondary);">(<?php echo htmlspecialchars($proj['fyp_intake']); ?>)</span>
                                 </td>
                                 
                                 <td><?php echo htmlspecialchars($proj['student_names']); ?></td>
@@ -623,18 +652,38 @@ $menu_items = [
             const menuItem = element.parentElement;
             const isOpen = menuItem.classList.contains('open');
             
-            // Close all other submenus
             document.querySelectorAll('.menu-item').forEach(item => {
                 if (item !== menuItem) {
                     item.classList.remove('open');
                 }
             });
             
-            // Toggle current submenu
             if (isOpen) {
                 menuItem.classList.remove('open');
             } else {
                 menuItem.classList.add('open');
+            }
+        }
+
+        function toggleDarkMode() {
+            document.body.classList.toggle('dark-mode');
+            const isDark = document.body.classList.contains('dark-mode');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            
+            const iconImg = document.getElementById('theme-icon');
+            if (isDark) {
+                iconImg.src = 'image/sun-solid-full.svg'; 
+            } else {
+                iconImg.src = 'image/moon-solid-full.svg'; 
+            }
+        }
+
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'dark') {
+            document.body.classList.add('dark-mode');
+            const iconImg = document.getElementById('theme-icon');
+            if(iconImg) {
+                iconImg.src = 'image/sun-solid-full.svg'; 
             }
         }
     </script>

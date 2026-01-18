@@ -1,22 +1,15 @@
 <?php
-// ====================================================
-// Supervisor_manage_project.php - Redesigned UI + Preserved Logic
-// ====================================================
 include("connect.php");
 
-// 1. 基础验证
 session_start();
 $auth_user_id = $_GET['auth_user_id'] ?? $_SESSION['user_id'] ?? null;
-$current_page = 'my_projects'; // Sidebar Highlight
+$current_page = 'my_projects'; 
 
 if (!$auth_user_id) {
     echo "<script>alert('Please login first.'); window.location.href='login.php';</script>";
     exit;
 }
 
-// ----------------------------------------------------
-// 2. 获取 Supervisor 资料
-// ----------------------------------------------------
 $user_name = "Supervisor"; 
 $user_avatar = "image/user.png"; 
 $my_staff_id = ""; 
@@ -34,11 +27,9 @@ if (isset($conn)) {
     $stmt->close();
 }
 
-// ----------------------------------------------------
-// 3. 处理编辑提交 (UPDATE Project)
-// ----------------------------------------------------
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_project'])) {
     
+    header('Content-Type: application/json');
     $target_pid = $_POST['project_id'];
     $new_title = $_POST['edit_title'];
     $new_cat = $_POST['edit_category']; 
@@ -46,7 +37,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_project'])) {
     $new_req = $_POST['edit_req'];
     $new_archive = $_POST['edit_archive_status']; 
 
-    // Security Check
     $check_sql = "SELECT fyp_projectid FROM project WHERE fyp_projectid = ? AND fyp_staffid = ?";
     $check_stmt = $conn->prepare($check_sql);
     $check_stmt->bind_param("is", $target_pid, $my_staff_id);
@@ -54,31 +44,29 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_project'])) {
     
     if ($check_stmt->get_result()->num_rows > 0) {
         $update_sql = "UPDATE project SET 
-                       fyp_projecttitle = ?, 
-                       fyp_projectcat = ?, 
-                       fyp_description = ?, 
-                       fyp_requirement = ?, 
-                       fyp_archive_status = ? 
-                       WHERE fyp_projectid = ?";
+                        fyp_projecttitle = ?, 
+                        fyp_projectcat = ?, 
+                        fyp_description = ?, 
+                        fyp_requirement = ?, 
+                        fyp_archive_status = ? 
+                        WHERE fyp_projectid = ?";
                         
         if ($up_stmt = $conn->prepare($update_sql)) {
             $up_stmt->bind_param("sssssi", $new_title, $new_cat, $new_desc, $new_req, $new_archive, $target_pid);
             if ($up_stmt->execute()) {
-                echo "<script>alert('Project updated successfully!'); window.location.href='Supervisor_manage_project.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
+                echo json_encode(['success' => true, 'message' => 'Project updated successfully!']);
             } else {
-                echo "<script>alert('Update failed: " . $up_stmt->error . "');</script>";
+                echo json_encode(['success' => false, 'message' => 'Update failed: ' . $up_stmt->error]);
             }
             $up_stmt->close();
         }
     } else {
-        echo "<script>alert('Security Error: You do not own this project.');</script>";
+        echo json_encode(['success' => false, 'message' => 'Security Error: You do not own this project.']);
     }
     $check_stmt->close();
+    exit;
 }
 
-// ----------------------------------------------------
-// 4. 获取我的项目列表
-// ----------------------------------------------------
 $my_projects = [];
 if (!empty($my_staff_id)) {
     $sql = "SELECT p.*, ay.fyp_acdyear, ay.fyp_intake 
@@ -98,7 +86,6 @@ if (!empty($my_staff_id)) {
     }
 }
 
-// 5. 菜单定义
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Supervisor_mainpage.php?page=dashboard'],
     'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'supervisor_profile.php'],
@@ -116,7 +103,7 @@ $menu_items = [
         'sub_items' => [
             'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'supervisor_purpose.php'],
             'my_projects'     => ['name' => 'My Projects', 'icon' => 'fa-folder-open', 'link' => 'Supervisor_manage_project.php'],
-            'propose_assignment' => ['name' => 'Propose Assignment', 'icon' => 'fa-tasks', 'link' => 'supervisor_assignment_purpose.php']
+            'propose_assignment' => ['name' => 'Propose Assignment', 'icon' => 'fa-tasks', 'link' => 'supervisor_assignment_purpose.php'],
         ]
     ],
     'grading' => [
@@ -132,7 +119,7 @@ $menu_items = [
         'icon' => 'fa-bullhorn',
         'sub_items' => [
             'post_announcement' => ['name' => 'Post Announcement', 'icon' => 'fa-pen-square', 'link' => 'supervisor_announcement.php'],
-            'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Supervisor_mainpage.php?page=view_announcements'],
+            'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Supervisor_announcement_view.php'],
         ]
     ],
     'schedule'  => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'supervisor_meeting.php'],
@@ -146,13 +133,42 @@ $menu_items = [
     <title>Manage Projects</title>
     <link rel="icon" type="image/png" href="image/ladybug.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap');
         
-        :root { --primary-color: #0056b3; --primary-hover: #004494; --secondary-color: #f8f9fa; --text-color: #333; --border-color: #e0e0e0; --card-shadow: 0 4px 6px rgba(0,0,0,0.05); --bg-color: #f4f6f9; --sidebar-bg: #004085; --sidebar-hover: #003366; --sidebar-text: #e0e0e0; }
-        body { font-family: 'Poppins', sans-serif; margin: 0; background-color: var(--bg-color); min-height: 100vh; display: flex; overflow-x: hidden; }
+        :root {
+            --primary-color: #0056b3;
+            --primary-hover: #004494;
+            --bg-color: #f4f6f9;
+            --card-bg: #ffffff;
+            --text-color: #333;
+            --text-secondary: #666;
+            --sidebar-bg: #004085; 
+            --sidebar-hover: #003366;
+            --sidebar-text: #e0e0e0;
+            --card-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            --border-color: #e0e0e0;
+            --slot-bg: #f8f9fa;
+        }
 
-        /* Sidebar & Menu */
+        .dark-mode {
+            --primary-color: #4da3ff;
+            --primary-hover: #0069d9;
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-color: #e0e0e0;
+            --text-secondary: #a0a0a0;
+            --sidebar-bg: #0d1117;
+            --sidebar-hover: #161b22;
+            --sidebar-text: #c9d1d9;
+            --card-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            --border-color: #333;
+            --slot-bg: #2d2d2d;
+        }
+
+        body { font-family: 'Poppins', sans-serif; margin: 0; background-color: var(--bg-color); color: var(--text-color); min-height: 100vh; display: flex; overflow-x: hidden; transition: background-color 0.3s, color 0.3s; }
+
         .main-menu { background: var(--sidebar-bg); border-right: 1px solid rgba(255,255,255,0.1); position: fixed; top: 0; bottom: 0; height: 100%; left: 0; width: 60px; overflow-y: auto; overflow-x: hidden; transition: width .05s linear; z-index: 1000; box-shadow: 2px 0 5px rgba(0,0,0,0.1); }
         .main-menu:hover, nav.main-menu.expanded { width: 250px; }
         .main-menu > ul { margin: 7px 0; padding: 0; list-style: none; }
@@ -168,29 +184,29 @@ $menu_items = [
         .menu-item.open .submenu { max-height: 500px; transition: max-height 0.5s ease-in; }
         .submenu li > a { padding-left: 70px !important; font-size: 13px; height: 40px; }
 
-        /* Main Content */
         .main-content-wrapper { margin-left: 60px; flex: 1; padding: 20px; width: calc(100% - 60px); transition: margin-left .05s linear; }
 
-        /* Header */
-        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; background: white; padding: 20px; border-radius: 12px; box-shadow: var(--card-shadow); }
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; background: var(--card-bg); padding: 20px; border-radius: 12px; box-shadow: var(--card-shadow); transition: background 0.3s; }
         .welcome-text h1 { margin: 0; font-size: 24px; color: var(--primary-color); font-weight: 600; }
-        .welcome-text p { margin: 5px 0 0; color: #666; font-size: 14px; }
+        .welcome-text p { margin: 5px 0 0; color: var(--text-secondary); font-size: 14px; }
         .logo-section { display: flex; align-items: center; gap: 12px; }
         .logo-img { height: 40px; width: auto; background: white; padding: 2px; border-radius: 6px; }
         .system-title { font-size: 20px; font-weight: 600; color: var(--primary-color); letter-spacing: 0.5px; }
 
-        /* Content Card */
-        .card { background: #fff; padding: 25px; border-radius: 12px; box-shadow: var(--card-shadow); }
-        .section-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 20px; }
-        .section-header h2 { margin: 0; font-size: 20px; color: #333; display: flex; align-items: center; gap: 10px; }
+        .user-section { display: flex; align-items: center; gap: 10px; }
+        .user-badge { font-size: 13px; color: var(--text-secondary); background: var(--slot-bg); padding: 5px 10px; border-radius: 20px; }
+        .user-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
+        .user-avatar-placeholder { width: 40px; height: 40px; border-radius: 50%; background: #0056b3; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; }
 
-        /* Table */
+        .card { background: var(--card-bg); padding: 25px; border-radius: 12px; box-shadow: var(--card-shadow); transition: background 0.3s; }
+        .section-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 15px; margin-bottom: 20px; }
+        .section-header h2 { margin: 0; font-size: 20px; color: var(--text-color); display: flex; align-items: center; gap: 10px; }
+
         .data-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        .data-table th { background: #f8f9fa; text-align: left; padding: 15px; color: #555; font-weight: 600; font-size: 13px; border-bottom: 2px solid #eee; }
-        .data-table td { padding: 15px; border-bottom: 1px solid #f0f0f0; color: #333; vertical-align: middle; font-size: 14px; }
-        .data-table tr:hover { background-color: #f9fbfd; }
+        .data-table th { background: var(--slot-bg); text-align: left; padding: 15px; color: var(--text-secondary); font-weight: 600; font-size: 13px; border-bottom: 2px solid var(--border-color); }
+        .data-table td { padding: 15px; border-bottom: 1px solid var(--border-color); color: var(--text-color); vertical-align: middle; font-size: 14px; }
+        .data-table tr:hover { background-color: var(--slot-bg); }
 
-        /* Badges */
         .badge { padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-block; }
         .badge-status-Taken { background: #e3effd; color: #0056b3; }
         .badge-status-Open { background: #d4edda; color: #155724; }
@@ -203,18 +219,26 @@ $menu_items = [
         .btn-edit { background: #ffc107; color: #333; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
         .btn-edit:hover { background: #e0a800; }
 
-        /* Modal */
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; }
-        .modal-box { background: #fff; width: 600px; max-width: 90%; max-height: 90vh; overflow-y: auto; border-radius: 12px; padding: 30px; animation: popIn 0.3s ease; }
-        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
-        .close-modal { font-size: 24px; cursor: pointer; color: #999; }
+        .modal-box { background: var(--card-bg); width: 600px; max-width: 90%; max-height: 90vh; overflow-y: auto; border-radius: 12px; padding: 30px; animation: popIn 0.3s ease; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; color: var(--text-color); }
+        .close-modal { font-size: 24px; cursor: pointer; color: var(--text-secondary); }
         
         .form-group { margin-bottom: 15px; }
-        .form-group label { display: block; margin-bottom: 5px; font-weight: 500; font-size: 13px; color: #555; }
-        .form-control { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; box-sizing: border-box; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: 500; font-size: 13px; color: var(--text-secondary); }
+        .form-control { width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 14px; box-sizing: border-box; background: var(--card-bg); color: var(--text-color); }
         .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
         
         @keyframes popIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        
+        .theme-toggle {
+            cursor: pointer; padding: 8px; border-radius: 50%;
+            background: var(--slot-bg); border: 1px solid var(--border-color);
+            color: var(--text-color); display: flex; align-items: center;
+            justify-content: center; width: 35px; height: 35px; margin-right: 15px;
+        }
+        .theme-toggle img { width: 20px; height: 20px; object-fit: contain; }
+
         @media (max-width: 900px) { .main-content-wrapper { margin-left: 0; width: 100%; } }
     </style>
 </head>
@@ -259,12 +283,15 @@ $menu_items = [
         <header class="page-header">
             <div class="welcome-text"><h1>Manage Projects</h1><p>Edit and track your proposed FYP projects.</p></div>
             <div class="logo-section"><img src="image/ladybug.png" alt="Logo" class="logo-img"><span class="system-title">FYP Portal</span></div>
-            <div style="display:flex; align-items:center; gap:10px;">
-                <span style="font-size:13px; color:#666; background:#f0f0f0; padding:5px 10px; border-radius:20px;">Supervisor</span>
+            <div class="user-section">
+                <button class="theme-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">
+                    <img id="theme-icon" src="image/moon-solid-full.svg" alt="Toggle Theme">
+                </button>
+                <span class="user-badge">Supervisor</span>
                 <?php if(!empty($user_avatar) && $user_avatar != 'image/user.png'): ?>
-                    <img src="<?php echo htmlspecialchars($user_avatar); ?>" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">
+                    <img src="<?php echo htmlspecialchars($user_avatar); ?>" class="user-avatar" alt="User Avatar">
                 <?php else: ?>
-                    <div style="width:40px;height:40px;border-radius:50%;background:#0056b3;color:white;display:flex;align-items:center;justify-content:center;font-weight:bold;"><?php echo strtoupper(substr($user_name, 0, 1)); ?></div>
+                    <div class="user-avatar-placeholder"><?php echo strtoupper(substr($user_name, 0, 1)); ?></div>
                 <?php endif; ?>
             </div>
         </header>
@@ -283,8 +310,8 @@ $menu_items = [
                             <?php foreach ($my_projects as $proj): ?>
                                 <tr>
                                     <td>
-                                        <strong style="color:#333; font-size:15px;"><?php echo htmlspecialchars($proj['fyp_projecttitle']); ?></strong><br>
-                                        <small style="color:#888;">Type: <?php echo $proj['fyp_projecttype']; ?> | <?php echo htmlspecialchars($proj['fyp_acdyear'] ?? 'N/A'); ?></small>
+                                        <strong style="color:var(--text-color); font-size:15px;"><?php echo htmlspecialchars($proj['fyp_projecttitle']); ?></strong><br>
+                                        <small style="color:var(--text-secondary);">Type: <?php echo $proj['fyp_projecttype']; ?> | <?php echo htmlspecialchars($proj['fyp_acdyear'] ?? 'N/A'); ?></small>
                                     </td>
                                     <td><?php echo htmlspecialchars($proj['fyp_projectcat']); ?></td>
                                     <td><span class="badge badge-status-<?php echo $proj['fyp_projectstatus']; ?>"><?php echo $proj['fyp_projectstatus']; ?></span></td>
@@ -299,22 +326,21 @@ $menu_items = [
                         </tbody>
                     </table>
                 <?php else: ?>
-                    <div style="text-align:center; padding:50px; color:#999;"><i class="fa fa-box-open" style="font-size:48px; opacity:0.3; margin-bottom:15px;"></i><p>You haven't proposed any projects yet.</p></div>
+                    <div style="text-align:center; padding:50px; color:var(--text-secondary);"><i class="fa fa-box-open" style="font-size:48px; opacity:0.3; margin-bottom:15px;"></i><p>You haven't proposed any projects yet.</p></div>
                 <?php endif; ?>
             </div>
         </main>
     </div>
 
-    <!-- Edit Modal -->
     <div id="editModal" class="modal-overlay">
         <div class="modal-box">
             <div class="modal-header"><h3>Edit Project Details</h3><span class="close-modal" onclick="closeModal()">&times;</span></div>
-            <form method="POST">
+            <form id="editProjectForm" method="POST">
                 <input type="hidden" name="project_id" id="modal_project_id">
                 <input type="hidden" name="update_project" value="1">
                 <div class="form-group"><label>Project Title</label><input type="text" name="edit_title" id="modal_title" class="form-control" required></div>
                 <div class="form-group"><label>Visibility Status</label><select name="edit_archive_status" id="modal_archive" class="form-control"><option value="Active">Active</option><option value="Archived">Archived</option></select></div>
-                <div class="form-group"><label>Category</label><select name="edit_category" id="modal_cat" class="form-control"><option value="Software Eng.">Software Engineering</option><option value="Networking">Networking</option><option value="AI">AI</option><option value="Cybersecurity">Cybersecurity</option><option value="Data Science">Data Science</option><option value="IoT">IoT</option></select></div>
+                <div class="form-group"><label>Category</label><select name="edit_category" id="modal_cat" class="form-control"><option value="Development">Development</option><option value="Research">Research</option><option value="Hybrid">Hybrid</option></select></div>
                 <div class="form-group"><label>Description</label><textarea name="edit_desc" id="modal_desc" class="form-control" rows="3" required></textarea></div>
                 <div class="form-group"><label>Requirements</label><textarea name="edit_req" id="modal_req" class="form-control" rows="2"></textarea></div>
                 <div class="modal-footer"><button type="button" class="btn-edit" style="background:#f1f1f1;" onclick="closeModal()">Cancel</button><button type="submit" class="btn-main">Save Changes</button></div>
@@ -324,6 +350,7 @@ $menu_items = [
 
     <script>
         const modal = document.getElementById('editModal');
+        
         function openEditModal(data) {
             document.getElementById('modal_project_id').value = data.fyp_projectid;
             document.getElementById('modal_title').value = data.fyp_projecttitle;
@@ -333,6 +360,7 @@ $menu_items = [
             document.getElementById('modal_archive').value = data.fyp_archive_status;
             modal.style.display = 'flex';
         }
+        
         function closeModal() { modal.style.display = 'none'; }
         window.onclick = function(e) { if (e.target == modal) closeModal(); }
         
@@ -341,6 +369,70 @@ $menu_items = [
             const isOpen = menuItem.classList.contains('open');
             document.querySelectorAll('.menu-item').forEach(item => { if (item !== menuItem) item.classList.remove('open'); });
             if (isOpen) menuItem.classList.remove('open'); else menuItem.classList.add('open');
+        }
+
+        const editForm = document.getElementById('editProjectForm');
+        editForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(editForm);
+
+            fetch(window.location.href, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    closeModal();
+                    Swal.fire({
+                        title: "Success!",
+                        text: data.message,
+                        icon: "success",
+                        confirmButtonColor: "#28a745",
+                        draggable: true
+                    }).then(() => {
+                        window.location.reload();
+                    });
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error',
+                        text: data.message,
+                        confirmButtonColor: '#d33'
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'System Error',
+                    text: 'An unexpected error occurred.',
+                    confirmButtonColor: '#d33'
+                });
+            });
+        });
+
+        function toggleDarkMode() {
+            document.body.classList.toggle('dark-mode');
+            const isDark = document.body.classList.contains('dark-mode');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            
+            const iconImg = document.getElementById('theme-icon');
+            if (isDark) {
+                iconImg.src = 'image/sun-solid-full.svg'; 
+            } else {
+                iconImg.src = 'image/moon-solid-full.svg'; 
+            }
+        }
+
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'dark') {
+            document.body.classList.add('dark-mode');
+            const iconImg = document.getElementById('theme-icon');
+            if(iconImg) {
+                iconImg.src = 'image/sun-solid-full.svg'; 
+            }
         }
     </script>
 </body>

@@ -1,16 +1,10 @@
 <?php
-// ====================================================
-// supervisor_assignment_purpose.php - Propose Assignment (AJAX + UI Updated)
-// ====================================================
-
 include("connect.php");
 
-// 1. AJAX Handler for Form Submission
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['ajax_propose_assignment'])) {
     header('Content-Type: application/json');
     $auth_user_id = $_POST['auth_user_id'] ?? null;
 
-    // Fetch SV Info
     $my_staff_id = "";
     $stmt = $conn->prepare("SELECT fyp_staffid FROM supervisor WHERE fyp_userid = ?");
     $stmt->bind_param("i", $auth_user_id);
@@ -52,13 +46,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['ajax_propose_assignmen
     exit;
 }
 
-// 2. Standard Page Load
 $auth_user_id = $_GET['auth_user_id'] ?? null;
 $current_page = 'propose_assignment'; 
 
 if (!$auth_user_id) { header("location: login.php"); exit; }
 
-// Fetch SV Info & Students
 $user_name = "Supervisor"; 
 $user_avatar = "image/user.png"; 
 $my_staff_id = ""; 
@@ -66,7 +58,6 @@ $my_groups = [];
 $my_individuals = []; 
 
 if (isset($conn)) {
-    // SV Info
     $stmt = $conn->prepare("SELECT * FROM supervisor WHERE fyp_userid = ?");
     $stmt->bind_param("i", $auth_user_id); $stmt->execute();
     $res = $stmt->get_result();
@@ -77,7 +68,6 @@ if (isset($conn)) {
     }
     $stmt->close();
 
-    // Students for Dropdown
     if (!empty($my_staff_id)) {
         $sql_my_students = "SELECT s.fyp_studid, s.fyp_studname, s.fyp_group 
                             FROM fyp_registration r
@@ -113,7 +103,7 @@ $menu_items = [
         'name' => 'My Students', 
         'icon' => 'fa-users',
         'sub_items' => [
-            'project_requests' => ['name' => 'Project Requests', 'icon' => 'fa-envelope-open-text', 'link' => 'Supervisor_projectreq.php'],
+            'project_requests' => ['name' => 'Project Requests', 'icon' => 'fa-envelope-open-text', 'link' => 'supervisor_projectreq.php'],
             'student_list'     => ['name' => 'Student List', 'icon' => 'fa-list', 'link' => 'Supervisor_student_list.php'],
         ]
     ],
@@ -122,8 +112,8 @@ $menu_items = [
         'icon' => 'fa-project-diagram',
         'sub_items' => [
             'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'supervisor_purpose.php'],
-            'my_projects'     => ['name' => 'My Projects', 'icon' => 'fa-folder-open', 'link' => 'Supervisor_mainpage.php?page=my_projects'],
-            'propose_assignment' => ['name' => 'Propose Assignment', 'icon' => 'fa-tasks', 'link' => 'supervisor_assignment_purpose.php']
+            'my_projects'     => ['name' => 'My Projects', 'icon' => 'fa-folder-open', 'link' => 'Supervisor_manage_project.php'],
+            'propose_assignment' => ['name' => 'Propose Assignment', 'icon' => 'fa-tasks', 'link' => 'supervisor_assignment_purpose.php'],
         ]
     ],
     'grading' => [
@@ -139,7 +129,7 @@ $menu_items = [
         'icon' => 'fa-bullhorn',
         'sub_items' => [
             'post_announcement' => ['name' => 'Post Announcement', 'icon' => 'fa-pen-square', 'link' => 'supervisor_announcement.php'],
-            'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Supervisor_mainpage.php?page=view_announcements'],
+            'view_announcements' => ['name' => 'View History', 'icon' => 'fa-history', 'link' => 'Supervisor_announcement_view.php'],
         ]
     ],
     'schedule'  => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'supervisor_meeting.php'],
@@ -154,17 +144,42 @@ $menu_items = [
     <title>Propose Assignment</title>
     <link rel="icon" type="image/png" href="image/ladybug.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap');
         
         :root {
-            --primary-color: #0056b3; --primary-hover: #004494; --secondary-color: #f8f9fa; --text-color: #333; --border-color: #e0e0e0; 
-            --card-shadow: 0 4px 6px rgba(0,0,0,0.05); --bg-color: #f4f6f9; --sidebar-bg: #004085; --sidebar-hover: #003366; --sidebar-text: #e0e0e0;
+            --primary-color: #0056b3;
+            --primary-hover: #004494;
+            --bg-color: #f4f6f9;
+            --card-bg: #ffffff;
+            --text-color: #333;
+            --secondary-color: #f8f9fa;
+            --sidebar-bg: #004085; 
+            --sidebar-hover: #003366;
+            --sidebar-text: #e0e0e0;
+            --card-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            --border-color: #e0e0e0;
+            --slot-bg: #f8f9fa;
         }
 
-        body { font-family: 'Poppins', sans-serif; margin: 0; background-color: var(--bg-color); min-height: 100vh; display: flex; overflow-x: hidden; }
+        .dark-mode {
+            --primary-color: #4da3ff;
+            --primary-hover: #0069d9;
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-color: #e0e0e0;
+            --text-secondary: #a0a0a0;
+            --sidebar-bg: #0d1117;
+            --sidebar-hover: #161b22;
+            --sidebar-text: #c9d1d9;
+            --card-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            --border-color: #333;
+            --slot-bg: #2d2d2d;
+        }
 
-        /* Sidebar & Menu */
+        body { font-family: 'Poppins', sans-serif; margin: 0; background-color: var(--bg-color); min-height: 100vh; display: flex; overflow-x: hidden; transition: background-color 0.3s, color 0.3s; }
+
         .main-menu { background: var(--sidebar-bg); border-right: 1px solid rgba(255,255,255,0.1); position: fixed; top: 0; bottom: 0; height: 100%; left: 0; width: 60px; overflow-y: auto; overflow-x: hidden; transition: width .05s linear; z-index: 1000; box-shadow: 2px 0 5px rgba(0,0,0,0.1); }
         .main-menu:hover, nav.main-menu.expanded { width: 250px; }
         .main-menu > ul { margin: 7px 0; padding: 0; list-style: none; }
@@ -180,26 +195,28 @@ $menu_items = [
         .menu-item.open .submenu { max-height: 500px; transition: max-height 0.5s ease-in; }
         .submenu li > a { padding-left: 70px !important; font-size: 13px; height: 40px; }
 
-        /* Main Content */
         .main-content-wrapper { margin-left: 60px; flex: 1; padding: 20px; width: calc(100% - 60px); transition: margin-left .05s linear; }
 
-        /* Header */
-        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; background: white; padding: 20px; border-radius: 12px; box-shadow: var(--card-shadow); }
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; background: var(--card-bg); padding: 20px; border-radius: 12px; box-shadow: var(--card-shadow); transition: background 0.3s; }
         .welcome-text h1 { margin: 0; font-size: 24px; color: var(--primary-color); font-weight: 600; }
-        .welcome-text p { margin: 5px 0 0; color: #666; font-size: 14px; }
+        .welcome-text p { margin: 5px 0 0; color: var(--text-color); font-size: 14px; opacity: 0.8; }
         .logo-section { display: flex; align-items: center; gap: 12px; }
         .logo-img { height: 40px; width: auto; background: white; padding: 2px; border-radius: 6px; }
         .system-title { font-size: 20px; font-weight: 600; color: var(--primary-color); letter-spacing: 0.5px; }
 
-        /* Form Card */
-        .form-card { background: #fff; padding: 30px; border-radius: 12px; box-shadow: var(--card-shadow); }
-        .section-title { border-bottom: 2px solid #eee; padding-bottom: 15px; margin-bottom: 25px; }
+        .user-section { display: flex; align-items: center; gap: 10px; }
+        .user-badge { font-size: 13px; color: var(--text-secondary); background: var(--slot-bg); padding: 5px 10px; border-radius: 20px; }
+        .user-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
+        .user-avatar-placeholder { width: 40px; height: 40px; border-radius: 50%; background: #0056b3; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+
+        .form-card { background: var(--card-bg); padding: 30px; border-radius: 12px; box-shadow: var(--card-shadow); transition: background 0.3s; }
+        .section-title { border-bottom: 2px solid var(--border-color); padding-bottom: 15px; margin-bottom: 25px; }
         .section-title h2 { margin: 0; color: var(--primary-color); font-size: 18px; display: flex; align-items: center; gap: 10px; }
 
         .form-row { display: flex; gap: 20px; }
         .form-group { margin-bottom: 20px; flex: 1; }
-        .form-group label { display: block; margin-bottom: 8px; font-weight: 500; color: #444; font-size: 14px; }
-        .form-control { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; box-sizing: border-box; transition: border 0.3s; font-family: inherit; }
+        .form-group label { display: block; margin-bottom: 8px; font-weight: 500; color: var(--text-color); font-size: 14px; opacity: 0.9; }
+        .form-control { width: 100%; padding: 12px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 14px; box-sizing: border-box; transition: border 0.3s; font-family: inherit; background: var(--card-bg); color: var(--text-color); }
         .form-control:focus { border-color: var(--primary-color); outline: none; }
         textarea.form-control { resize: vertical; min-height: 120px; }
 
@@ -207,9 +224,21 @@ $menu_items = [
         .btn-submit { background-color: var(--primary-color); color: white; border: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: background 0.2s; display: inline-flex; align-items: center; gap: 8px; font-size: 15px; }
         .btn-submit:hover { background-color: var(--primary-hover); }
         .btn-submit.loading { opacity: 0.7; pointer-events: none; }
-        .target-select-container { display: none; margin-top: 10px; background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px dashed #ced4da; }
+        .target-select-container { display: none; margin-top: 10px; background: var(--slot-bg); padding: 15px; border-radius: 8px; border: 1px dashed var(--border-color); }
 
-        @media (max-width: 900px) { .main-content-wrapper { margin-left: 0; width: 100%; } .form-row { flex-direction: column; gap: 0; } }
+        .theme-toggle {
+            cursor: pointer; padding: 8px; border-radius: 50%;
+            background: var(--slot-bg); border: 1px solid var(--border-color);
+            color: var(--text-color); display: flex; align-items: center;
+            justify-content: center; width: 35px; height: 35px; margin-right: 15px;
+        }
+        .theme-toggle img { width: 20px; height: 20px; object-fit: contain; }
+
+        @media (max-width: 900px) { 
+            .main-content-wrapper { margin-left: 0; width: 100%; } 
+            .form-row { flex-direction: column; gap: 0; } 
+            .page-header { flex-direction: column; gap: 15px; text-align: center; }
+        }
     </style>
 </head>
 <body>
@@ -217,7 +246,7 @@ $menu_items = [
         <ul>
             <?php foreach ($menu_items as $key => $item): ?>
                 <?php 
-                    $isActive = ($key == $current_page);
+                    $isActive = ($key == 'fyp_project');
                     $hasActiveChild = false;
                     if (isset($item['sub_items'])) {
                         foreach ($item['sub_items'] as $sub_key => $sub) {
@@ -225,10 +254,7 @@ $menu_items = [
                         }
                     }
                     $linkUrl = isset($item['link']) ? $item['link'] : "#";
-                    if ($linkUrl !== "#") {
-                         $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?';
-                         $linkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
-                    }
+                    if ($linkUrl !== "#") { $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?'; $linkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id); }
                     $hasSubmenu = isset($item['sub_items']);
                 ?>
                 <li class="menu-item <?php echo $hasActiveChild ? 'open' : ''; ?>">
@@ -239,10 +265,7 @@ $menu_items = [
                         <ul class="submenu">
                             <?php foreach ($item['sub_items'] as $sub_key => $sub_item): 
                                 $subLinkUrl = isset($sub_item['link']) ? $sub_item['link'] : "#";
-                                if ($subLinkUrl !== "#") {
-                                    $separator = (strpos($subLinkUrl, '?') !== false) ? '&' : '?';
-                                    $subLinkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
-                                }
+                                if ($subLinkUrl !== "#") { $separator = (strpos($subLinkUrl, '?') !== false) ? '&' : '?'; $subLinkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id); }
                             ?>
                                 <li><a href="<?php echo $subLinkUrl; ?>" class="<?php echo ($sub_key == $current_page) ? 'active' : ''; ?>"><i class="fa <?php echo $sub_item['icon']; ?> nav-icon"></i><span class="nav-text"><?php echo $sub_item['name']; ?></span></a></li>
                             <?php endforeach; ?>
@@ -258,12 +281,15 @@ $menu_items = [
         <div class="page-header">
             <div class="welcome-text"><h1>Propose New Assignment</h1><p>Create a task or assignment for your supervised students.</p></div>
             <div class="logo-section"><img src="image/ladybug.png" alt="Logo" class="logo-img"><span class="system-title">FYP Portal</span></div>
-            <div style="display:flex; align-items:center; gap:10px;">
-                <span style="font-size:13px; color:#666; background:#f0f0f0; padding:5px 10px; border-radius:20px;">Supervisor</span>
+            <div class="user-section">
+                <button class="theme-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">
+                    <img id="theme-icon" src="image/moon-solid-full.svg" alt="Toggle Theme">
+                </button>
+                <span class="user-badge">Supervisor</span>
                 <?php if(!empty($user_avatar) && $user_avatar != 'image/user.png'): ?>
-                    <img src="<?php echo htmlspecialchars($user_avatar); ?>" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">
+                    <img src="<?php echo htmlspecialchars($user_avatar); ?>" class="user-avatar" alt="User Avatar">
                 <?php else: ?>
-                    <div style="width:40px;height:40px;border-radius:50%;background:#0056b3;color:white;display:flex;align-items:center;justify-content:center;font-weight:bold;"><?php echo strtoupper(substr($user_name, 0, 1)); ?></div>
+                    <div class="user-avatar-placeholder"><?php echo strtoupper(substr($user_name, 0, 1)); ?></div>
                 <?php endif; ?>
             </div>
         </div>
@@ -309,7 +335,7 @@ $menu_items = [
                     
                     <div class="form-group">
                         <label for="weightage">Weightage (%) <span style="color:red">*</span></label>
-                        <input type="number" id="weightage" name="weightage" class="form-control" placeholder="0-100" min="0" max="100" required readonly style="background-color:#e9ecef;">
+                        <input type="number" id="weightage" name="weightage" class="form-control" placeholder="0-100" min="0" max="100" required readonly style="background-color:var(--slot-bg);">
                     </div>
                 </div>
                 
@@ -319,7 +345,7 @@ $menu_items = [
                 </div>
                 
                 <div id="target_container" class="target-select-container">
-                    <label for="target_selection" style="font-size:13px; font-weight:600; color:#555; margin-bottom:5px; display:block;">Select Specific Target <span style="color:red">*</span></label>
+                    <label for="target_selection" style="font-size:13px; font-weight:600; color:var(--text-secondary); margin-bottom:5px; display:block;">Select Specific Target <span style="color:red">*</span></label>
                     <select id="target_selection" name="target_selection" class="form-control">
                     </select>
                 </div>
@@ -351,7 +377,7 @@ $menu_items = [
             
             if (val === 'Custom') {
                 wInput.readOnly = false;
-                wInput.style.backgroundColor = '#fff';
+                wInput.style.backgroundColor = 'var(--card-bg)';
                 wInput.value = '';
                 wInput.focus();
             } else {
@@ -360,7 +386,7 @@ $menu_items = [
                 const weight = parts[1];
                 
                 wInput.readOnly = true;
-                wInput.style.backgroundColor = '#e9ecef';
+                wInput.style.backgroundColor = 'var(--slot-bg)';
                 wInput.value = weight;
                 
                 if (titleKey === 'Proposal') tInput.value = "Project Proposal Submission";
@@ -429,28 +455,58 @@ $menu_items = [
 
             const formData = new FormData(document.getElementById('assignForm'));
 
-            fetch('Supervisor_assignment_purpose.php', {
+            fetch('supervisor_assignment_purpose.php', {
                 method: 'POST',
                 body: formData
             })
             .then(response => response.json())
             .then(data => {
                 if (data.status === 'success') {
-                    alert(data.message);
+                    Swal.fire({
+                        title: "Success!",
+                        text: data.message,
+                        icon: "success",
+                        confirmButtonColor: "#28a745",
+                        draggable: true
+                    }).then(() => {
+                        window.location.reload(); 
+                    });
                     document.getElementById('assignForm').reset();
                     document.getElementById('target_container').style.display = 'none';
                 } else {
-                    alert(data.message);
+                    Swal.fire("Error", data.message, "error");
                 }
                 btn.classList.remove('loading');
                 btn.innerHTML = '<i class="fa fa-paper-plane"></i> Publish Assignment';
             })
             .catch(error => {
                 console.error('Error:', error);
-                alert('An error occurred. Please try again.');
+                Swal.fire("Error", "An unexpected error occurred.", "error");
                 btn.classList.remove('loading');
                 btn.innerHTML = '<i class="fa fa-paper-plane"></i> Publish Assignment';
             });
+        }
+
+        function toggleDarkMode() {
+            document.body.classList.toggle('dark-mode');
+            const isDark = document.body.classList.contains('dark-mode');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            
+            const iconImg = document.getElementById('theme-icon');
+            if (isDark) {
+                iconImg.src = 'image/sun-solid-full.svg'; 
+            } else {
+                iconImg.src = 'image/moon-solid-full.svg'; 
+            }
+        }
+
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'dark') {
+            document.body.classList.add('dark-mode');
+            const iconImg = document.getElementById('theme-icon');
+            if(iconImg) {
+                iconImg.src = 'image/sun-solid-full.svg'; 
+            }
         }
     </script>
 </body>
