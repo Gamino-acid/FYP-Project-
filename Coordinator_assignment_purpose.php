@@ -1,43 +1,39 @@
 <?php
-// ====================================================
-// Coordinator_assignment_purpose.php - 发布新作业 (Staff ID 适配版)
-// (完全复刻 Supervisor 逻辑，修复 Target 列表为空的问题)
-// ====================================================
-
 include("connect.php");
+session_start();
 
-// 1. 基础验证
-$auth_user_id = $_GET['auth_user_id'] ?? null;
+$auth_user_id = $_GET['auth_user_id'] ?? $_SESSION['user_id'] ?? null;
 $current_page = 'propose_assignment'; 
 
-if (!$auth_user_id) { header("location: login.php"); exit; }
+if (!$auth_user_id) {
+    echo "<script>window.location.href='login.php';</script>";
+    exit;
+}
 
-// 2. 获取 Coordinator 信息 & 学生列表
 $user_name = "Coordinator"; 
 $user_avatar = "image/user.png"; 
-$my_staff_id = ""; // 【关键修改】使用 Staff ID
+$my_staff_id = ""; 
 $my_groups = [];      
 $my_individuals = []; 
 
 if (isset($conn)) {
-    // 获取用户基本名
     $stmt = $conn->prepare("SELECT fyp_username FROM `USER` WHERE fyp_userid = ?");
-    $stmt->bind_param("i", $auth_user_id); $stmt->execute();
+    $stmt->bind_param("i", $auth_user_id); 
+    $stmt->execute();
     if ($row = $stmt->get_result()->fetch_assoc()) $user_name = $row['fyp_username'];
     $stmt->close();
     
-    // 获取 Coordinator 详细信息 (优先从 supervisor 表获取 fyp_staffid)
     $stmt = $conn->prepare("SELECT * FROM supervisor WHERE fyp_userid = ?");
-    $stmt->bind_param("i", $auth_user_id); $stmt->execute();
+    $stmt->bind_param("i", $auth_user_id); 
+    $stmt->execute();
     $res = $stmt->get_result();
     if ($res->num_rows > 0) {
         $row = $res->fetch_assoc();
         
-        // 智能获取 Staff ID (优先用 staffid 列，兼容 coordinatorid)
         if (!empty($row['fyp_staffid'])) {
             $my_staff_id = $row['fyp_staffid'];
         } elseif (!empty($row['fyp_supervisorid'])) {
-            $my_staff_id = $row['fyp_supervisorid']; // 后备
+            $my_staff_id = $row['fyp_supervisorid']; 
         }
         
         if (!empty($row['fyp_name'])) $user_name = $row['fyp_name'];
@@ -45,10 +41,10 @@ if (isset($conn)) {
     }
     $stmt->close();
 
-    // 如果在 supervisor 表没找到，尝试从 coordinator 表找 (双重保险)
     if (empty($my_staff_id)) {
         $stmt = $conn->prepare("SELECT * FROM coordinator WHERE fyp_userid = ?");
-        $stmt->bind_param("i", $auth_user_id); $stmt->execute();
+        $stmt->bind_param("i", $auth_user_id); 
+        $stmt->execute();
         $res = $stmt->get_result();
         if ($res->num_rows > 0) {
             $row = $res->fetch_assoc();
@@ -58,12 +54,11 @@ if (isset($conn)) {
                 $my_staff_id = $row['fyp_coordinatorid'];
             }
             if (!empty($row['fyp_name'])) $user_name = $row['fyp_name'];
+            if (!empty($row['fyp_profileimg'])) $user_avatar = $row['fyp_profileimg'];
         }
         $stmt->close();
     }
 
-    // 获取该 Coordinator 指导的学生 (用于下拉菜单)
-    // 【关键修改】查询条件改为 fyp_staffid = ?
     if (!empty($my_staff_id)) {
         $sql_my_students = "SELECT s.fyp_studid, s.fyp_studname, s.fyp_group 
                             FROM fyp_registration r
@@ -72,20 +67,17 @@ if (isset($conn)) {
                             AND (r.fyp_archive_status = 'Active' OR r.fyp_archive_status IS NULL)";
                             
         if ($stmt = $conn->prepare($sql_my_students)) {
-            $stmt->bind_param("s", $my_staff_id); // 绑定字符串
+            $stmt->bind_param("s", $my_staff_id); 
             $stmt->execute();
             $res = $stmt->get_result();
             while ($row = $res->fetch_assoc()) {
                 if ($row['fyp_group'] == 'Individual') {
                     $my_individuals[$row['fyp_studid']] = $row['fyp_studname'];
                 } else {
-                    // 获取组名
-                    // 1. 尝试作为组长查找
                     $g_res = $conn->query("SELECT group_id, group_name FROM student_group WHERE leader_id = '{$row['fyp_studid']}' LIMIT 1");
                     if ($g_row = $g_res->fetch_assoc()) {
                         $my_groups[$g_row['group_id']] = $g_row['group_name'];
                     } else {
-                        // 2. 尝试作为组员查找
                         $m_res = $conn->query("SELECT g.group_id, g.group_name FROM group_request gr JOIN student_group g ON gr.group_id = g.group_id WHERE gr.invitee_id = '{$row['fyp_studid']}' AND gr.request_status = 'Accepted' LIMIT 1");
                         if ($m_row = $m_res->fetch_assoc()) $my_groups[$m_row['group_id']] = $m_row['group_name'];
                     }
@@ -96,13 +88,16 @@ if (isset($conn)) {
     }
 }
 
-// ====================================================
-// 3. 处理表单提交 (POST)
-// ====================================================
+$swal_alert = null;
+
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     
     if (empty($my_staff_id)) {
-        echo "<script>alert('Error: Staff ID not found. You must be a registered staff to post assignments.');</script>";
+        $swal_alert = [
+            'title' => 'Error',
+            'text' => 'Staff ID not found. You must be a registered staff to post assignments.',
+            'icon' => 'error'
+        ];
     } else {
         $a_title = $_POST['assignment_title'];
         $a_desc = $_POST['assignment_description'];
@@ -115,12 +110,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $a_status = 'Active';
         $date_now = date('Y-m-d H:i:s');
         
-        // 【关键修改】插入到 fyp_staffid 列 (不再是 fyp_supervisorid)
         $sql_insert = "INSERT INTO assignment (fyp_staffid, fyp_title, fyp_description, fyp_deadline, fyp_weightage, fyp_assignment_type, fyp_status, fyp_datecreated, fyp_target_id) 
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         if ($stmt = $conn->prepare($sql_insert)) {
-            // 参数绑定: ssssissss (注意第一位 StaffID 是字符串)
             $stmt->bind_param("ssssissss", 
                 $my_staff_id, 
                 $a_title, 
@@ -134,21 +127,33 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             );
             
             if ($stmt->execute()) {
-                echo "<script>alert('Assignment created successfully!'); window.location.href='Coordinator_assignment_grade.php?auth_user_id=" . urlencode($auth_user_id) . "';</script>";
+                $swal_alert = [
+                    'title' => 'Success!',
+                    'text' => 'Assignment created successfully!',
+                    'icon' => 'success',
+                    'redirect' => 'Coordinator_assignment_grade.php?auth_user_id=' . urlencode($auth_user_id)
+                ];
             } else {
-                echo "<script>alert('Database Error: " . addslashes($stmt->error) . "');</script>";
+                $swal_alert = [
+                    'title' => 'Database Error',
+                    'text' => $stmt->error,
+                    'icon' => 'error'
+                ];
             }
             $stmt->close();
         } else {
-            echo "<script>alert('SQL Prepare Error: " . addslashes($conn->error) . "');</script>";
+            $swal_alert = [
+                'title' => 'SQL Error',
+                'text' => $conn->error,
+                'icon' => 'error'
+            ];
         }
     }
 }
 
-// --- 菜单定义 (保持 Coordinator 结构) ---
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Coordinator_mainpage.php?page=dashboard'],
-    'profile'   => ['name' => 'Profile', 'icon' => 'fa-user', 'link' => 'Coordinator_profile.php'], 
+    'profile'   => ['name' => 'My Profile', 'icon' => 'fa-user', 'link' => 'Coordinator_profile.php'], 
     
      'management' => [
         'name' => 'User Management',
@@ -161,7 +166,7 @@ $menu_items = [
     ],
     
     'project_mgmt' => [
-        'name' => 'Project Mgmt', 
+        'name' => 'Project Manage', 
         'icon' => 'fa-tasks', 
         'sub_items' => [
             'propose_project' => ['name' => 'Propose Project', 'icon' => 'fa-plus-circle', 'link' => 'Coordinator_purpose.php'],
@@ -186,8 +191,8 @@ $menu_items = [
         ]
     ],
     'schedule' => ['name' => 'My Schedule', 'icon' => 'fa-calendar-alt', 'link' => 'Coordinator_meeting.php'], 
-    'data_io' => ['name' => 'Data Management', 'icon' => 'fa-database', 'link' => 'Coordinator_data_io.php'],
-    'reports' => ['name' => 'System Reports', 'icon' => 'fa-chart-bar', 'link' => 'Coordinator_history.php'],
+    'allocation' => ['name' => 'Moderator Allocation', 'icon' => 'fa-people-arrows', 'link' => 'Coordinator_allocation.php'],
+    'data_mgmt' => ['name' => 'Data Management', 'icon' => 'fa-database', 'link' => 'Coordinator_data_io.php'],
 ];
 ?>
 <!DOCTYPE html>
@@ -196,181 +201,464 @@ $menu_items = [
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Create Assignment - Coordinator</title>
-    <link rel="icon" type="image/png" href="<?php echo $user_avatar; ?>">
+    <link rel="icon" type="image/png" href="image/ladybug.png?v=<?php echo time(); ?>">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
-        /* 复用样式 */
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap');
-        :root { --primary-color: #0056b3; --primary-hover: #004494; --secondary-color: #f4f4f9; --text-color: #333; --border-color: #e0e0e0; --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); --gradient-start: #eef2f7; --gradient-end: #ffffff; --sidebar-width: 260px; }
-        body { font-family: 'Poppins', sans-serif; margin: 0; background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end)); color: var(--text-color); min-height: 100vh; display: flex; flex-direction: column; }
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap');
         
-        .topbar { display: flex; justify-content: space-between; align-items: center; padding: 15px 40px; background-color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); z-index: 100; position: sticky; top: 0; }
-        .logo { font-size: 22px; font-weight: 600; color: var(--primary-color); display: flex; align-items: center; gap: 10px; }
-        .topbar-right { display: flex; align-items: center; gap: 20px; }
-        .user-name-display { font-weight: 600; font-size: 14px; display: block; }
-        .user-role-badge { font-size: 11px; background-color: #e3effd; color: var(--primary-color); padding: 2px 8px; border-radius: 12px; font-weight: 500; }
-        .user-avatar-circle { width: 40px; height: 40px; border-radius: 50%; overflow: hidden; border: 2px solid #e3effd; margin-left: 10px; }
-        .user-avatar-circle img { width: 100%; height: 100%; object-fit: cover; }
-        .logout-btn { color: #d93025; text-decoration: none; font-size: 14px; font-weight: 500; padding: 8px 15px; border-radius: 6px; transition: background 0.2s; }
-        .logout-btn:hover { background-color: #fff0f0; }
-        
-        .layout-container { display: flex; flex: 1; max-width: 1400px; margin: 0 auto; width: 100%; padding: 20px; box-sizing: border-box; gap: 20px; }
-        .sidebar { width: var(--sidebar-width); background: #fff; border-radius: 12px; box-shadow: var(--card-shadow); padding: 20px 0; flex-shrink: 0; min-height: calc(100vh - 120px); }
-        .menu-list { list-style: none; padding: 0; margin: 0; }
-        .menu-item { margin-bottom: 5px; }
-        .menu-link { display: flex; align-items: center; padding: 12px 25px; text-decoration: none; color: #555; font-weight: 500; font-size: 15px; transition: all 0.3s; border-left: 4px solid transparent; }
-        .menu-link:hover { background-color: var(--secondary-color); color: var(--primary-color); }
-        .menu-link.active { background-color: #e3effd; color: var(--primary-color); border-left-color: var(--primary-color); }
-        .menu-icon { width: 24px; margin-right: 10px; text-align: center; }
-        .submenu { list-style: none; padding: 0; margin: 0; background-color: #fafafa; display: block; }
-        .submenu .menu-link { padding-left: 58px; font-size: 14px; padding-top: 10px; padding-bottom: 10px; }
+        :root {
+            --primary-color: #0056b3;
+            --primary-hover: #004494;
+            --bg-color: #f4f6f9;
+            --card-bg: #ffffff;
+            --text-color: #333;
+            --text-secondary: #666;
+            --sidebar-bg: #004085; 
+            --sidebar-hover: #003366;
+            --sidebar-text: #e0e0e0;
+            --card-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            --border-color: #e0e0e0;
+            --slot-bg: #f8f9fa;
+        }
 
-        .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; }
+        .dark-mode {
+            --primary-color: #4da3ff;
+            --primary-hover: #0069d9;
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-color: #e0e0e0;
+            --text-secondary: #a0a0a0;
+            --sidebar-bg: #0d1117;
+            --sidebar-hover: #161b22;
+            --sidebar-text: #c9d1d9;
+            --card-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            --border-color: #333;
+            --slot-bg: #2d2d2d;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            margin: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            min-height: 100vh;
+            display: flex;
+            overflow-x: hidden;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .main-menu {
+            background: var(--sidebar-bg);
+            border-right: 1px solid rgba(255,255,255,0.1);
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            height: 100%;
+            left: 0;
+            width: 60px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            transition: width .05s linear;
+            z-index: 1000;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+        }
+
+        .main-menu:hover, nav.main-menu.expanded {
+            width: 250px;
+            overflow: visible;
+        }
+
+        .main-menu > ul {
+            margin: 7px 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .main-menu li {
+            position: relative;
+            display: block;
+            width: 250px;
+        }
+
+        .main-menu li > a {
+            position: relative;
+            display: table;
+            border-collapse: collapse;
+            border-spacing: 0;
+            color: var(--sidebar-text);
+            font-size: 14px;
+            text-decoration: none;
+            transition: all .1s linear;
+            width: 100%;
+        }
+
+        .main-menu .nav-icon {
+            position: relative;
+            display: table-cell;
+            width: 60px;
+            height: 46px; 
+            text-align: center;
+            vertical-align: middle;
+            font-size: 18px;
+        }
+
+        .main-menu .nav-text {
+            position: relative;
+            display: table-cell;
+            vertical-align: middle;
+            width: 190px;
+            padding-left: 10px;
+            white-space: nowrap;
+        }
+
+        .main-menu li:hover > a, nav.main-menu li.active > a {
+            color: #fff;
+            background-color: var(--sidebar-hover);
+            border-left: 4px solid #fff; 
+        }
+
+        .main-menu > ul.logout {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            width: 100%;
+        }
+
+        .dropdown-arrow {
+            position: absolute;
+            right: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            transition: transform 0.3s;
+            font-size: 12px;
+        }
+
+        .menu-item.open .dropdown-arrow {
+            transform: translateY(-50%) rotate(180deg);
+        }
+
+        .submenu {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            background-color: rgba(0,0,0,0.2);
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+
+        .menu-item.open .submenu {
+            max-height: 500px;
+            transition: max-height 0.5s ease-in;
+        }
+
+        .submenu li > a {
+            padding-left: 70px !important;
+            font-size: 13px;
+            height: 40px;
+        }
+
+        .menu-item > a {
+            cursor: pointer;
+        }
         
-        /* Form 样式 */
-        .form-card { background: #fff; padding: 30px; border-radius: 12px; box-shadow: var(--card-shadow); }
-        .page-header { border-bottom: 2px solid #eee; padding-bottom: 15px; margin-bottom: 25px; }
-        .page-header h2 { margin: 0; color: var(--primary-color); }
-        .page-header p { color: #666; font-size: 14px; margin-top: 5px; }
+        .main-content-wrapper {
+            margin-left: 60px;
+            flex: 1;
+            padding: 20px;
+            width: calc(100% - 60px);
+            transition: margin-left .05s linear;
+        }
         
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: var(--card-shadow);
+            transition: background 0.3s;
+        }
+        
+        .welcome-text h1 {
+            margin: 0;
+            font-size: 24px;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        
+        .welcome-text p {
+            margin: 5px 0 0;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .logo-img {
+            height: 40px;
+            width: auto;
+            background: white;
+            padding: 2px;
+            border-radius: 6px;
+        }
+        
+        .system-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--primary-color);
+            letter-spacing: 0.5px;
+        }
+
+        .user-section {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .user-badge {
+            font-size: 13px;
+            color: var(--text-secondary);
+            background: var(--slot-bg);
+            padding: 5px 10px;
+            border-radius: 20px;
+        }
+
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            object-fit: cover;
+        }
+
+        .user-avatar-placeholder {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #0056b3;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+
+        .content-card {
+            background: var(--card-bg);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: var(--card-shadow);
+        }
+
         .form-row { display: flex; gap: 20px; }
         .form-group { margin-bottom: 20px; flex: 1; }
-        .form-group label { display: block; margin-bottom: 8px; font-weight: 500; color: #444; }
-        .form-control { width: 100%; padding: 10px 15px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; box-sizing: border-box; transition: border 0.3s; font-family: inherit; }
+        .form-group label { display: block; margin-bottom: 8px; font-weight: 500; color: var(--text-color); font-size: 14px; }
+        .form-control { width: 100%; padding: 10px 15px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 14px; box-sizing: border-box; transition: border 0.3s; font-family: inherit; background: var(--slot-bg); color: var(--text-color); }
         .form-control:focus { border-color: var(--primary-color); outline: none; }
         textarea.form-control { resize: vertical; min-height: 120px; }
         
-        .info-note { background-color: #e3effd; padding: 10px 15px; border-radius: 6px; color: #0056b3; font-size: 13px; margin-bottom: 20px; border-left: 4px solid #0056b3; }
+        .info-note { background-color: var(--slot-bg); padding: 12px 15px; border-radius: 6px; color: var(--primary-color); font-size: 13px; margin-bottom: 25px; border-left: 4px solid var(--primary-color); display: flex; align-items: center; gap: 10px; }
 
-        .btn-submit { background-color: var(--primary-color); color: white; border: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: background 0.2s; display: inline-flex; align-items: center; gap: 8px; }
+        .btn-submit { background-color: var(--primary-color); color: white; border: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: background 0.2s; display: inline-flex; align-items: center; gap: 8px; font-size: 15px; }
         .btn-submit:hover { background-color: var(--primary-hover); }
         
-        .target-select-container { display: none; margin-top: 10px; background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px dashed #ced4da; }
+        .target-select-container { display: none; margin-top: 10px; background: var(--slot-bg); padding: 15px; border-radius: 8px; border: 1px dashed var(--border-color); }
         
-        @media (max-width: 900px) { .layout-container { flex-direction: column; } .sidebar { width: 100%; min-height: auto; } .form-row { flex-direction: column; gap: 0; } }
+        .theme-toggle { cursor: pointer; padding: 8px; border-radius: 50%; background: var(--slot-bg); border: 1px solid var(--border-color); color: var(--text-color); display: flex; align-items: center; justify-content: center; width: 35px; height: 35px; margin-right: 15px; }
+        .theme-toggle img { width: 20px; height: 20px; object-fit: contain; }
+
+        @media (max-width: 900px) { 
+            .main-content-wrapper { margin-left: 0; width: 100%; } 
+            .form-row { flex-direction: column; gap: 0; }
+            .page-header { flex-direction: column; gap: 15px; text-align: center; } 
+        }
     </style>
 </head>
 <body>
-    <header class="topbar">
-        <div class="logo"><img src="image/ladybug.png" alt="Logo" style="width: 32px; margin-right: 10px;"> FYP System</div>
-        <div class="topbar-right">
-            <div class="user-profile-summary">
-                <span class="user-name-display"><?php echo htmlspecialchars($user_name); ?></span>
-                <span class="user-role-badge">Coordinator</span>
-            </div>
-            <div class="user-avatar-circle"><img src="<?php echo $user_avatar; ?>" alt="User Avatar"></div>
-            <a href="login.php" class="logout-btn"><i class="fa fa-sign-out-alt"></i> Logout</a>
-        </div>
-    </header>
 
-    <div class="layout-container">
-        <aside class="sidebar">
-            <ul class="menu-list">
-                <?php foreach ($menu_items as $key => $item): ?>
-                    <?php 
-                        $isActive = ($key == 'assessment'); // 主菜单高亮
-                        $linkUrl = isset($item['link']) ? $item['link'] : "#";
-                        if (strpos($linkUrl, '.php') !== false) {
-                             $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?';
-                             $linkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
+    <nav class="main-menu">
+        <ul>
+            <?php foreach ($menu_items as $key => $item): ?>
+                <?php 
+                    $isActive = ($key == 'assessment'); 
+                    $hasActiveChild = false;
+                    if (isset($item['sub_items'])) {
+                        foreach ($item['sub_items'] as $sub_key => $sub) {
+                            if ($sub_key == $current_page) { $hasActiveChild = true; break; }
                         }
-                    ?>
-                    <li class="menu-item <?php echo $isActive ? 'has-active-child' : ''; ?>">
-                        <a href="<?php echo $linkUrl; ?>" class="menu-link <?php echo $isActive ? 'active' : ''; ?>">
-                            <span class="menu-icon"><i class="fa <?php echo $item['icon']; ?>"></i></span>
-                            <?php echo $item['name']; ?>
-                        </a>
-                        <?php if (isset($item['sub_items'])): ?>
-                            <ul class="submenu">
-                                <?php foreach ($item['sub_items'] as $sub_key => $sub_item): 
-                                    $subLinkUrl = isset($sub_item['link']) ? $sub_item['link'] : "#";
-                                    if (strpos($subLinkUrl, '.php') !== false) {
-                                        $separator = (strpos($subLinkUrl, '?') !== false) ? '&' : '?';
-                                        $subLinkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
-                                    }
-                                ?>
-                                    <li><a href="<?php echo $subLinkUrl; ?>" class="menu-link <?php echo ($sub_key == $current_page) ? 'active' : ''; ?>">
-                                        <span class="menu-icon"><i class="fa <?php echo $sub_item['icon']; ?>"></i></span> <?php echo $sub_item['name']; ?>
-                                    </a></li>
-                                <?php endforeach; ?>
-                            </ul>
-                        <?php endif; ?>
-                    </li>
-                <?php endforeach; ?>
-            </ul>
-        </aside>
+                    }
+                    $linkUrl = isset($item['link']) ? $item['link'] : "#";
+                    if (strpos($linkUrl, '.php') !== false) {
+                         $separator = (strpos($linkUrl, '?') !== false) ? '&' : '?';
+                         $linkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
+                    }
+                    $hasSubmenu = isset($item['sub_items']);
+                ?>
+                <li class="menu-item <?php echo ($hasActiveChild || ($isActive && $hasSubmenu)) ? 'open active' : ''; ?>">
+                    <a href="<?php echo $linkUrl; ?>" class="menu-link <?php echo $isActive ? 'active' : ''; ?>" <?php if ($hasSubmenu): ?>onclick="toggleSubmenu(this)"<?php endif; ?>>
+                        <span class="menu-icon"><i class="fa <?php echo $item['icon']; ?>"></i></span>
+                        <span class="nav-text"><?php echo $item['name']; ?></span>
+                        <?php if ($hasSubmenu): ?><i class="fa fa-chevron-down dropdown-arrow"></i><?php endif; ?>
+                    </a>
+                    <?php if (isset($item['sub_items'])): ?>
+                        <ul class="submenu">
+                            <?php foreach ($item['sub_items'] as $sub_key => $sub_item): 
+                                $subLinkUrl = isset($sub_item['link']) ? $sub_item['link'] : "#";
+                                if (strpos($subLinkUrl, '.php') !== false) {
+                                    $separator = (strpos($subLinkUrl, '?') !== false) ? '&' : '?';
+                                    $subLinkUrl .= $separator . "auth_user_id=" . urlencode($auth_user_id);
+                                }
+                                $isSubActive = ($sub_key == $current_page); 
+                            ?>
+                                <li><a href="<?php echo $subLinkUrl; ?>" class="menu-link <?php echo $isSubActive ? 'active' : ''; ?>">
+                                    <span class="menu-icon"><i class="fa <?php echo $sub_item['icon']; ?>"></i></span> <span class="nav-text"><?php echo $sub_item['name']; ?></span>
+                                </a></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php endif; ?>
+                </li>
+            <?php endforeach; ?>
+        </ul>
+        <ul class="logout">
+            <li>
+                <a href="login.php">
+                    <i class="fa fa-power-off nav-icon"></i>
+                    <span class="nav-text">Logout</span>
+                </a>
+            </li>  
+        </ul>
+    </nav>
 
-        <main class="main-content">
-            <div class="form-card">
-                <div class="page-header">
-                    <h2><i class="fa fa-tasks"></i> Create Assignment</h2>
-                    <p>Assign tasks to students or groups. You can set specific weightage and deadlines.</p>
+    <div class="main-content-wrapper">
+        <div class="page-header">
+            <div class="welcome-text">
+                <h1>Create Assignment</h1>
+                <p>Assign tasks to students or groups. You can set specific weightage and deadlines.</p>
+            </div>
+            
+            <div class="logo-section">
+                <img src="image/ladybug.png" alt="Logo" class="logo-img">
+                <span class="system-title">FYP Portal</span>
+            </div>
+
+            <div class="user-section">
+                <button class="theme-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">
+                    <img id="theme-icon" src="image/moon-solid-full.svg" alt="Toggle Theme">
+                </button>
+                <span class="user-badge">Coordinator</span>
+                <?php if(!empty($user_avatar) && $user_avatar !== 'image/user.png'): ?>
+                    <img src="<?php echo htmlspecialchars($user_avatar); ?>" class="user-avatar" alt="Avatar">
+                <?php else: ?>
+                    <div class="user-avatar-placeholder">
+                        <?php echo strtoupper(substr($user_name, 0, 1)); ?>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <div class="content-card">
+            <div class="info-note">
+                <i class="fa fa-info-circle"></i> 
+                <strong>Tip:</strong> Selecting a standard "Category" will auto-fill the Title and recommended Weightage.
+            </div>
+            
+            <form method="POST">
+                
+                <div class="form-group">
+                    <label>Assignment Title <span style="color:red">*</span></label>
+                    <input type="text" id="assignment_title" name="assignment_title" class="form-control" placeholder="e.g. Final Report Submission" required>
                 </div>
 
-                <div class="info-note">
-                    <i class="fa fa-info-circle"></i> 
-                    <strong>Tip:</strong> Selecting a standard "Category" will auto-fill the Title and recommended Weightage.
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Category (Auto-fill)</label>
+                        <select class="form-control" onchange="autoFillWeightage(this.value)">
+                            <option value="" disabled selected>-- Select Helper --</option>
+                            <option value="Proposal_10">Project Proposal (10%)</option>
+                            <option value="Interim_20">Interim / Progress Report (20%)</option>
+                            <option value="Final_40">Final Report (40%)</option>
+                            <option value="Presentation_30">Presentation (30%)</option>
+                            <option value="Custom">Custom / Other</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Target Type <span style="color:red">*</span></label>
+                        <select id="assignment_type" name="assignment_type" class="form-control" onchange="toggleTargetList(this.value)" required>
+                            <option value="" disabled selected>-- Select Type --</option>
+                            <option value="Individual">Individual Student</option>
+                            <option value="Group">Student Group</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Deadline <span style="color:red">*</span></label>
+                        <input type="datetime-local" name="deadline" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Weightage (%) <span style="color:red">*</span></label>
+                        <input type="number" id="weightage" name="weightage" class="form-control" min="0" max="100" required readonly style="background-color:var(--slot-bg); cursor:not-allowed;">
+                    </div>
                 </div>
                 
-                <form method="POST">
-                    
-                    <div class="form-group">
-                        <label>Assignment Title <span style="color:red">*</span></label>
-                        <input type="text" id="assignment_title" name="assignment_title" class="form-control" placeholder="e.g. Final Report Submission" required>
-                    </div>
+                <div id="target_container" class="target-select-container form-group">
+                    <label>Select Specific Target:</label>
+                    <select id="target_selection" name="target_selection" class="form-control"></select>
+                </div>
 
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Category (Auto-fill)</label>
-                            <select class="form-control" onchange="autoFillWeightage(this.value)">
-                                <option value="" disabled selected>-- Select Helper --</option>
-                                <option value="Proposal_10">Project Proposal (10%)</option>
-                                <option value="Interim_20">Interim / Progress Report (20%)</option>
-                                <option value="Final_40">Final Report (40%)</option>
-                                <option value="Presentation_30">Presentation (30%)</option>
-                                <option value="Custom">Custom / Other</option>
-                            </select>
-                        </div>
+                <div class="form-group">
+                    <label>Instructions / Description <span style="color:red">*</span></label>
+                    <textarea name="assignment_description" class="form-control" placeholder="Detailed instructions for the students..." required></textarea>
+                </div>
 
-                        <div class="form-group">
-                            <label>Target Type <span style="color:red">*</span></label>
-                            <select id="assignment_type" name="assignment_type" class="form-control" onchange="toggleTargetList(this.value)" required>
-                                <option value="" disabled selected>-- Select Type --</option>
-                                <option value="Individual">Individual Student</option>
-                                <option value="Group">Student Group</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Deadline <span style="color:red">*</span></label>
-                            <input type="datetime-local" name="deadline" class="form-control" required>
-                        </div>
-                        <div class="form-group">
-                            <label>Weightage (%) <span style="color:red">*</span></label>
-                            <input type="number" id="weightage" name="weightage" class="form-control" min="0" max="100" required readonly style="background-color:#e9ecef; cursor:not-allowed;">
-                        </div>
-                    </div>
-                    
-                    <div id="target_container" class="target-select-container form-group">
-                        <label>Select Specific Target:</label>
-                        <select id="target_selection" name="target_selection" class="form-control"></select>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Instructions / Description <span style="color:red">*</span></label>
-                        <textarea name="assignment_description" class="form-control" placeholder="Detailed instructions for the students..." required></textarea>
-                    </div>
-
+                <div style="text-align:right;">
                     <button type="submit" class="btn-submit"><i class="fa fa-paper-plane"></i> Publish Assignment</button>
-                </form>
-            </div>
-        </main>
+                </div>
+            </form>
+        </div>
     </div>
 
     <script>
-        // 从 PHP 注入数据
+        function toggleSubmenu(element) {
+            const menuItem = element.parentElement;
+            const isOpen = menuItem.classList.contains('open');
+            document.querySelectorAll('.menu-item').forEach(item => { if (item !== menuItem) item.classList.remove('open'); });
+            if (isOpen) menuItem.classList.remove('open'); else menuItem.classList.add('open');
+        }
+
+        function toggleDarkMode() {
+            document.body.classList.toggle('dark-mode');
+            const isDark = document.body.classList.contains('dark-mode');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            
+            const iconImg = document.getElementById('theme-icon');
+            if (isDark) {
+                iconImg.src = 'image/sun-solid-full.svg'; 
+            } else {
+                iconImg.src = 'image/moon-solid-full.svg'; 
+            }
+        }
+
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'dark') {
+            document.body.classList.add('dark-mode');
+            const iconImg = document.getElementById('theme-icon');
+            if(iconImg) {
+                iconImg.src = 'image/sun-solid-full.svg'; 
+            }
+        }
+
         const myGroups = <?php echo json_encode($my_groups); ?>;
         const myIndividuals = <?php echo json_encode($my_individuals); ?>;
 
@@ -380,17 +668,14 @@ $menu_items = [
             
             if(val === 'Custom'){ 
                 w.readOnly = false; 
-                w.style.backgroundColor = '#fff'; 
                 w.style.cursor = 'text';
                 w.value = ''; 
             } else { 
                 w.readOnly = true; 
-                w.style.backgroundColor = '#e9ecef'; 
                 w.style.cursor = 'not-allowed';
                 w.value = val.split('_')[1]; 
             }
 
-            // Auto-fill Title based on selection
             if(val.startsWith('Proposal')) t.value = 'Project Proposal Submission';
             else if(val.startsWith('Interim')) t.value = 'Interim Report Submission';
             else if(val.startsWith('Final')) t.value = 'Final Report Submission';
@@ -406,7 +691,6 @@ $menu_items = [
 
             if(type === 'Group'){
                 s.add(new Option('All My Groups', 'all_groups'));
-                // 如果 myGroups 为空，可能是因为没有指导任何小组
                 if (Object.keys(myGroups).length === 0) {
                     s.add(new Option('(No groups found)', ''));
                     s.disabled = true;
@@ -431,6 +715,19 @@ $menu_items = [
                 c.style.display = 'none';
             }
         }
+
+        <?php if ($swal_alert): ?>
+            Swal.fire({
+                title: "<?php echo $swal_alert['title']; ?>",
+                text: "<?php echo $swal_alert['text']; ?>",
+                icon: "<?php echo $swal_alert['icon']; ?>",
+                confirmButtonColor: '#0056b3'
+            }).then(() => {
+                <?php if (!empty($swal_alert['redirect'])): ?>
+                    window.location.href = "<?php echo $swal_alert['redirect']; ?>";
+                <?php endif; ?>
+            });
+        <?php endif; ?>
     </script>
 </body>
 </html>
