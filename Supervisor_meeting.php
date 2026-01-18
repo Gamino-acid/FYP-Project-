@@ -185,6 +185,7 @@ if (!empty($sv_id)) {
             $row['stud_name_safe'] = htmlspecialchars($row['fyp_studname']);
             $row['stud_id_safe'] = htmlspecialchars($row['fyp_studid']);
             $row['location_safe'] = htmlspecialchars($row['fyp_location']);
+            $upcoming_formatted[] = $row;
             $upcoming_meetings[] = $row;
         }
     }
@@ -196,8 +197,7 @@ if (!empty($sv_id)) {
     if ($res_slots) { while ($row = $res_slots->fetch_assoc()) $my_slots[] = $row; }
 }
 
-$pending_json = json_encode($pending_requests);
-$upcoming_json = json_encode($upcoming_meetings);
+$slots_json = json_encode($my_slots);
 
 $menu_items = [
     'dashboard' => ['name' => 'Dashboard', 'icon' => 'fa-home', 'link' => 'Supervisor_mainpage.php?page=dashboard'],
@@ -587,6 +587,13 @@ $menu_items = [
         @media (max-width: 1100px) { .container-cards { grid-template-columns: 1fr; } }
         @media (max-width: 900px) { .main-content-wrapper { margin-left: 0; width: 100%; } .page-header { flex-direction: column; gap: 15px; text-align: center; } }
     </style>
+    <script>
+        // Apply dark mode immediately
+        const savedThemePre = localStorage.getItem('theme');
+        if (savedThemePre === 'dark') {
+            document.documentElement.classList.add('dark-mode');
+        }
+    </script>
 </head>
 <body>
 
