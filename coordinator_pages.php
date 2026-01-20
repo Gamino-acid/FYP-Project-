@@ -1,10 +1,5 @@
 <?php
-/**
- * Coordinator Main Page - Part 4
- * Page Content: Dashboard, Registrations, Group Requests, Students, Supervisors, Pairing, Projects
- */
 
-// ==================== DASHBOARD ====================
 if ($current_page === 'dashboard'): ?>
     <div class="welcome-box">
         <h2>Welcome back, <?= htmlspecialchars($user_name); ?>!</h2>
@@ -32,7 +27,7 @@ if ($current_page === 'dashboard'): ?>
         <a href="?page=announcements" class="quick-action"><i class="fas fa-bullhorn"></i><h4>Announcements</h4><p>Post announcements</p></a>
     </div></div></div>
 
-<?php // ==================== STUDENT REGISTRATIONS ====================
+<?php 
 elseif ($current_page === 'registrations'): 
     $pending_regs = [];
     $res = $conn->query("SELECT pr.*, p.fyp_progname, ay.fyp_acdyear, ay.fyp_intake 
@@ -143,7 +138,7 @@ elseif ($current_page === 'registrations'):
         </div>
     </div>
 
-<?php // ==================== GROUP REQUESTS ====================
+<?php 
 elseif ($current_page === 'group_requests'): 
     $all_requests = [];
     $res = $conn->query("SELECT gr.*, sg.group_name, s1.fyp_studname as inviter_name, s1.fyp_studfullid as inviter_fullid, s2.fyp_studname as invitee_name, s2.fyp_studfullid as invitee_fullid
@@ -184,7 +179,7 @@ elseif ($current_page === 'group_requests'):
         <?php endif; ?>
     </div></div>
 
-<?php // ==================== MANAGE STUDENTS ====================
+<?php 
 elseif ($current_page === 'students'): 
     $students = [];
     $res = $conn->query("SELECT s.*, p.fyp_progname, p.fyp_progid, a.fyp_acdyear, a.fyp_intake, u.fyp_username, pr.fyp_projecttitle, pr.fyp_projectid, pa.fyp_pairingid, pa_pr.fyp_projecttitle as paired_project
@@ -225,7 +220,7 @@ elseif ($current_page === 'students'):
         <?php endif; ?>
     </div></div>
 
-<?php // ==================== MANAGE SUPERVISORS ====================
+<?php 
 elseif ($current_page === 'supervisors'): 
     $supervisors = [];
     $res = $conn->query("SELECT s.*, u.fyp_username, u.fyp_usertype FROM supervisor s LEFT JOIN user u ON s.fyp_userid = u.fyp_userid ORDER BY s.fyp_name");
@@ -251,7 +246,7 @@ elseif ($current_page === 'supervisors'):
         <?php endif; ?>
     </div></div>
 
-<?php // ==================== STUDENT-SUPERVISOR PAIRING ====================
+<?php 
 elseif ($current_page === 'pairing'): 
     $pairings = [];
     $res = $conn->query("SELECT p.*, pr.fyp_projecttitle, s.fyp_name as supervisor_name, 
@@ -290,7 +285,7 @@ elseif ($current_page === 'pairing'):
         <?php endif; ?>
     </div></div>
 
-<?php // ==================== MANAGE PROJECTS ====================
+<?php
 elseif ($current_page === 'projects'): 
     $projects = [];
     $res = $conn->query("SELECT p.*, s.fyp_name as supervisor_name, s.fyp_email as supervisor_email,
@@ -369,5 +364,5 @@ elseif ($current_page === 'projects'):
 <?php endif; ?>
 
 <?php
-// Include Part 5
+
 include("Coordinator_modules.php");

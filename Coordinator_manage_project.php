@@ -52,7 +52,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_project'])) {
     
     $target_pid = $_POST['project_id'];
     $new_title = $_POST['edit_title'];
-    $new_cat = $_POST['edit_category']; 
+    $new_cat = $_POST['edit_category'] ?? ''; 
     $new_desc = $_POST['edit_desc'];
     $new_req = $_POST['edit_req'];
     $new_archive = $_POST['edit_archive_status']; 

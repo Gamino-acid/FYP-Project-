@@ -138,7 +138,7 @@ $search_sv = $_GET['search_sv'] ?? '';
 $sql = "SELECT p.*, s.fyp_name as sv_name, s.fyp_email as sv_email, s.fyp_contactno as sv_phone 
         FROM PROJECT p 
         LEFT JOIN supervisor s ON p.fyp_staffid = s.fyp_staffid 
-        WHERE 1=1";
+        WHERE p.fyp_archive_status = 'Active'";
 
 if ($my_academic_id > 0) {
     $sql .= " AND p.fyp_academicid = '$my_academic_id'";
